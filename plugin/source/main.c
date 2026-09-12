@@ -6,35 +6,50 @@
 // to run that pipeline every frame instead of once on a button press,
 // and turn the result into a live WLED signal instead of a debug dump.
 //
-// SCOPE OF THIS FIRST VERSION:
-//   - Samples a small, fixed set of screen zones per frame (not a full
-//     frame detile -- see the perf note by kZone* below) using ONLY the
-//     confirmed-correct base tiling params. The Neo path is dropped
-//     here; it served its purpose settling that question in the probe
-//     and has no reason to run in the hot path.
+// SCOPE (v1.1 -- see handoff §26/§27 for what changed and why):
+//   - Samples a fixed set of 229 screen zones per frame (not a full
+//     frame detile), matching the real measured LED strip layout
+//     (42/73/41/73, see buildZoneGeometry below) using ONLY the
+//     confirmed-correct base tiling params (handoff §22). The Neo path
+//     is dropped here; it served its purpose settling that question in
+//     the probe and has no reason to run in the hot path.
 //   - Pixel format is read live from sceVideoOutRegisterBuffers, not
-//     assumed at compile time -- this is the actual bug this session
-//     found (A2R10G10B10 math applied to A8R8G8B8 data). If an unknown
-//     format shows up, this plugin explicitly stops sending color
-//     rather than guessing.
-//   - Network sends are throttled independently of frame rate -- see
-//     kMinSendIntervalUs -- so this doesn't put a UDP send in the
-//     critical path of every single flip at 60Hz.
-//   - Zone-to-physical-LED-segment mapping (Alcove/Cabinet/Bed/Flower)
-//     is intentionally NOT done here -- that's a WLED/HA-side concern
-//     (segment config / ledmap), not something this plugin should be
-//     guessing at. This sends kNumZones consecutive RGB triplets
-//     starting at DDP offset 0; wire that up on the WLED side.
-//
+//     assumed at compile time -- this is the actual bug an earlier
+//     session found (A2R10G10B10 math applied to A8R8G8B8 data). If an
+//     unknown format shows up, this plugin explicitly stops sending
+//     color rather than guessing.
+//   - v1.1: the actual zone-sampling + UDP send no longer runs inside
+//     the flip hook. It's been moved to a dedicated worker thread
+//     (ambient_sample_thread, same pattern as detile_verify_probe's
+//     pad_poll_thread) so a ~2000-sample pass can never stall the
+//     game's render/submission thread. The flip hook now only records
+//     displayBufferIndex -- see the thread's own comment block for the
+//     staleness tradeoff this introduces.
+//   - v1.1: sampleZoneAverage now bounds-checks the computed tiled
+//     offset against the real padded-buffer size before reading, and
+//     skips (treats as black) any sample that would land outside it,
+//     instead of trusting the offset formula unconditionally.
+
+//   - v1.2: ambient_sample_thread now measures its own loop time
+//     (buffer-resolve + 229-zone sampling + UDP send, i.e. everything
+//     except usleep) and reports per-window min/max/avg microseconds
+//     plus an over-budget count to DEBUG_IP every ~1s (handoff §30
+//     step 2 -- turning "barely noticeable" into an actual number).
+//     Gated behind TIMING_ENABLED so it can be compiled out later.
+//     Decode with decode_verification_dump.py v3+ (24-byte packets).
+
 // STILL OPEN (do not treat this as fully validated -- see handoff):
-//   - §20 finding 2 (point 1 reading static values in live play) was
-//     never confirmed fixed against *moving* content, only a static
-//     menu. Watch the zone colors during actual gameplay before
-//     trusting this for real use.
-//   - No live-performance measurement has been done yet of what N
-//     zone reads + a UDP send actually costs inside this hook on real
-//     hardware. Start conservative (kNumZones small, throttled send)
-//     and measure before increasing either.
+//   - §25 (handoff v6) point-1 static-read question: RESOLVED, not a
+//     bug -- see handoff §28. Left here only so this comment block
+//     doesn't repeat the exact staleness mistake §26 called out.
+//   - The worker-thread decoupling in v1.1 has not yet been measured
+//     on real hardware for actual frame-time impact of the render-
+//     thread-side work that remains (a couple of volatile writes per
+//     flip). The v1.2 telemetry below measures the WORKER thread's own
+//     loop time, which answers "is 30Hz sampling fast enough to keep
+//     up" -- it does NOT measure render-thread-side cost, which is a
+//     separate, still-open question if zone count or sample radius
+//     increases later.
 
 #include <stdint.h>
 #include <string.h>
@@ -42,7 +57,6 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
-#include <time.h>
 
 #include <orbis/libkernel.h>
 #include <orbis/_types/video.h>
@@ -61,6 +75,73 @@ static int wled_ensure_socket(void)
     if (g_wledSockfd >= 0) return g_wledSockfd;
     g_wledSockfd = socket(AF_INET, SOCK_DGRAM, 0);
     return g_wledSockfd;
+}
+
+// --- Debug/telemetry channel, handoff §30 step 2: a real number for
+// ambient_sample_thread's own loop time, not just "barely noticeable".
+// Deliberately a SEPARATE socket/target from wled_ensure_socket() above --
+// that one points at WLED_IP (the real light, §2/§21); telemetry has no
+// business going there. This reuses detile_verify_probe's proven
+// wled_send_raw pattern (own socket, dev-PC debug IP, 64-byte payload
+// cap, per-call socket()/close() since this is a ~1x/second send, not a
+// hot path -- unlike wled_send_rgb_zones above there's no reason to hold
+// a persistent socket open for this) rather than routing through the
+// production WLED path.
+#define DEBUG_IP "192.168.2.117"   // dev-PC debug listener -- confirm this still matches (handoff §2, changes over time)
+
+static void debug_send_raw(const uint8_t *data, int len)
+{
+    int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0) return;
+
+    struct sockaddr_in destAddr;
+    memset(&destAddr, 0, sizeof(destAddr));
+    destAddr.sin_family = AF_INET;
+    destAddr.sin_port = htons(WLED_PORT);
+    if (inet_pton(AF_INET, DEBUG_IP, &destAddr.sin_addr) != 1) {
+        close(sockfd);
+        return;
+    }
+
+    uint8_t packet[DDP_HEADER_SIZE + 64];
+    if (len > 64) len = 64;
+    packet[0] = 0x40 | 0x01;
+    packet[1] = 0;
+    packet[2] = 0x0B;
+    packet[3] = 0x01;
+    packet[4] = 0; packet[5] = 0; packet[6] = 0; packet[7] = 0;
+    packet[8] = (uint8_t)((len >> 8) & 0xFF);
+    packet[9] = (uint8_t)(len & 0xFF);
+    memcpy(packet + DDP_HEADER_SIZE, data, len);
+
+    sendto(sockfd, packet, DDP_HEADER_SIZE + len, 0, (struct sockaddr*)&destAddr, sizeof(destAddr));
+    close(sockfd);
+}
+
+// One timing-window packet, 24 bytes -- deliberately a length that
+// collides with neither detile_verify_probe's 11-byte pixel packets nor
+// its 32-byte registration packets, so decode_verification_dump.py can
+// keep dispatching purely on len(data) the way it already does (v3 adds
+// the len==24 case; see that script). All fields uint32 LE, matching
+// every other multi-byte field in this project's wire formats.
+//   [0:4]   min_us            -- fastest loop iteration this window
+//   [4:8]   max_us            -- slowest loop iteration this window
+//   [8:12]  avg_us            -- mean loop iteration this window
+//   [12:16] sample_count      -- iterations folded into this window (window size, or less if just started)
+//   [16:20] over_budget_count -- iterations that took longer than SAMPLE_INTERVAL_US (i.e. the thread fell behind its own ~30Hz target)
+//   [20:24] window_id         -- increments every window; lets the listener notice a gap (plugin reload, crash, etc.)
+static void send_timing_packet(uint32_t minUs, uint32_t maxUs, uint32_t avgUs,
+                                uint32_t sampleCount, uint32_t overBudgetCount,
+                                uint32_t windowId)
+{
+    uint8_t packet[24];
+    memcpy(packet +  0, &minUs,          4);
+    memcpy(packet +  4, &maxUs,          4);
+    memcpy(packet +  8, &avgUs,          4);
+    memcpy(packet + 12, &sampleCount,    4);
+    memcpy(packet + 16, &overBudgetCount,4);
+    memcpy(packet + 20, &windowId,       4);
+    debug_send_raw(packet, sizeof(packet));
 }
 
 #define MAX_ZONES 229 // real TV backlight strip: 73 top + 42 left + 73 bottom + 41 right
@@ -107,6 +188,12 @@ typedef struct {
 static const TileParams kParamsBase = {
     0xc, 8, 1, 1, 16, 128, 64, 1920, 512, 8, 3, 4
 };
+
+// paddedHeight isn't in TileParams (only paddedWidth is used by the
+// offset math itself), but it's needed here for the v1.1 bounds check
+// below -- 1088 for base params, per handoff §12 (ceil(1080/64)*64).
+#define BASE_PADDED_HEIGHT 1088
+#define BASE_PADDED_BUFFER_BYTES ((uint64_t)1920 * BASE_PADDED_HEIGHT * 4)
 
 static uint32_t getElementIndex32(uint32_t x, uint32_t y)
 {
@@ -311,6 +398,13 @@ static void sampleZoneAverage(const TileParams *p, uint64_t bufferAddr, PixelUnp
             int32_t sy = (int32_t)cy + dy;
             if (sx < 0 || sy < 0 || sx >= SCREEN_WIDTH || sy >= SCREEN_HEIGHT) continue;
             uint64_t off = getTiledElementByteOffset(p, (uint32_t)sx, (uint32_t)sy);
+            // v1.1: bounds-check before touching real memory. A correct
+            // offset formula should never produce something out of
+            // range for a valid (sx,sy), but this project has already
+            // paid for bad-memory-access crashes once (handoff §3) --
+            // cheap insurance against a future edge case or a param
+            // typo, not a sign anything is currently wrong.
+            if (off + 4 > BASE_PADDED_BUFFER_BYTES) continue;
             uint32_t px;
             memcpy(&px, (const void*)(bufferAddr + off), 4);
             uint8_t r, g, b;
@@ -328,7 +422,7 @@ static void sampleZoneAverage(const TileParams *p, uint64_t bufferAddr, PixelUnp
 attr_public const char *g_pluginName = "ps4_ambient_light";
 attr_public const char *g_pluginDesc = "Live per-frame ambient light: detiles the real scanout buffer and streams zone colors to WLED";
 attr_public const char *g_pluginAuth = "(null)";
-attr_public uint32_t g_pluginVersion = 0x00000100; // v1.0: first real per-frame pipeline, built on detile_verify_probe v2.2's confirmed math/format-tracking
+attr_public uint32_t g_pluginVersion = 0x00000102; // v1.2: TIMING_ENABLED telemetry added to ambient_sample_thread (handoff §30 step 2) -- per-window min/max/avg loop time + over-budget count sent to DEBUG_IP; v1.1's fixes unchanged
 
 int32_t (*sceVideoOutRegisterBuffersPtr)(int32_t handle, int32_t startIndex,
                                           void *const *addresses, int32_t bufferNum,
@@ -379,18 +473,11 @@ int32_t sceVideoOutRegisterBuffersPtr_hook(int32_t handle, int32_t startIndex,
                           handle, startIndex, addresses, bufferNum, attribute);
 }
 
-// Throttle independent of frame rate -- do NOT send a UDP packet on
-// every single flip at 60Hz. Not yet measured against real hardware
-// (see header note) -- start conservative.
-#define MIN_SEND_INTERVAL_US (33 * 1000) // ~30Hz cap
-static uint64_t g_lastSendTimeUs = 0;
-
-static uint64_t nowMicros(void)
-{
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t)ts.tv_sec * 1000000ULL + (uint64_t)ts.tv_nsec / 1000ULL;
-}
+// v1.1: the flip hook itself only records which buffer is live now --
+// no sampling, no network I/O, no loop. This is the actual fix for
+// handoff §26 finding 1. g_currentDisplayBufferIndex is read by the
+// worker thread below at its own pace.
+static volatile uint32_t g_currentDisplayBufferIndex = 0xFFFFFFFFu; // sentinel: no flip seen yet
 
 int32_t sceGnmSubmitAndFlipCommandBuffersPtr_hook(uint32_t count, void *dcbGpuAddrs[],
                                                    uint32_t *dcbSizesInBytes, void *ccbGpuAddrs[],
@@ -398,14 +485,75 @@ int32_t sceGnmSubmitAndFlipCommandBuffersPtr_hook(uint32_t count, void *dcbGpuAd
                                                    uint32_t displayBufferIndex, uint32_t flipMode,
                                                    int64_t flipArg)
 {
-    uint64_t liveBufferAddr = (displayBufferIndex < (uint32_t)MAX_TRACKED_BUFFERS)
-                                   ? g_bufferAddrs[displayBufferIndex] : 0;
+    g_currentDisplayBufferIndex = displayBufferIndex; // single volatile write, near-zero cost
 
-    if (liveBufferAddr != 0 && g_haveValidFormat) {
-        uint64_t nowUs = nowMicros();
-        if (nowUs - g_lastSendTimeUs >= MIN_SEND_INTERVAL_US) {
+    return HOOK_CONTINUE(sceGnmSubmitAndFlipCommandBuffersPtr,
+                          int32_t(*)(uint32_t, void **, uint32_t *, void **, uint32_t *, uint32_t, uint32_t, uint32_t, int64_t),
+                          count, dcbGpuAddrs, dcbSizesInBytes, ccbGpuAddrs, ccbSizesInBytes,
+                          videoOutHandle, displayBufferIndex, flipMode, flipArg);
+}
+
+// v1.1: all the actual work -- resolving the live buffer, sampling 229
+// zones, sending the UDP packet -- now happens here, on its own
+// thread, at its own ~30Hz pace, never inside the render/submission
+// path. Same scePthreadCreate pattern as detile_verify_probe's
+// pad_poll_thread.
+//
+// Tradeoff this introduces (worth understanding, not a hidden cost):
+// this thread can read g_currentDisplayBufferIndex / g_bufferAddrs /
+// g_activeFormat at any point in a flip's lifecycle, including
+// mid-update on another thread. Every one of those is a single
+// word-sized volatile read/write (same pattern already used
+// throughout this project without locks), so there's no torn-read risk
+// on real hardware, but the *value* read could be up to one flip old.
+// At ~30Hz sampling against ~60Hz flips, worst case this thread is
+// working from a frame that's already been superseded by a newer one
+// by the time it finishes reading -- i.e. the light output can lag
+// real screen content by up to roughly one extra frame interval versus
+// the old in-hook version. That's the price for never risking a stall
+// on the thread the game actually needs to stay smooth, and is a far
+// better tradeoff for a hobby ambient-light feature than occasional
+// frame hitches during real play.
+#define SAMPLE_INTERVAL_US (33 * 1000) // ~30Hz
+
+// handoff §30 step 2: window size for the timing telemetry below.
+// 30 iterations at the ~30Hz sample rate is roughly one telemetry
+// packet per second of real play -- frequent enough to see trends
+// during a session, not so frequent it competes with the actual
+// zone-color UDP traffic. TIMING_ENABLED lets this be compiled out
+// entirely for a "final" build once the number is in hand, same spirit
+// as PROBE_INCLUDE_NEO in detile_verify_probe.
+#ifndef TIMING_ENABLED
+#define TIMING_ENABLED 1
+#endif
+#define TIMING_WINDOW_SIZE 30
+
+void *ambient_sample_thread(void *args)
+{
+#if TIMING_ENABLED
+    // sceKernelGetProcessTimeCounter[Frequency] -- same TSC-based timer
+    // already proven in this repo (frame_logger.prx). Ticks, not wall
+    // time, converted to microseconds below; frequency is read once
+    // since it's a fixed hardware constant for the session.
+    uint64_t tscFreq = sceKernelGetProcessTimeCounterFrequency();
+    uint64_t budgetTicks = (tscFreq * (uint64_t)SAMPLE_INTERVAL_US) / 1000000ULL;
+    uint64_t minTicks = UINT64_MAX, maxTicks = 0, sumTicks = 0;
+    uint32_t windowSamples = 0, overBudgetCount = 0, windowId = 0;
+#endif
+
+    for (;;) {
+#if TIMING_ENABLED
+        uint64_t t0 = sceKernelGetProcessTimeCounter();
+#endif
+
+        uint32_t displayBufferIndex = g_currentDisplayBufferIndex;
+        uint64_t liveBufferAddr = (displayBufferIndex != 0xFFFFFFFFu &&
+                                    displayBufferIndex < (uint32_t)MAX_TRACKED_BUFFERS)
+                                       ? g_bufferAddrs[displayBufferIndex] : 0;
+
+        if (liveBufferAddr != 0 && g_haveValidFormat) {
             PixelUnpackFn unpack = getUnpackFnForFormat(g_activeFormat);
-            if (unpack != NULL) { // re-check -- format could have gone unknown between hooks
+            if (unpack != NULL) { // re-check -- format could have gone unknown since the last read
                 uint8_t rgbTriplets[NUM_ZONES * 3];
                 for (int i = 0; i < NUM_ZONES; i++) {
                     sampleZoneAverage(&kParamsBase, liveBufferAddr, unpack,
@@ -413,20 +561,42 @@ int32_t sceGnmSubmitAndFlipCommandBuffersPtr_hook(uint32_t count, void *dcbGpuAd
                                        &rgbTriplets[i*3+0], &rgbTriplets[i*3+1], &rgbTriplets[i*3+2]);
                 }
                 wled_send_rgb_zones(rgbTriplets, NUM_ZONES);
-                g_lastSendTimeUs = nowUs;
             }
         }
-    }
-    // If g_haveValidFormat is 0 (unknown/unconfirmed format), we
-    // deliberately send nothing rather than guess -- this is the
-    // direct fix for how this session's bug happened in the first
-    // place: an unverified format assumption silently producing wrong
-    // color instead of visibly doing nothing.
+        // If g_haveValidFormat is 0 (unknown/unconfirmed format), we
+        // deliberately send nothing rather than guess -- this is the
+        // direct fix for how the original §22 bug happened in the
+        // first place: an unverified format assumption silently
+        // producing wrong color instead of visibly doing nothing.
 
-    return HOOK_CONTINUE(sceGnmSubmitAndFlipCommandBuffersPtr,
-                          int32_t(*)(uint32_t, void **, uint32_t *, void **, uint32_t *, uint32_t, uint32_t, uint32_t, int64_t),
-                          count, dcbGpuAddrs, dcbSizesInBytes, ccbGpuAddrs, ccbSizesInBytes,
-                          videoOutHandle, displayBufferIndex, flipMode, flipArg);
+#if TIMING_ENABLED
+        // Measured window intentionally covers the buffer-resolve +
+        // sampling + UDP send above -- i.e. everything this thread does
+        // per iteration except the sleep itself. That's the number
+        // §26/§30 actually cares about: is the real work fast enough to
+        // comfortably fit inside SAMPLE_INTERVAL_US, not how precisely
+        // usleep() is honored.
+        uint64_t t1 = sceKernelGetProcessTimeCounter();
+        uint64_t elapsedTicks = t1 - t0;
+        if (elapsedTicks < minTicks) minTicks = elapsedTicks;
+        if (elapsedTicks > maxTicks) maxTicks = elapsedTicks;
+        sumTicks += elapsedTicks;
+        if (elapsedTicks > budgetTicks) overBudgetCount++;
+        windowSamples++;
+
+        if (windowSamples >= TIMING_WINDOW_SIZE) {
+            uint32_t minUs = (uint32_t)((minTicks * 1000000ULL) / tscFreq);
+            uint32_t maxUs = (uint32_t)((maxTicks * 1000000ULL) / tscFreq);
+            uint32_t avgUs = (uint32_t)(((sumTicks / windowSamples) * 1000000ULL) / tscFreq);
+            send_timing_packet(minUs, maxUs, avgUs, windowSamples, overBudgetCount, windowId++);
+            minTicks = UINT64_MAX; maxTicks = 0; sumTicks = 0;
+            windowSamples = 0; overBudgetCount = 0;
+        }
+#endif
+
+        usleep(SAMPLE_INTERVAL_US);
+    }
+    return NULL;
 }
 
 int32_t attr_public plugin_load(int32_t argc, const char* argv[])
@@ -451,6 +621,10 @@ int32_t attr_public plugin_load(int32_t argc, const char* argv[])
 
     HOOK32(sceVideoOutRegisterBuffersPtr);
     HOOK32(sceGnmSubmitAndFlipCommandBuffersPtr);
+
+    OrbisPthread thread;
+    scePthreadCreate(&thread, NULL, ambient_sample_thread, NULL, "ambient_sample_thread");
+
     return 0;
 }
 
