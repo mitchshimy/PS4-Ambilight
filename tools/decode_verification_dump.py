@@ -31,6 +31,12 @@ current pixel-sample dump, instead of silently trusting a possibly
 stale format assumption. Distinguished from the 11-byte pixel packets
 purely by length -- just paste both kinds into the same PAYLOADS list.
 
+ps4_ambient_light.prx v1.2 also emits a 24-byte telemetry packet type,
+one per ~1s window of ambient_sample_thread's own loop time (handoff
+§30 step 2): min/max/avg microseconds, sample count, and how many
+iterations in that window exceeded the ~30Hz budget. Also distinguished
+purely by length -- paste these into PAYLOADS alongside everything else.
+
 WHAT'S NEW IN v3
 ----------------
 Previously this script always unpacked the 4 raw pixel bytes as
@@ -122,6 +128,119 @@ def unpack_a8b8g8r8(raw4: bytes):
     return a8, (r8, g8, b8)
 
 
+# ---------------------------------------------------------------------------
+# HDR (A2R10G10B10_BT2020_PQ) decode -- added when HDR colors were reported
+# wrong. Root cause: this format was previously routed to the SAME plain
+# 10-bit truncation as SDR A2R10G10B10 (see unpack_a2r10g10b10 above) --
+# defensible for gamma-encoded SDR content per that function's own
+# docstring, but PQ (SMPTE ST 2084) is a fundamentally different, much
+# steeper curve. Truncating raw PQ code values straight to 8-bit RGB has
+# no meaningful relationship to the actual displayed color.
+#
+# Pipeline: PQ code value -> linear light (nits) -> tone-map down from
+# PQ's 10,000-nit range -> BT.2020 -> BT.709/sRGB primaries -> sRGB gamma
+# encode -> 8-bit. Bit LAYOUT (which 10 bits are R/G/B/A, MSB-first,
+# blue at LSB) is unchanged from unpack_a2r10g10b10 -- HDR doesn't change
+# how the tiling/channel packing works, only how the numbers should be
+# interpreted once unpacked.
+#
+# PQ_REFERENCE_WHITE_NITS / PQ_TONE_MAP_MAX_NITS below are ASSUMPTIONS,
+# not measured constants. The PQ EOTF and BT.2020->BT.709 matrix are
+# fixed standards (SMPTE ST 2084 / ITU-R BT.2087) and shouldn't need
+# tuning, but where to set "reference white" and how hard to roll off
+# highlights depends on what THIS console/title is actually doing with
+# the format, which nothing here has measured yet -- tune these against
+# a real capture + known on-screen color, the exact same empirical method
+# that settled base vs Neo in §21/§22. main() also prints the OLD naive
+# truncation next to this decode when this format is active, so you can
+# compare both against the screen the same way base vs Neo were compared.
+PQ_REFERENCE_WHITE_NITS = 203.0  # ITU-R BT.2408 HDR reference white -- a reasonable starting point, not measured
+PQ_TONE_MAP_MAX_NITS = 1000.0    # assumed content/display peak for the soft-rolloff below -- not measured
+
+_PQ_M1 = 2610.0 / 16384.0
+_PQ_M2 = 2523.0 / 4096.0 * 128.0
+_PQ_C1 = 3424.0 / 4096.0
+_PQ_C2 = 2413.0 / 4096.0 * 32.0
+_PQ_C3 = 2392.0 / 4096.0 * 32.0
+
+
+def pq_eotf(code_value_0_1: float) -> float:
+    """Inverse PQ transfer function (SMPTE ST 2084): a normalized 10-bit
+    code value (0.0-1.0) -> linear light, normalized so 1.0 == 10,000
+    nits (the format's defined absolute peak). This part of the pipeline
+    is a fixed standard, not a tunable."""
+    n = max(code_value_0_1, 0.0)
+    n_pow = n ** (1.0 / _PQ_M2)
+    num = max(n_pow - _PQ_C1, 0.0)
+    den = _PQ_C2 - _PQ_C3 * n_pow
+    if den <= 0:
+        return 0.0
+    return (num / den) ** (1.0 / _PQ_M1)
+
+
+def pq_tone_map(nits: float) -> float:
+    """Simple Reinhard-style soft rolloff: normalizes by reference white,
+    then compresses anything approaching PQ_TONE_MAP_MAX_NITS toward 1.0
+    instead of hard-clipping (hard-clipping would flatten every bright
+    highlight to identical white, losing exactly the detail a "does this
+    look right" comparison needs). This is a placeholder tone-map, not a
+    colorimetrically exact one -- good enough for a first "is this even
+    in the right ballpark" check against the real screen."""
+    x = nits / PQ_REFERENCE_WHITE_NITS
+    peak = PQ_TONE_MAP_MAX_NITS / PQ_REFERENCE_WHITE_NITS
+    return x * (1.0 + x / (peak * peak)) / (1.0 + x)
+
+
+# BT.2020 -> BT.709/sRGB primaries, linear-light 3x3 (ITU-R BT.2087).
+_BT2020_TO_BT709 = (
+    ( 1.6605, -0.5876, -0.0728),
+    (-0.1246,  1.1329, -0.0083),
+    (-0.0182, -0.1006,  1.1187),
+)
+
+
+def bt2020_to_bt709_linear(r, g, b):
+    m = _BT2020_TO_BT709
+    r2 = m[0][0] * r + m[0][1] * g + m[0][2] * b
+    g2 = m[1][0] * r + m[1][1] * g + m[1][2] * b
+    b2 = m[2][0] * r + m[2][1] * g + m[2][2] * b
+    return r2, g2, b2
+
+
+def srgb_oetf(linear: float) -> float:
+    """Linear (0-1, clamped) -> sRGB gamma-encoded (0-1)."""
+    c = min(max(linear, 0.0), 1.0)
+    if c <= 0.0031308:
+        return 12.92 * c
+    return 1.055 * (c ** (1.0 / 2.4)) - 0.055
+
+
+def unpack_a2r10g10b10_bt2020_pq(raw4: bytes):
+    """A2R10G10B10_BT2020_PQ -- real PQ decode, not truncation. Same bit
+    layout as unpack_a2r10g10b10 (MSB-first: alpha 2 / R10 / G10 / B10,
+    blue at LSB)."""
+    px = struct.unpack("<I", raw4)[0]
+    a2 = (px >> 30) & 0x3
+    r10 = (px >> 20) & 0x3FF
+    g10 = (px >> 10) & 0x3FF
+    b10 = (px >> 0) & 0x3FF
+
+    r_nits = pq_eotf(r10 / 1023.0) * 10000.0
+    g_nits = pq_eotf(g10 / 1023.0) * 10000.0
+    b_nits = pq_eotf(b10 / 1023.0) * 10000.0
+
+    r_tm = pq_tone_map(r_nits)
+    g_tm = pq_tone_map(g_nits)
+    b_tm = pq_tone_map(b_nits)
+
+    r709, g709, b709 = bt2020_to_bt709_linear(r_tm, g_tm, b_tm)
+
+    r8 = min(max(round(srgb_oetf(r709) * 255), 0), 255)
+    g8 = min(max(round(srgb_oetf(g709) * 255), 0), 255)
+    b8 = min(max(round(srgb_oetf(b709) * 255), 0), 255)
+    return a2, (r8, g8, b8)
+
+
 # Maps the raw format enum value (as read off the wire, masked to 32 bits)
 # to (display name, unpack function). Formats with no unpack function are
 # known/named but not yet supported for auto-decode (e.g. float formats
@@ -129,13 +248,14 @@ def unpack_a8b8g8r8(raw4: bytes):
 FORMAT_TABLE = {
     0x88000000: ("A2R10G10B10_SRGB", unpack_a2r10g10b10),
     0x88060000: ("A2R10G10B10", unpack_a2r10g10b10),
-    0x88740000: ("A2R10G10B10_BT2020_PQ", unpack_a2r10g10b10),
+    0x88740000: ("A2R10G10B10_BT2020_PQ", unpack_a2r10g10b10_bt2020_pq),
     0x80000000: ("A8R8G8B8_SRGB", unpack_a8r8g8b8),
     0x80002200: ("A8B8G8R8_SRGB", unpack_a8b8g8r8),
-    -0x7F000000 & 0xFFFFFFFF: ("A16R16G16B16_FLOAT", None),  # 0xC1060000
+    -0x7F000000 & 0xFFFFFFFF: ("A16R16G16B16_FLOAT", None),  # 0xC1060000 -- 8 bytes/pixel, needs probe changes, not yet supported
 }
 
 DEFAULT_FALLBACK_FORMAT = 0x88000000  # A2R10G10B10_SRGB -- old script's hardcoded assumption
+
 
 
 def decode_registration_packet(data: bytes):
@@ -181,12 +301,33 @@ def decode_pixel_packet_raw(data: bytes):
     }
 
 
+def decode_timing_packet(data: bytes):
+    """v1.2 ps4_ambient_light telemetry packet (24 bytes, handoff §30
+    step 2): per-window min/max/avg loop time (microseconds) for
+    ambient_sample_thread's own buffer-resolve + sampling + UDP-send
+    work, plus how many of that window's iterations ran past
+    SAMPLE_INTERVAL_US (33000us, ~30Hz) and a window_id so gaps
+    (plugin reload, crash) are visible. All fields uint32 LE."""
+    min_us, max_us, avg_us, sample_count, over_budget_count, window_id = struct.unpack("<IIIIII", data)
+    return {
+        "kind": "timing",
+        "min_us": min_us,
+        "max_us": max_us,
+        "avg_us": avg_us,
+        "sample_count": sample_count,
+        "over_budget_count": over_budget_count,
+        "window_id": window_id,
+    }
+
+
 def decode_packet(hexstr: str):
     data = bytes.fromhex(hexstr.strip())
     if len(data) == 32:
         return decode_registration_packet(data)
+    if len(data) == 24:
+        return decode_timing_packet(data)
     if len(data) < 10:
-        raise ValueError(f"packet too short: {len(data)} bytes, need 10, 11, or 32")
+        raise ValueError(f"packet too short: {len(data)} bytes, need 10, 11, 24, or 32")
     return decode_pixel_packet_raw(data)
 
 
@@ -214,7 +355,32 @@ def main(payloads):
     all_results = [decode_packet(p) for p in payloads]
     reg_events = sorted([r for r in all_results if r["kind"] == "registration"],
                          key=lambda r: r["call_idx"])
+    timing_events = sorted([r for r in all_results if r["kind"] == "timing"],
+                            key=lambda r: r["window_id"])
     results = [r for r in all_results if r["kind"] == "pixel"]
+
+    if timing_events:
+        print(f"{len(timing_events)} ambient_sample_thread timing window(s) captured "
+              f"(handoff \u00a730 step 2):")
+        print(f"{'win#':>5} {'min_us':>8} {'avg_us':>8} {'max_us':>8} "
+              f"{'n':>4} {'over_budget':>11}")
+        print("-" * 50)
+        for t in timing_events:
+            print(f"{t['window_id']:>5} {t['min_us']:>8} {t['avg_us']:>8} {t['max_us']:>8} "
+                  f"{t['sample_count']:>4} {t['over_budget_count']:>11}")
+        worst_avg = max(timing_events, key=lambda t: t["avg_us"])
+        worst_max = max(timing_events, key=lambda t: t["max_us"])
+        total_over = sum(t["over_budget_count"] for t in timing_events)
+        print()
+        print(f"Worst avg_us across all windows: {worst_avg['avg_us']} (window {worst_avg['window_id']}).")
+        print(f"Worst single max_us: {worst_max['max_us']} (window {worst_max['window_id']}).")
+        if total_over:
+            print(f"WARNING: {total_over} iteration(s) across these windows exceeded the "
+                  f"33000us (~30Hz) budget -- the sampling thread is falling behind its own "
+                  f"target rate, not just render-thread-side impact (which this does not measure).")
+        else:
+            print("No iterations exceeded the ~30Hz budget in this capture.")
+        print()
 
     if reg_events:
         print(f"{len(reg_events)} registration event(s) captured this session:")
@@ -266,10 +432,25 @@ def main(payloads):
     if not results:
         return
 
+    # When the active format is the HDR PQ format, also show the OLD naive
+    # truncation decode side by side -- this is what "colors weren't
+    # accurate" was actually looking at before this fix, and printing both
+    # lets you visually confirm the PQ decode is the one that now matches
+    # the real screen, the same empirical comparison method that settled
+    # base vs Neo in §21/§22.
+    show_naive_compare = (active_fmt == 0x88740000)
+
     print(f"Decoding pixel packets as: {fmt_name}")
+    if show_naive_compare:
+        print("(HDR format -- also showing the old naive-truncation decode for comparison;")
+        print(" compare BOTH against the real screen, not just the new PQ column.)")
     print()
-    print(f"{'pt':>2} {'x':>5} {'y':>5} {'set':>5} {'raw':>10} {'RGB888':>16} {'bufIdx':>6}")
-    print("-" * 58)
+    if show_naive_compare:
+        print(f"{'pt':>2} {'x':>5} {'y':>5} {'set':>5} {'raw':>10} {'RGB888 (PQ)':>16} {'RGB888 (naive)':>16} {'bufIdx':>6}")
+        print("-" * 82)
+    else:
+        print(f"{'pt':>2} {'x':>5} {'y':>5} {'set':>5} {'raw':>10} {'RGB888':>16} {'bufIdx':>6}")
+        print("-" * 58)
     last_point = None
     for r in results:
         if last_point is not None and r["point_idx"] != last_point:
@@ -280,14 +461,25 @@ def main(payloads):
             rgb_str = str(rgb)
         else:
             rgb_str = "n/a"
-        print(f"{r['point_idx']:>2} {r['x']:>5} {r['y']:>5} {r['paramset']:>5} "
-              f"{r['raw_hex']:>10} {rgb_str:>16} {buf_str:>6}")
+        if show_naive_compare:
+            _, naive_rgb = unpack_a2r10g10b10(r["raw4"])
+            print(f"{r['point_idx']:>2} {r['x']:>5} {r['y']:>5} {r['paramset']:>5} "
+                  f"{r['raw_hex']:>10} {rgb_str:>16} {str(naive_rgb):>16} {buf_str:>6}")
+        else:
+            print(f"{r['point_idx']:>2} {r['x']:>5} {r['y']:>5} {r['paramset']:>5} "
+                  f"{r['raw_hex']:>10} {rgb_str:>16} {buf_str:>6}")
         last_point = r["point_idx"]
 
     print()
     print("Compare each RGB888 against what's actually at that (x,y) on your")
     print("test screen. Whichever paramset (base/neo) is right for ALL points")
     print("is the confirmed-correct one.")
+    if show_naive_compare:
+        print()
+        print("If neither PQ nor naive matches well, PQ_REFERENCE_WHITE_NITS /")
+        print("PQ_TONE_MAP_MAX_NITS at the top of this script are the two knobs to")
+        print("adjust -- the PQ EOTF and BT.2020->BT.709 matrix are fixed standards")
+        print("and shouldn't need touching.")
 
     # Sanity check for the v2.1 probe fix: every packet in one dump should
     # share the same displayBufferIndex, since one combo press = one live
