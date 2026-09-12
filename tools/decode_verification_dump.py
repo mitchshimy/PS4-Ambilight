@@ -20,6 +20,15 @@ Packet format, v2.1 probe (11 bytes), one per (test point, param set):
 Still accepts old 10-byte packets (pre-v2.1 probe, no [10] byte) for
 backward compatibility -- displayBufferIndex just shows as "?" for those.
 
+v2.2 probe also emits a second, 32-byte packet type -- one per
+sceVideoOutRegisterBuffers call (not just the first), reporting that
+call's pixelFormat/tmode/width/height/pitch/first-buffer-address. This
+lets you see whether the game re-registered its swap chain (different
+format, different scene) between an earlier format capture and the
+current pixel-sample dump, instead of silently trusting a possibly
+stale format assumption. Distinguished from the 11-byte pixel packets
+purely by length -- just paste both kinds into the same PAYLOADS list.
+
 USAGE:
     Paste each captured payload_hex string as a line into PAYLOADS below
     (or pipe them in -- see __main__), then run this script. It will
@@ -69,10 +78,34 @@ def unpack_a2r10g10b10_srgb(raw4: bytes):
     return a2, (r8, g8, b8)
 
 
+def decode_registration_packet(data: bytes):
+    """v2.2 registration-dump packet (32 bytes): reports every
+    sceVideoOutRegisterBuffers call, not just the first, so a
+    re-registration with a different format/size between an earlier
+    capture and this one is visible instead of silently ignored."""
+    call_idx, start_idx, buf_num = data[0], data[1], data[2]
+    fmt, tmode, width, height, pitch = struct.unpack("<iiIII", data[4:24])
+    addr = struct.unpack("<Q", data[24:32])[0]
+    return {
+        "kind": "registration",
+        "call_idx": call_idx,
+        "start_idx": start_idx,
+        "buf_num": buf_num,
+        "format": fmt,
+        "tmode": tmode,
+        "width": width,
+        "height": height,
+        "pitch": pitch,
+        "addr": addr,
+    }
+
+
 def decode_packet(hexstr: str):
     data = bytes.fromhex(hexstr.strip())
+    if len(data) == 32:
+        return decode_registration_packet(data)
     if len(data) < 10:
-        raise ValueError(f"packet too short: {len(data)} bytes, need 10 or 11")
+        raise ValueError(f"packet too short: {len(data)} bytes, need 10, 11, or 32")
     point_idx = data[0]
     paramset = data[1]
     x = struct.unpack("<H", data[2:4])[0]
@@ -81,6 +114,7 @@ def decode_packet(hexstr: str):
     a2, rgb = unpack_a2r10g10b10_srgb(raw4)
     display_buffer_index = data[10] if len(data) >= 11 else None
     return {
+        "kind": "pixel",
         "point_idx": point_idx,
         "paramset": "base" if paramset == 0 else "neo" if paramset == 1 else f"?{paramset}",
         "x": x,
@@ -99,8 +133,49 @@ def main(payloads):
         print("  echo '<hex>' | python3 decode_verification_dump.py")
         return
 
-    results = [decode_packet(p) for p in payloads]
-    results.sort(key=lambda r: (r["point_idx"], r["paramset"]))
+    all_results = [decode_packet(p) for p in payloads]
+    reg_events = sorted([r for r in all_results if r["kind"] == "registration"],
+                         key=lambda r: r["call_idx"])
+    results = [r for r in all_results if r["kind"] == "pixel"]
+
+    KNOWN_FORMATS = {
+        0x88000000: "A2R10G10B10_SRGB",
+        0x88060000: "A2R10G10B10",
+        0x88740000: "A2R10G10B10_BT2020_PQ",
+        0x80000000: "A8R8G8B8_SRGB",
+        0x80002200: "A8B8G8R8_SRGB",
+        -0x7F000000 & 0xFFFFFFFF: "A16R16G16B16_FLOAT",  # 0xC1060000 as unsigned
+    }
+
+    if reg_events:
+        print(f"{len(reg_events)} registration event(s) captured this session:")
+        print(f"{'call#':>5} {'start':>5} {'num':>4} {'format':>12} {'name':>22} "
+              f"{'w':>5} {'h':>5} {'pitch':>6} {'addr':>16}")
+        print("-" * 90)
+        for r in reg_events:
+            fmt_u = r["format"] & 0xFFFFFFFF
+            name = KNOWN_FORMATS.get(fmt_u, "?unknown")
+            print(f"{r['call_idx']:>5} {r['start_idx']:>5} {r['buf_num']:>4} "
+                  f"{fmt_u:#012x} {name:>22} {r['width']:>5} {r['height']:>5} "
+                  f"{r['pitch']:>6} {r['addr']:#018x}")
+        distinct_formats = {r["format"] & 0xFFFFFFFF for r in reg_events}
+        print()
+        if len(distinct_formats) > 1:
+            print("NOTE: multiple DIFFERENT pixel formats registered this session --")
+            print("the format live at capture time is whichever call has the HIGHEST")
+            print("call# with start_idx/buf_num covering the slot displayBufferIndex")
+            print("pointed to during the pixel-sample dump below. Don't assume the")
+            print("first (or an earlier session's) capture still applies.")
+        else:
+            print(f"Only one distinct format registered this session: "
+                  f"{KNOWN_FORMATS.get(next(iter(distinct_formats)), '?unknown')}. "
+                  f"If the pixel data below still doesn't match this format's channel")
+            print("layout, the format isn't the explanation -- look at buffer/address")
+            print("resolution (displayBufferIndex) instead.")
+        print()
+
+    if not results:
+        return
 
     print(f"{'pt':>2} {'x':>5} {'y':>5} {'set':>5} {'raw':>10} {'RGB888':>16} {'bufIdx':>6}")
     print("-" * 58)
