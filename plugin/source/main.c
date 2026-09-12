@@ -255,10 +255,14 @@ typedef struct {
     uint32_t gammaLutIndex;     // index into kGammaLuts -- see NUM_GAMMA_LUTS below
     int32_t saturation;         // -100 (grayscale) .. 0 (unchanged) .. 100 (2x boost)
     ColorOrder colorOrder;
+    uint32_t blackLevel;        // v2.1: 0-100, percent of 255 below which output clips to 0
+    uint32_t whiteLevel;        // v2.1: 0-100, percent of 255 at/above which output clips to 255 (100 = no change)
+    uint32_t darkThreshold;     // v2.1: 0-255, max(R,G,B) below this forces a zone fully black (0 = disabled)
     // [timing]
     uint32_t updateFrequencyHz;
     int smoothingEnabled;
     uint32_t settlingTimeMs;
+    uint32_t configReloadCheckSeconds; // v2.1: 0 = load once at start only (v2.0 behavior), like before
 } AmbientConfig;
 
 // Defaults match v1.3's hardcoded behavior exactly -- upgrading from a
@@ -277,9 +281,17 @@ static AmbientConfig g_config = {
     .gammaLutIndex = 0, // gamma 1.0 == passthrough, matches v1.3 (no color processing existed)
     .saturation = 0,
     .colorOrder = ORDER_RGB,
+    .blackLevel = 0,     // no-op -- matches "no black_level existed before v2.1" exactly
+    .whiteLevel = 100,   // no-op
+    .darkThreshold = 0,  // disabled -- matches "no dark_threshold existed before v2.1" exactly
     .updateFrequencyHz = 30,
     .smoothingEnabled = 0, // off by default -- v1.3 had no smoothing, don't change behavior silently
     .settlingTimeMs = 200,
+    .configReloadCheckSeconds = 2, // matches the auto-generated template's default (2s) -- this is a
+                                    // brand-new capability with no prior behavior to preserve, so unlike every
+                                    // other default above it does NOT need to match "what v2.0 did" (v2.0 simply
+                                    // couldn't do this at all). Only matters if ambient_create_default_config()
+                                    // ever stops matching this value -- keep the two in sync by hand.
 };
 
 static bool ambient_file_exists(const char *filename)
@@ -338,6 +350,18 @@ static void ambient_create_default_config(void)
         "; Match your strip's actual wiring. Valid values: RGB, RBG,\n" \
         "; GRB, GBR, BRG, BGR. Most WS2812B/NeoPixel strips are GRB.\n" \
         "color_order=RGB\n" \
+        "; Levels adjustment (0-100, percent of the 0-255 range).\n" \
+        "; Anything at/below black_level becomes 0; anything at/above\n" \
+        "; white_level becomes 255; the rest stretches to fill the gap.\n" \
+        "; Defaults (0, 100) are a no-op.\n" \
+        "black_level=0\n" \
+        "white_level=100\n" \
+        "; If a zone's brightest channel drops below this (0-255), that\n" \
+        "; zone is forced fully black instead of showing a faint/noisy\n" \
+        "; near-black color. Has built-in hysteresis (must rise 10 above\n" \
+        "; this value again before turning back on) so it won't flicker\n" \
+        "; on scenes hovering right at the threshold. 0 = disabled.\n" \
+        "dark_threshold=0\n" \
         "\n" \
         "[timing]\n" \
         "; How many times per second to sample and send color.\n" \
@@ -346,7 +370,12 @@ static void ambient_create_default_config(void)
         "; settling_time_ms, instead of snapping instantly -- reduces\n" \
         "; flicker on fast scene cuts. false = send raw samples as-is.\n" \
         "smoothing_enabled=false\n" \
-        "settling_time_ms=200\n"
+        "settling_time_ms=200\n" \
+        "; How often (seconds) to check this file for changes WHILE\n" \
+        "; RUNNING and apply them live -- no need to close/reopen the\n" \
+        "; game. 0 = only read this file once, at plugin load (the\n" \
+        "; original v2.0 behavior).\n" \
+        "config_reload_check_seconds=2\n"
 
     int32_t f = sceKernelOpen(AMBIENT_CONFIG_PATH, 0x200 | 0x001, 0777);
     if (f < 0) return; // no write access or path issue -- defaults above still apply in memory
@@ -452,6 +481,12 @@ static void ambient_load_config(void)
     if (ini_table_get_entry_as_int(table, "color", "saturation", &iv) && iv >= -100 && iv <= 100)
         g_config.saturation = iv;
     g_config.colorOrder = parse_color_order(ini_table_get_entry(table, "color", "color_order"), g_config.colorOrder);
+    if (ini_table_get_entry_as_int(table, "color", "black_level", &iv) && iv >= 0 && iv <= 100)
+        g_config.blackLevel = (uint32_t)iv;
+    if (ini_table_get_entry_as_int(table, "color", "white_level", &iv) && iv >= 0 && iv <= 100)
+        g_config.whiteLevel = (uint32_t)iv;
+    if (ini_table_get_entry_as_int(table, "color", "dark_threshold", &iv) && iv >= 0 && iv <= 255)
+        g_config.darkThreshold = (uint32_t)iv;
 
     if (ini_table_get_entry_as_int(table, "timing", "update_frequency_hz", &iv) && iv > 0 && iv <= 240)
         g_config.updateFrequencyHz = (uint32_t)iv;
@@ -459,6 +494,8 @@ static void ambient_load_config(void)
         g_config.smoothingEnabled = bv ? 1 : 0;
     if (ini_table_get_entry_as_int(table, "timing", "settling_time_ms", &iv) && iv >= 0)
         g_config.settlingTimeMs = (uint32_t)iv;
+    if (ini_table_get_entry_as_int(table, "timing", "config_reload_check_seconds", &iv) && iv >= 0)
+        g_config.configReloadCheckSeconds = (uint32_t)iv;
 
     ini_table_destroy(table);
 }
@@ -1441,8 +1478,32 @@ static void writeColorOrdered(uint8_t r, uint8_t g, uint8_t b, ColorOrder order,
     }
 }
 
+// v2.1: levels adjustment (black_level/white_level) -- a "stretch" of
+// the 0-255 range, verified in Python before porting (handoff §45).
+// Applied last in the color pipeline, matching the Android inspiration
+// project's own ColorProcessor order (gamma -> brightness -> saturation
+// -> levels).
+static void applyLevels(uint8_t r, uint8_t g, uint8_t b, uint32_t blackLevel, uint32_t whiteLevel,
+                         uint8_t *outR, uint8_t *outG, uint8_t *outB)
+{
+    if (blackLevel == 0 && whiteLevel == 100) { *outR = r; *outG = g; *outB = b; return; } // no-op fast path
+    int32_t blackThresh = (int32_t)(blackLevel * 255 / 100);
+    int32_t whiteThresh = (int32_t)(whiteLevel * 255 / 100);
+    int32_t range = whiteThresh - blackThresh;
+    if (range <= 0) { *outR = 0; *outG = 0; *outB = 0; return; } // degenerate config -- fail to black, not undefined
+    #define STRETCH(c) (uint8_t)(((c) < blackThresh) ? 0 : ((c) >= whiteThresh) ? 255 : \
+                                  (((int32_t)(c) - blackThresh) * 255) / range)
+    *outR = STRETCH(r);
+    *outG = STRETCH(g);
+    *outB = STRETCH(b);
+    #undef STRETCH
+}
+
 // Full per-zone pipeline: raw averaged RGB -> gamma -> saturation ->
-// brightness -> wire-order bytes. Called once per zone per send.
+// brightness -> levels (black/white point) -> wire-order bytes. Called
+// once per zone per send. dark_threshold is deliberately NOT applied
+// here -- it needs per-zone hysteresis STATE across calls, which lives
+// with the smoothing state in the thread loop instead (handoff §45).
 static void applyColorProcessing(uint8_t r, uint8_t g, uint8_t b, uint8_t *out3)
 {
     uint32_t gi = g_config.gammaLutIndex < NUM_GAMMA_LUTS ? g_config.gammaLutIndex : 0;
@@ -1457,14 +1518,17 @@ static void applyColorProcessing(uint8_t r, uint8_t g, uint8_t b, uint8_t *out3)
     sg = applyBrightness(sg, g_config.brightness);
     sb = applyBrightness(sb, g_config.brightness);
 
-    writeColorOrdered(sr, sg, sb, g_config.colorOrder, out3);
+    uint8_t lr, lg, lb;
+    applyLevels(sr, sg, sb, g_config.blackLevel, g_config.whiteLevel, &lr, &lg, &lb);
+
+    writeColorOrdered(lr, lg, lb, g_config.colorOrder, out3);
 }
 
 // --- Plugin metadata ---
 attr_public const char *g_pluginName = "ps4_ambient_light";
 attr_public const char *g_pluginDesc = "Live per-frame ambient light: detiles the real scanout buffer and streams zone colors to WLED";
 attr_public const char *g_pluginAuth = "(null)";
-attr_public uint32_t g_pluginVersion = 0x00000200; // v2.0: every previously-hardcoded tunable (WLED host/port, LED layout/corner/direction/offset/margins/scan-depth, brightness/gamma/saturation/color-order, update rate/smoothing) is now read from /data/ps4_ambient_light.ini at load time, auto-created with a commented template if absent -- see handoff §43. Defaults reproduce v1.3's exact behavior unchanged.
+attr_public uint32_t g_pluginVersion = 0x00000201; // v2.1: adds black_level/white_level (levels stretch), dark_threshold (per-zone hysteresis cutoff to full black), and config_reload_check_seconds (re-reads the ini file WHILE RUNNING, no restart needed) -- see handoff §45. All three default to a no-op/disabled, reproducing v2.0 behavior unchanged unless a user opts in.
 
 int32_t (*sceVideoOutRegisterBuffersPtr)(int32_t handle, int32_t startIndex,
                                           void *const *addresses, int32_t bufferNum,
@@ -1584,23 +1648,65 @@ int32_t sceGnmSubmitAndFlipCommandBuffersPtr_hook(uint32_t count, void *dcbGpuAd
 static uint8_t g_smoothedRgb[MAX_TOTAL_ZONES][3];
 static bool g_smoothedRgbValid = false; // false until the first real frame, so startup doesn't fade in from black
 
+// v2.1 dark_threshold state: per-zone hysteresis flag (see
+// applyDarkThreshold below) -- separate from g_smoothedRgb since it's
+// a decision (am I "dark" right now), not a color value.
+static bool g_zoneIsDark[MAX_TOTAL_ZONES];
+
+// Forces (r,g,b) to black if the zone should currently be considered
+// "dark", with hysteresis to avoid flicker on scenes hovering right at
+// the threshold: must drop BELOW darkThreshold to go dark, but must
+// rise darkThreshold+10 to come back -- verified in Python against a
+// deliberately noisy sequence straddling the threshold before porting
+// (handoff §45). Applied to the pre-smoothing target, so smoothing (if
+// enabled) naturally fades in/out of black instead of snapping.
+#define DARK_HYSTERESIS 10
+static void applyDarkThreshold(uint32_t zoneIdx, uint8_t *r, uint8_t *g, uint8_t *b)
+{
+    if (g_config.darkThreshold == 0) return; // disabled
+    uint8_t luma = *r > *g ? (*r > *b ? *r : *b) : (*g > *b ? *g : *b);
+    if (g_zoneIsDark[zoneIdx]) {
+        if (luma >= g_config.darkThreshold + DARK_HYSTERESIS) g_zoneIsDark[zoneIdx] = false;
+    } else if (luma < g_config.darkThreshold) {
+        g_zoneIsDark[zoneIdx] = true;
+    }
+    if (g_zoneIsDark[zoneIdx]) { *r = 0; *g = 0; *b = 0; }
+}
+
+// v2.1 live config reload: re-reads the ini file if its mtime changed,
+// checked at most once every configReloadCheckSeconds (0 = never,
+// matches v2.0's load-once behavior). Safe without any locking because
+// g_config/g_zoneX/g_zoneY/g_numZones are read AND written exclusively
+// by this one thread -- plugin_load's initial ambient_load_config()/
+// buildZoneGeometry() call happens before this thread is even spawned,
+// and the flip hook only ever touches g_currentDisplayBufferIndex, not
+// any of this state (handoff §45).
+static time_t g_configLastMtime = 0;
+static void ambient_check_config_reload(void)
+{
+    if (g_config.configReloadCheckSeconds == 0) return;
+    struct stat st;
+    if (stat(AMBIENT_CONFIG_PATH, &st) != 0) return; // file gone/unreadable -- keep running on current config
+    if (g_configLastMtime == 0) { g_configLastMtime = st.st_mtime; return; } // first check just establishes a baseline
+    if (st.st_mtime == g_configLastMtime) return; // unchanged
+    g_configLastMtime = st.st_mtime;
+    ambient_load_config();  // re-reads the file; unset/removed keys keep their CURRENT g_config value, not the compiled default (see note below)
+    buildZoneGeometry();    // layout settings may have changed -- rebuild g_zoneX/g_zoneY/g_numZones
+    g_smoothedRgbValid = false; // avoid smoothing a hard cut between old and new zone counts/positions
+}
+
 void *ambient_sample_thread(void *args)
 {
     uint32_t sampleIntervalUs = 1000000u / g_config.updateFrequencyHz;
-    // Alpha on a 0-256 scale: settling_time_ms=0 -> 256 (no smoothing,
-    // instant); larger settling time -> smaller alpha -> slower blend.
-    // +1 in the denominator avoids a divide-by-zero without needing a
-    // branch for the settling_time_ms==0 case.
-    uint32_t smoothingIntervalMs = sampleIntervalUs / 1000u;
-    uint32_t smoothingAlpha = (smoothingIntervalMs * 256u) / (g_config.settlingTimeMs + 1u);
-    if (smoothingAlpha > 256u) smoothingAlpha = 256u;
+    uint32_t smoothingAlpha = 256u; // recomputed every iteration below (cheap), so live reload picks up changes
+    // sceKernelGetProcessTimeCounter[Frequency] -- same TSC-based timer
+    // already proven in this repo (frame_logger.prx). Needed
+    // unconditionally now (not just under TIMING_ENABLED) since the
+    // config-reload check below uses real elapsed time too.
+    uint64_t tscFreq = sceKernelGetProcessTimeCounterFrequency();
+    uint64_t lastReloadCheckTicks = sceKernelGetProcessTimeCounter();
 
 #if TIMING_ENABLED
-    // sceKernelGetProcessTimeCounter[Frequency] -- same TSC-based timer
-    // already proven in this repo (frame_logger.prx). Ticks, not wall
-    // time, converted to microseconds below; frequency is read once
-    // since it's a fixed hardware constant for the session.
-    uint64_t tscFreq = sceKernelGetProcessTimeCounterFrequency();
     uint64_t budgetTicks = (tscFreq * (uint64_t)sampleIntervalUs) / 1000000ULL;
     uint64_t minTicks = UINT64_MAX, maxTicks = 0, sumTicks = 0;
     uint32_t windowSamples = 0, overBudgetCount = 0, windowId = 0;
@@ -1612,9 +1718,27 @@ void *ambient_sample_thread(void *args)
 #endif
 
     for (;;) {
-#if TIMING_ENABLED
+        // Needed unconditionally now, not just under TIMING_ENABLED --
+        // the config-reload check below also uses real elapsed time.
         uint64_t t0 = sceKernelGetProcessTimeCounter();
+
+        if (g_config.configReloadCheckSeconds > 0) {
+            uint64_t elapsedTicks = t0 - lastReloadCheckTicks;
+            if (elapsedTicks >= tscFreq * (uint64_t)g_config.configReloadCheckSeconds) {
+                ambient_check_config_reload();
+                lastReloadCheckTicks = t0;
+                // Recompute everything derived from config that this
+                // loop otherwise only computes once at thread start --
+                // this IS the "live" part of live reload.
+                sampleIntervalUs = 1000000u / g_config.updateFrequencyHz;
+#if TIMING_ENABLED
+                budgetTicks = (tscFreq * (uint64_t)sampleIntervalUs) / 1000000ULL;
 #endif
+            }
+        }
+        uint32_t smoothingIntervalMs = sampleIntervalUs / 1000u;
+        smoothingAlpha = (smoothingIntervalMs * 256u) / (g_config.settlingTimeMs + 1u);
+        if (smoothingAlpha > 256u) smoothingAlpha = 256u;
 
         uint32_t displayBufferIndex = g_currentDisplayBufferIndex;
         uint64_t liveBufferAddr = (displayBufferIndex != 0xFFFFFFFFu &&
@@ -1632,6 +1756,7 @@ void *ambient_sample_thread(void *args)
 
                     uint8_t processed[3];
                     applyColorProcessing(r, g, b, processed);
+                    applyDarkThreshold(i, &processed[0], &processed[1], &processed[2]);
 
                     if (g_config.smoothingEnabled) {
                         if (!g_smoothedRgbValid) {
