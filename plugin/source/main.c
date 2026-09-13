@@ -1933,7 +1933,7 @@ static void applyColorProcessing(uint8_t r8, uint8_t g8, uint8_t b8, uint8_t *ou
 attr_public const char *g_pluginName = "ps4_ambient_light";
 attr_public const char *g_pluginDesc = "Live per-frame ambient light: detiles the real scanout buffer and streams zone colors to WLED";
 attr_public const char *g_pluginAuth = "(null)";
-attr_public uint32_t g_pluginVersion = 0x00000207; // v2.2: ported the Android ("Universal Ambient Light") sister project's own ColorProcessor.kt -- contrast, independent per-channel brightness (brightness_r/g/b) and gamma (gamma_r/g/b) knobs, and two real fixes found while porting rather than assumed: (1) the v2.0/v2.1 pipeline ran saturation BEFORE brightness, contradicting this file's own comment claiming it matched Android's order -- fixed to gamma->brightness->contrast->saturation->levels, the real order confirmed by reading ColorProcessor.kt directly; (2) per-channel gamma is applied PER SAMPLE PIXEL, before zone-averaging (see sampleZoneAverage), not to the already-averaged zone color like every other knob here -- confirmed by tracing Android's ScreenEncoder.kt, which corrects the whole captured buffer before it's ever cropped into zones. Also fixes a latent precision bug this port would otherwise have introduced: every stage from brightness onward now carries unclamped int32_t (verified against a Python reimplementation of Android's real float math on 500 randomized cases -- clamping each stage to a byte, as v2.0/v2.1's saturation/levels functions did, threw away sign information a later luma-relative stage needed, producing answers up to 165/255 off; unclamped brings that to <=8/255, in line with ordinary fixed-point rounding). No libm anywhere in this: the new arbitrary-percentage per-channel gamma LUTs are built once at config load using a bit-trick fast-log2/exp2 approximation (verified in Python against real pow(), exact match across the dark end that matters for the black-crush issue, +-1/255 elsewhere), not a runtime pow() call. NOT verified on real hardware by this session -- only compiled and numerically fuzz-tested in isolation with plain gcc, since no PS4 toolchain was available. See ps4-ambient-light-handoff-v18.md for the session's full account of what was and wasn't verified.
+attr_public uint32_t g_pluginVersion = 0x00000208; // v2.2.1: DIAGNOSTIC ONLY, no color-pipeline change -- sceVideoOutRegisterBuffersPtr_hook now sends an 8-byte packet over the existing debug_send_raw/DEBUG_IP telemetry path whenever the registered pixel format actually changes (attribute->format itself, plus whether getUnpackFnForFormat recognizes it), to answer a live question raised by testing v2.2: with a game's in-game HDR toggled OFF, the same dark scene and even the OLD (pre-v2.2) black_level=3/dark_threshold=10 settings correctly show the LEDs off; with that same game's HDR toggled ON, a strong solid red (final channel ~220-254, confirmed via the DDP capture, not a faint/noisy residual) appears on the identical dark scene. That magnitude rules out the saturation/black_level interaction v2.2 already covers -- working the pipeline backward, a final red that high requires the RAW captured channel to already be >=~170/255 before any gamma/saturation, i.e. this isn't dark content with a small tint, something is reading as bright. This format code is the one piece neither this session nor the user could see without adding it: the hook architecture itself (g_activeFormat/g_haveValidFormat, re-read live on every registration, no caching bug found) looks correct on inspection, and the existing A2R10G10B10_BT2020_PQ decode traced by hand for a genuine PQ-black pixel (code 0,0,0) resolves correctly to (0,0,0) -- so if this game's actual HDR format code isn't one of the three getUnpackFnForFormat already recognizes, that would explain it (though NULL should stop color entirely, which contradicts still SEEING strong red -- so the live format may in fact already be matching a KNOWN case incorrectly for this particular content; the packet added here is what settles it either way). NOT diagnosed further by this session -- next step is reading this new packet's actual value with HDR on.
 
 int32_t (*sceVideoOutRegisterBuffersPtr)(int32_t handle, int32_t startIndex,
                                           void *const *addresses, int32_t bufferNum,
@@ -1969,14 +1969,33 @@ int32_t sceVideoOutRegisterBuffersPtr_hook(int32_t handle, int32_t startIndex,
 
         if (attribute != NULL) {
             uint32_t fmt = (uint32_t)attribute->format;
+            bool wasValid = g_haveValidFormat;
+            uint32_t prevFormat = g_activeFormat;
             g_activeFormat = fmt;
             g_haveValidFormat = (getUnpackFnForFormat(fmt) != NULL);
-            // No wled_signal() color-flash here on purpose -- this hook
-            // can now fire repeatedly during normal play (title
-            // re-registering on scene changes etc.), and flashing the
-            // strip every time would itself be a visible glitch. Add
-            // logging here instead if you need to confirm this is
-            // firing during a real session.
+            // v2.2.1: diagnostic-only telemetry, added to answer a real
+            // live question (does this specific game's HDR mode register
+            // a format this plugin actually recognizes?) rather than
+            // guess. Reuses the existing debug_send_raw/DEBUG_IP path
+            // (same one send_timing_packet uses), a NEW 8-byte payload so
+            // it dispatches distinctly by length in any listener that
+            // already keys off len(data) (this project's own convention
+            // -- see send_timing_packet's comment above). Only fires when
+            // the format actually CHANGES, not on every re-registration
+            // (this hook already fires repeatedly during normal play per
+            // the comment this replaces), so it won't spam a listener
+            // during a real session -- only right when HDR toggles on/off
+            // or a title switches formats.
+            //   [0:4] format     -- raw attribute->format, uint32 LE
+            //   [4:8] wasRecognized -- 0/1, uint32 LE (matches one of the
+            //                          getUnpackFnForFormat cases or not)
+            if (fmt != prevFormat || g_haveValidFormat != wasValid) {
+                uint8_t fmtPacket[8];
+                memcpy(fmtPacket + 0, &fmt, 4);
+                uint32_t recognized = g_haveValidFormat ? 1u : 0u;
+                memcpy(fmtPacket + 4, &recognized, 4);
+                debug_send_raw(fmtPacket, sizeof(fmtPacket));
+            }
         }
     }
     return HOOK_CONTINUE(sceVideoOutRegisterBuffersPtr,
