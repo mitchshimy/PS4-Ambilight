@@ -56,12 +56,14 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdlib.h> // v2.1.5: malloc/free, for ambient_get_real_config_size_and_hash's bounded read buffer -- not needed anywhere else in this TU before now
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/time.h> // struct timeval, for the SO_SNDTIMEO socket hardening below
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <errno.h> // no longer read directly as of v2.1.4 (ambient_check_config_reload's size signal now comes from sceKernelOpen/Lseek, not stat()) -- left included, harmless, in case anything else in this TU ever needs it
 
 #include <orbis/libkernel.h>
 #include <orbis/_types/video.h>
@@ -620,6 +622,109 @@ static void send_timing_packet(uint32_t minUs, uint32_t maxUs, uint32_t avgUs,
     memcpy(packet + 24, &minCpu,         4);
     memcpy(packet + 28, &maxCpu,         4);
     memcpy(packet + 32, &migrationCount, 4);
+    debug_send_raw(packet, sizeof(packet));
+}
+
+// v2.1.3: peek at the first bytes of AMBIENT_CONFIG_PATH from the
+// plugin's own point of view, so a capture can show directly what's
+// there instead of inferring it from size/mtime alone -- e.g. leftover
+// test text vs. a truncated fragment of the real ini vs. something else
+// entirely. Uses the same sceKernelOpen/sceKernelRead/sceKernelClose
+// path as config.c's ini_table_read_from_file (see that file's v2.2
+// comment) -- no fopen/FILE* here either, so this stays safe to call
+// from ambient_sample_thread. Purely diagnostic: never touches g_config
+// or any reload state, and any failure just zero-fills the preview
+// rather than showing stack garbage or aborting the check.
+#define CONFIG_DEBUG_PREVIEW_LEN 16
+static void ambient_read_content_preview(uint8_t *out, size_t previewLen)
+{
+    memset(out, 0, previewLen);
+    int32_t fd = sceKernelOpen(AMBIENT_CONFIG_PATH, 0 /* O_RDONLY */, 0777);
+    if (fd < 0) return; // leave zero-filled -- open failure is itself informative (event/stat_errno already cover it)
+    ssize_t nread = sceKernelRead(fd, out, previewLen);
+    sceKernelClose(fd);
+    if (nread < 0) memset(out, 0, previewLen); // read failed -- keep the zero-fill, don't show garbage
+}
+
+// Config-reload diagnostic packet, added to actually SEE why live reload
+// isn't firing on real hardware rather than guessing again (the v2.1.1
+// mtime-sentinel fix didn't resolve it). One per ambient_check_config_reload()
+// call -- reports every branch that function can take, not just the
+// interesting one, so a silent "the check never even runs" is visible
+// too, not just "it ran and saw no change".
+//
+// 60 bytes -- deliberately a length that collides with none of this
+// project's existing packet types (10/11 pixel, 24 old timing, 32
+// registration, 36 current timing, 44 pre-v2.1.3 version of this same
+// packet), matching the same "new packet length -> new dispatch case"
+// convention decode_verification_dump.py already uses (§31).
+//
+// mtime/size are sent as full 64-bit values (not truncated to uint32
+// like the other telemetry fields) specifically because the bug this is
+// chasing is about mtime edge cases -- truncating away the high bits
+// here would risk hiding exactly the kind of value this exists to show.
+//   [0:4]   event:        0=reload disabled, 1=sceKernelOpen/Lseek
+//                         failed (was "stat() failed" pre-v2.1.4),
+//                         2=baseline just established, 3=checked, no
+//                         change, 4=change detected, reload triggered
+//   [4:8]   stat_errno:   negated orbis error code from the failed
+//                         open/lseek (event==1 only, 0 otherwise) --
+//                         was a libc errno from stat() pre-v2.1.4, now
+//                         an orbis kernel error code from
+//                         ambient_get_real_config_size; field kept at
+//                         the same offset/name for capture compat
+//   [8:16]  cur_mtime:    HARDCODED 0 as of v2.1.4 -- st_mtime never
+//                         worked on this filesystem (§46) and is no
+//                         longer read at all. Field kept at the same
+//                         offset so old/new captures still line up
+//                         byte-for-byte; not a live value.
+//   [16:24] last_mtime:   HARDCODED 0 as of v2.1.4, same reason as
+//                         cur_mtime above.
+//   [24:32] cur_size:     st_size just read (0 if stat wasn't reached)
+//   [32:40] last_size:    g_configLastSize BEFORE this check updated it
+//   [40:44] check_count:  increments every call to
+//                         ambient_check_config_reload -- if this never
+//                         climbs, the sampling thread isn't reaching the
+//                         check at all (wrong configReloadCheckSeconds,
+//                         thread not running, etc.), which is a
+//                         different bug than "the check runs but never
+//                         detects a change".
+//   [44:60] content_preview: first 16 raw bytes AMBIENT_CONFIG_PATH's own
+//                         read path actually sees (v2.1.3, see
+//                         ambient_read_content_preview above). Zero-filled
+//                         when unavailable -- 16 zero bytes here does NOT
+//                         necessarily mean the file is empty/all-zero, it
+//                         may mean the open/read itself failed.
+//   [60:64] cur_hash:     v2.1.5. FNV-1a/32 over the whole file, from
+//                         ambient_get_real_config_size_and_hash. 0 if
+//                         that call failed (event==1) or wasn't reached
+//                         (event==0) -- note 0 is also a real possible
+//                         hash value, same caveat as mtime==0 pre-v2.1.1,
+//                         but here it's disambiguated by event/stat_errno
+//                         rather than by a separate sentinel, since this
+//                         field was never used as its own "have we
+//                         initialized yet" flag the way mtime was.
+//   [64:68] last_hash:    v2.1.5. g_configLastHash BEFORE this check
+//                         updated it. Same 0-is-ambiguous caveat as
+//                         cur_hash above.
+static void send_config_reload_debug_packet(uint32_t event, uint32_t statErrno,
+                                             uint64_t curMtime, uint64_t lastMtime,
+                                             uint64_t curSize, uint64_t lastSize,
+                                             uint32_t checkCount,
+                                             const uint8_t *contentPreview,
+                                             uint32_t curHash, uint32_t lastHash)
+{
+    uint8_t packet[44 + CONFIG_DEBUG_PREVIEW_LEN + 8];
+    memcpy(packet +  0, &event,      4);
+    memcpy(packet +  4, &statErrno,  4);
+    memcpy(packet +  8, &curMtime,   8);
+    memcpy(packet + 16, &lastMtime,  8);
+    memcpy(packet + 24, &curSize,    8);
+    memcpy(packet + 32, &lastSize,   8);
+    memcpy(packet + 40, &checkCount, 4);
+    memcpy(packet + 44, contentPreview, CONFIG_DEBUG_PREVIEW_LEN);
+    memcpy(packet + 60, &curHash,    4);
+    memcpy(packet + 64, &lastHash,   4);
     debug_send_raw(packet, sizeof(packet));
 }
 
@@ -1531,7 +1636,7 @@ static void applyColorProcessing(uint8_t r, uint8_t g, uint8_t b, uint8_t *out3)
 attr_public const char *g_pluginName = "ps4_ambient_light";
 attr_public const char *g_pluginDesc = "Live per-frame ambient light: detiles the real scanout buffer and streams zone colors to WLED";
 attr_public const char *g_pluginAuth = "(null)";
-attr_public uint32_t g_pluginVersion = 0x00000202; // v2.1.1: BUGFIX -- live config reload never fired on real hardware (handoff §46). Root cause: the mtime-tracking sentinel used 0 as "not yet checked", which collides with a legitimate (or platform-broken) mtime of 0 and gets stuck forever. Fixed with a real boolean flag + file-size as a second change signal. Also raises the saturation cap from 100 to 300 (verified overflow-safe).
+attr_public uint32_t g_pluginVersion = 0x00000206; // v2.1.5: BUGFIX -- real-hardware capture with v2.1.4 confirmed the size signal itself now works (cur_size/last_size both read a real, stable 2809 matching the actual file, no longer the fixed bogus 8), but live reload STILL didn't fire on a real edit (RGB -> RBG in the config). Root cause is definitional, not a bug in the size-reading mechanism: that edit is a same-length in-place swap, so the file's byte count genuinely does not change, and a size-only comparison has no way to see a change that isn't a size change. Fixed by adding a content hash (FNV-1a/32, ambient_get_real_config_size_and_hash) read over the whole file via the same proven sceKernelOpen/Lseek/Read path, compared alongside size -- either differing now triggers reload. Packet grows from 60 to 68 bytes (two new 4-byte fields, cur_hash/last_hash, appended after content_preview) rather than reusing/resizing any existing field, so old 60-byte captures still decode unambiguously as the v2.1.3/v2.1.4 format. Confirmed on real hardware: live reload now fires correctly, including on the exact same-length edit that v2.1.4 alone missed.
 
 int32_t (*sceVideoOutRegisterBuffersPtr)(int32_t handle, int32_t startIndex,
                                           void *const *addresses, int32_t bufferNum,
@@ -1701,26 +1806,176 @@ static void applyDarkThreshold(uint32_t zoneIdx, uint8_t *r, uint8_t *g, uint8_t
 // against exactly that class of platform-level uncertainty, and this
 // project has already spent one whole session finding out an
 // assumption about low-level platform behavior was wrong (§17-22).
+// v2.1.4: real hardware (see handoff §47/§48) showed st_size is just as
+// broken as st_mtime on this filesystem -- stuck reporting a fixed
+// wrong value (8) for the entire life of the process, never once
+// reflecting the real file's actual size even while it was being
+// actively edited. Both fields come off the same stat() call, so
+// "st_mtime is broken, but surely st_size is fine" was never a safe
+// assumption -- it just hadn't been checked directly yet. What IS
+// proven reliable on this platform is a raw sceKernelOpen +
+// sceKernelLseek(SEEK_END) + sceKernelClose read: that's exactly how
+// the initial plugin-load config read (and the v2.1.3 content preview)
+// already get real, live data, and both are confirmed correct against
+// this exact path by the fact edits DO take effect after a game
+// restart. So the reload check now sources its size signal from that
+// same syscall path instead of patching around stat() a third time.
+// Existence is still checked via stat() in ambient_file_exists() --
+// that's a boolean return code, not a numeric field, and nothing here
+// suggests that part is unreliable.
+// v2.1.5: content hash, added because size alone can't see a
+// same-length edit (confirmed on real hardware -- an RGB->RBG swap
+// left cur_size/last_size both correctly reading a stable, real 2809
+// but never differing, so event stayed 3/"unchanged" forever). FNV-1a
+// is used purely as a cheap, dependency-free change signal, not for
+// any security property -- no libm, no external library, consistent
+// with the existing no-libm constraint (§ PQ/sRGB LUT work).
+#define AMBIENT_FNV1A_OFFSET_BASIS 0x811c9dc5u
+#define AMBIENT_FNV1A_PRIME        0x01000193u
+static uint32_t ambient_fnv1a32(const uint8_t *data, size_t len)
+{
+    uint32_t hash = AMBIENT_FNV1A_OFFSET_BASIS;
+    for (size_t i = 0; i < len; i++) {
+        hash ^= data[i];
+        hash *= AMBIENT_FNV1A_PRIME;
+    }
+    return hash;
+}
+
+// Sanity cap on the hash read, independent of the earlier no-libm
+// constraint -- this is about not handing malloc() a garbage size if
+// AMBIENT_CONFIG_PATH ever resolves to something unexpected. The real
+// file is a few KB at most (even a heavily-commented ini); 1 MiB is
+// generous headroom, not a real expected size.
+#define AMBIENT_CONFIG_MAX_HASH_READ (1024 * 1024)
+
+// Replaces v2.1.4's ambient_get_real_config_size: still gets size the
+// same proven way (sceKernelOpen + sceKernelLseek(SEEK_END)), but now
+// also seeks back to the start and reads the whole file through the
+// same fd to compute a content hash in the same call, rather than
+// opening the file twice per check. Both outputs share one success/
+// failure result since they come from the same read; on any failure
+// *outSize carries the negative orbis error code (or a sentinel below)
+// same as v2.1.4's function did, and *outHash is left untouched.
+static bool ambient_get_real_config_size_and_hash(int64_t *outSize, uint32_t *outHash)
+{
+    int32_t fd = sceKernelOpen(AMBIENT_CONFIG_PATH, 0 /* O_RDONLY */, 0777);
+    if (fd < 0) {
+        *outSize = fd; // negative orbis error code, reused as the packet's "errno" field below
+        return false;
+    }
+    int64_t sz = sceKernelLseek(fd, 0, SEEK_END);
+    if (sz < 0) {
+        sceKernelClose(fd);
+        *outSize = sz;
+        return false;
+    }
+    if (sz > AMBIENT_CONFIG_MAX_HASH_READ) {
+        sceKernelClose(fd);
+        *outSize = -1; // sentinel, not a real orbis error code -- "file unexpectedly huge", not an open/lseek failure
+        return false;
+    }
+
+    int64_t seekBack = sceKernelLseek(fd, 0, SEEK_SET);
+    if (seekBack < 0) {
+        sceKernelClose(fd);
+        *outSize = seekBack;
+        return false;
+    }
+
+    // sz fits in AMBIENT_CONFIG_MAX_HASH_READ (checked above), so this
+    // is a small, bounded allocation, not proportional to whatever
+    // AMBIENT_CONFIG_PATH happens to resolve to.
+    uint8_t *buf = (sz > 0) ? (uint8_t *)malloc((size_t)sz) : NULL;
+    if (sz > 0 && buf == NULL) {
+        sceKernelClose(fd);
+        *outSize = -1; // sentinel -- malloc failure, not an orbis error code
+        return false;
+    }
+
+    ssize_t nread = (sz > 0) ? sceKernelRead(fd, buf, (size_t)sz) : 0;
+    sceKernelClose(fd);
+    if (nread < 0) {
+        free(buf);
+        *outSize = nread;
+        return false;
+    }
+
+    *outSize = sz;
+    *outHash = ambient_fnv1a32(buf, (size_t)nread);
+    free(buf);
+    return true;
+}
+
+// mtime is kept in the struct/packet purely for backward-compatible
+// layout with the v2.1.2/v2.1.3 captures already on file -- it is
+// HARDCODED to 0 as of v2.1.4 and no longer read from stat() or used
+// for change-detection at all (confirmed non-functional on this
+// filesystem, see handoff §46/§47). Size, sourced from
+// ambient_get_real_config_size_and_hash above, is one of two change
+// signals as of v2.1.5 -- see g_configLastHash below for the other,
+// added because size alone missed a real same-length edit on hardware.
 static bool g_haveConfigBaseline = false;
-static time_t g_configLastMtime = 0;
 static off_t g_configLastSize = 0;
+// v2.1.5: content hash (FNV-1a/32) of the whole file, alongside size.
+// Needed because a same-length edit (confirmed on hardware: RGB->RBG)
+// changes the file's content without changing its byte count, which
+// size alone has no way to detect. Reload now fires if EITHER size or
+// hash differs from last check.
+static uint32_t g_configLastHash = 0;
+// Increments on every call, independent of what the call finds -- see
+// send_config_reload_debug_packet's check_count field above for why.
+static uint32_t g_configCheckCount = 0;
 
 static void ambient_check_config_reload(void)
 {
-    if (g_config.configReloadCheckSeconds == 0) return;
-    struct stat st;
-    if (stat(AMBIENT_CONFIG_PATH, &st) != 0) return; // file gone/unreadable -- keep running on current config
+    g_configCheckCount++;
+
+    if (g_config.configReloadCheckSeconds == 0) {
+        uint8_t preview[CONFIG_DEBUG_PREVIEW_LEN];
+        ambient_read_content_preview(preview, sizeof(preview));
+        send_config_reload_debug_packet(0, 0, 0, 0,
+                                         0, (uint64_t)g_configLastSize, g_configCheckCount, preview,
+                                         0, g_configLastHash);
+        return;
+    }
+
+    int64_t realSize;
+    uint32_t realHash;
+    if (!ambient_get_real_config_size_and_hash(&realSize, &realHash)) {
+        uint8_t preview[CONFIG_DEBUG_PREVIEW_LEN];
+        ambient_read_content_preview(preview, sizeof(preview));
+        send_config_reload_debug_packet(1, (uint32_t)(-realSize), 0, 0,
+                                         0, (uint64_t)g_configLastSize, g_configCheckCount, preview,
+                                         0, g_configLastHash);
+        return; // file gone/unreadable/unexpectedly huge -- keep running on current config
+    }
+
+    uint8_t preview[CONFIG_DEBUG_PREVIEW_LEN];
+    ambient_read_content_preview(preview, sizeof(preview));
 
     if (!g_haveConfigBaseline) {
-        g_configLastMtime = st.st_mtime;
-        g_configLastSize = st.st_size;
+        send_config_reload_debug_packet(2, 0, 0, 0,
+                                         (uint64_t)realSize, (uint64_t)g_configLastSize, g_configCheckCount, preview,
+                                         realHash, g_configLastHash);
+        g_configLastSize = (off_t)realSize;
+        g_configLastHash = realHash;
         g_haveConfigBaseline = true;
         return; // first check just establishes a baseline, nothing to compare against yet
     }
-    if (st.st_mtime == g_configLastMtime && st.st_size == g_configLastSize) return; // unchanged, by both signals
+    if ((off_t)realSize == g_configLastSize && realHash == g_configLastHash) {
+        send_config_reload_debug_packet(3, 0, 0, 0,
+                                         (uint64_t)realSize, (uint64_t)g_configLastSize, g_configCheckCount, preview,
+                                         realHash, g_configLastHash);
+        return; // unchanged -- same size AND same content hash
+    }
 
-    g_configLastMtime = st.st_mtime;
-    g_configLastSize = st.st_size;
+    send_config_reload_debug_packet(4, 0, 0, 0,
+                                     (uint64_t)realSize, (uint64_t)g_configLastSize, g_configCheckCount, preview,
+                                     realHash, g_configLastHash);
+
+    g_configLastSize = (off_t)realSize;
+    g_configLastHash = realHash;
     ambient_load_config();  // re-reads the file; unset/removed keys keep their CURRENT g_config value, not the compiled default (see note below)
     buildZoneGeometry();    // layout settings may have changed -- rebuild g_zoneX/g_zoneY/g_numZones
     g_smoothedRgbValid = false; // avoid smoothing a hard cut between old and new zone counts/positions
