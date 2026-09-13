@@ -1933,7 +1933,7 @@ static void applyColorProcessing(uint8_t r8, uint8_t g8, uint8_t b8, uint8_t *ou
 attr_public const char *g_pluginName = "ps4_ambient_light";
 attr_public const char *g_pluginDesc = "Live per-frame ambient light: detiles the real scanout buffer and streams zone colors to WLED";
 attr_public const char *g_pluginAuth = "(null)";
-attr_public uint32_t g_pluginVersion = 0x00000208; // v2.2.1: DIAGNOSTIC ONLY, no color-pipeline change -- sceVideoOutRegisterBuffersPtr_hook now sends an 8-byte packet over the existing debug_send_raw/DEBUG_IP telemetry path whenever the registered pixel format actually changes (attribute->format itself, plus whether getUnpackFnForFormat recognizes it), to answer a live question raised by testing v2.2: with a game's in-game HDR toggled OFF, the same dark scene and even the OLD (pre-v2.2) black_level=3/dark_threshold=10 settings correctly show the LEDs off; with that same game's HDR toggled ON, a strong solid red (final channel ~220-254, confirmed via the DDP capture, not a faint/noisy residual) appears on the identical dark scene. That magnitude rules out the saturation/black_level interaction v2.2 already covers -- working the pipeline backward, a final red that high requires the RAW captured channel to already be >=~170/255 before any gamma/saturation, i.e. this isn't dark content with a small tint, something is reading as bright. This format code is the one piece neither this session nor the user could see without adding it: the hook architecture itself (g_activeFormat/g_haveValidFormat, re-read live on every registration, no caching bug found) looks correct on inspection, and the existing A2R10G10B10_BT2020_PQ decode traced by hand for a genuine PQ-black pixel (code 0,0,0) resolves correctly to (0,0,0) -- so if this game's actual HDR format code isn't one of the three getUnpackFnForFormat already recognizes, that would explain it (though NULL should stop color entirely, which contradicts still SEEING strong red -- so the live format may in fact already be matching a KNOWN case incorrectly for this particular content; the packet added here is what settles it either way). NOT diagnosed further by this session -- next step is reading this new packet's actual value with HDR on.
+attr_public uint32_t g_pluginVersion = 0x00000209; // v2.2.2: DIAGNOSTIC ONLY, no color-pipeline change -- v2.2.1's format packet confirmed this game's HDR mode correctly registers and decodes via A2R10G10B10_BT2020_PQ (recognized=1), and this session hand-verified the PQ decode math against both neutral and slightly-imbalanced near-black input with no red bias in either case. But the user then made two sharp observations that neither of those findings explains: (1) SDR shows nothing at all in the same spot, which is odd if it were a persistent real UI element, and (2) MUCH of the physical strip goes red, not just the one LED whose zone would cover a small icon -- ruling out "it's just real content in one corner of the screen". Since a systemic effect across many zones simultaneously is a different failure mode than anything checked so far, this adds a ~1x/sec throttled packet (over the same debug_send_raw/DEBUG_IP path) carrying the RAW pre-decode 32-bit pixel word plus the already-decoded 8-bit RGB for 3 zones spread across the strip (index 0, middle, last) -- so the actual captured memory content can be checked directly instead of continuing to reason about it secondhand. NOT diagnosed further by this session -- next step is reading this packet's values during the red phase.
 
 int32_t (*sceVideoOutRegisterBuffersPtr)(int32_t handle, int32_t startIndex,
                                           void *const *addresses, int32_t bufferNum,
@@ -2071,6 +2071,7 @@ int32_t sceGnmSubmitAndFlipCommandBuffersPtr_hook(uint32_t count, void *dcbGpuAd
 // = 200" should be read as "roughly", not as a precise guarantee.
 static uint8_t g_smoothedRgb[MAX_TOTAL_ZONES][3];
 static bool g_smoothedRgbValid = false; // false until the first real frame, so startup doesn't fade in from black
+static uint32_t s_rawDiagFrameCounter = 0; // v2.2.2: throttles the raw-pixel diagnostic packet to ~1x/sec
 
 // v2.1 dark_threshold state: per-zone hysteresis flag (see
 // applyDarkThreshold below) -- separate from g_smoothedRgb since it's
@@ -2383,6 +2384,47 @@ void *ambient_sample_thread(void *args)
                 }
                 g_smoothedRgbValid = true;
                 wled_send_rgb_zones(rgbTriplets, (int)g_numZones);
+
+                // v2.2.2: DIAGNOSTIC ONLY, no color-pipeline change --
+                // the format-diagnostic in v2.2.1 confirmed this game's
+                // HDR mode correctly registers as A2R10G10B10_BT2020_PQ
+                // (recognized=1), and the PQ decode math itself was
+                // hand-verified against neutral AND slightly-imbalanced
+                // near-black input with no red bias found either way.
+                // But the user's own physical observation is that MUCH
+                // of the strip goes red, not just the zone nearest a
+                // hypothetical red UI element -- which neither of those
+                // findings explains, and rules out "it's just real
+                // content in one corner". This sends the RAW pre-decode
+                // 32-bit pixel word for 3 zones spread across the strip
+                // (index 0, middle, last) alongside the already-decoded
+                // 8-bit RGB this session already has visibility into,
+                // so the raw captured value itself -- not just this
+                // session's interpretation of it -- can be checked.
+                // Throttled to ~1x/sec (not gated on content changing)
+                // so it samples steadily through both the "stable red"
+                // and "oscillating" phases already observed, without
+                // flooding the listener at update_frequency_hz.
+                if (++s_rawDiagFrameCounter >= g_config.updateFrequencyHz) {
+                    s_rawDiagFrameCounter = 0;
+                    uint32_t diagZones[3] = { 0, g_numZones / 2, g_numZones - 1 };
+                    uint8_t diagPacket[4 + 3 * 12];
+                    memcpy(diagPacket, &g_activeFormat, 4);
+                    for (int k = 0; k < 3; k++) {
+                        uint32_t zi = diagZones[k];
+                        uint64_t off = getTiledElementByteOffset(&kParamsBase, g_zoneX[zi], g_zoneY[zi]);
+                        uint32_t rawPx = 0;
+                        if (off + 4 <= BASE_PADDED_BUFFER_BYTES)
+                            memcpy(&rawPx, (const void*)(liveBufferAddr + off), 4);
+                        uint8_t dr, dg, db;
+                        unpack(rawPx, &dr, &dg, &db);
+                        uint8_t *entry = diagPacket + 4 + k * 12;
+                        memcpy(entry + 0, &zi, 4);
+                        memcpy(entry + 4, &rawPx, 4);
+                        entry[8] = dr; entry[9] = dg; entry[10] = db; entry[11] = 0;
+                    }
+                    debug_send_raw(diagPacket, sizeof(diagPacket));
+                }
             }
         }
         // If g_haveValidFormat is 0 (unknown/unconfirmed format), we
