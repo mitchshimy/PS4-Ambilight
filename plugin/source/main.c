@@ -260,6 +260,22 @@ typedef struct {
     uint32_t blackLevel;        // v2.1: 0-100, percent of 255 below which output clips to 0
     uint32_t whiteLevel;        // v2.1: 0-100, percent of 255 at/above which output clips to 255 (100 = no change)
     uint32_t darkThreshold;     // v2.1: 0-255, max(R,G,B) below this forces a zone fully black (0 = disabled)
+    // v2.2: ported from the Android "inspiration" project's own
+    // ColorProcessor.kt (see handoff §49). These are ADDITIONS on top
+    // of the existing brightness/gamma fields above, not replacements
+    // -- brightness/gamma keep their original 0-255 / fixed-LUT-string
+    // meaning so nobody's existing ini silently changes behavior.
+    // Percentages below use Android's own convention (100 = neutral),
+    // NOT this file's usual "0 = neutral" convention -- documented
+    // per-field in the generated ini template.
+    int32_t contrast;           // -100..300, 0 = unchanged (100=neutral Android pct minus 100, same convention as saturation above)
+    uint32_t brightnessR, brightnessG, brightnessB; // 0-500, 100 = unchanged. Multiplies with the global brightness above.
+    uint32_t gammaR, gammaG, gammaB;                // 10-500, 100 = unchanged. Independent per-channel curves, applied PER SAMPLE
+                                                     // before zone-averaging (see sampleZoneAverage) -- unlike every other
+                                                     // knob here, which is applied once to the already-averaged zone color.
+                                                     // This matters because gamma is non-linear: correcting-then-averaging
+                                                     // and averaging-then-correcting are NOT the same operation, and the
+                                                     // Android source applies its gamma per-pixel, before any downsampling.
     // [timing]
     uint32_t updateFrequencyHz;
     int smoothingEnabled;
@@ -286,6 +302,9 @@ static AmbientConfig g_config = {
     .blackLevel = 0,     // no-op -- matches "no black_level existed before v2.1" exactly
     .whiteLevel = 100,   // no-op
     .darkThreshold = 0,  // disabled -- matches "no dark_threshold existed before v2.1" exactly
+    .contrast = 0,       // no-op -- new in v2.2, matches "didn't exist before" like the rest of this block
+    .brightnessR = 100, .brightnessG = 100, .brightnessB = 100, // no-op (100 = unchanged, Android convention)
+    .gammaR = 100, .gammaG = 100, .gammaB = 100,                 // no-op (100 = unchanged, Android convention)
     .updateFrequencyHz = 30,
     .smoothingEnabled = 0, // off by default -- v1.3 had no smoothing, don't change behavior silently
     .settlingTimeMs = 200,
@@ -295,6 +314,93 @@ static AmbientConfig g_config = {
                                     // couldn't do this at all). Only matters if ambient_create_default_config()
                                     // ever stops matching this value -- keep the two in sync by hand.
 };
+
+// ============================================================
+// v2.2: per-channel gamma at an arbitrary percentage (Android's own
+// convention -- out = 255*(in/255)^(100/pct), pct=100 == passthrough).
+// The fixed kGammaLuts above only cover 8 preset exponents because
+// they're baked in at compile time with a real pow() run OFFLINE, on
+// a dev machine -- this build links no libm (see Makefile LIBS), so
+// there's no pow()/log()/exp() available at runtime to support an
+// arbitrary user-chosen percentage the same way.
+//
+// Rather than either (a) restricting the new per-channel controls to
+// the same 8 presets, which defeats the point of porting a
+// continuous per-channel control, or (b) linking libm just for this,
+// this uses the well-known Ankerl fast log2/exp2 approximation --
+// pure integer/float bit manipulation, no transcendental libm calls.
+// It's only ever run when the config (re)loads, NOT per-pixel/frame,
+// so its handful of extra ULPs of error versus real pow() (verified
+// in Python before porting: max off-by-one across a full 0-255 LUT,
+// and EXACT agreement across the entire dark end 0-40 that actually
+// matters for the black-crush issue -- see handoff §49) cost nothing
+// at runtime and are invisible in the final 8-bit LUT anyway.
+static float ambient_fast_log2(float x)
+{
+    union { float f; uint32_t i; } vx = { x };
+    union { uint32_t i; float f; } mx = { (vx.i & 0x007FFFFFu) | 0x3f000000u };
+    float y = (float)vx.i;
+    y *= 1.0f / (1 << 23);
+    return y - 124.22551499f - 1.498030302f * mx.f - 1.72587999f / (0.3520887068f + mx.f);
+}
+
+static float ambient_fast_exp2(float p)
+{
+    float offset = (p < 0.0f) ? 1.0f : 0.0f;
+    float clipp = (p < -126.0f) ? -126.0f : p;
+    int32_t w = (int32_t)clipp;
+    float z = clipp - (float)w + offset;
+    union { uint32_t i; float f; } v = {
+        (uint32_t)((1 << 23) * (clipp + 121.2740575f + 27.7280233f / (4.84252568f - z) - 1.49012907f * z))
+    };
+    return v.f;
+}
+
+// x assumed in [0,1] here (normalized 0-255 sample); 0 is handled as
+// a special case since log2(0) is undefined and every real gamma
+// curve maps black to black anyway.
+static float ambient_fast_pow01(float x, float p)
+{
+    if (x <= 0.0f) return 0.0f;
+    return ambient_fast_exp2(p * ambient_fast_log2(x));
+}
+
+// Per-channel gamma LUTs for the v2.2 gamma_r/gamma_g/gamma_b knobs.
+// Rebuilt on config load/reload (ambient_rebuild_perchannel_gamma_luts
+// below), NOT per pixel -- same pattern as everything else in this
+// file that could otherwise involve float math on a hot path.
+//
+// Stored as FLOAT, not uint8_t, deliberately: Android's own gamma LUT
+// (buildGammaLut in ColorProcessor.kt) is a FloatArray too, and the
+// whole rest of its pipeline stays in Float with no intermediate
+// clamp/round until the single final clamp+round back to a byte. An
+// 8-bit LUT here would force an early, lossy round-to-byte right
+// after gamma, before brightness/contrast/saturation/levels even run
+// -- verified in Python before porting that this isn't just
+// theoretical: chaining early uint8_t clamps between stages produced
+// answers up to ~13/255 off from the real float pipeline on ordinary
+// inputs, not merely off-by-one rounding noise (handoff §49).
+static float g_gammaLutR[256], g_gammaLutG[256], g_gammaLutB[256];
+
+static void ambient_build_one_gamma_lut(uint32_t pct, float *outLut)
+{
+    if (pct == 100) { // passthrough -- skip the float math entirely
+        for (uint32_t i = 0; i < 256; i++) outLut[i] = (float)i;
+        return;
+    }
+    float invGamma = 100.0f / (float)pct;
+    for (uint32_t i = 0; i < 256; i++) {
+        float norm = (float)i / 255.0f;
+        outLut[i] = ambient_fast_pow01(norm, invGamma) * 255.0f; // left unclamped/unrounded on purpose
+    }
+}
+
+static void ambient_rebuild_perchannel_gamma_luts(void)
+{
+    ambient_build_one_gamma_lut(g_config.gammaR, g_gammaLutR);
+    ambient_build_one_gamma_lut(g_config.gammaG, g_gammaLutG);
+    ambient_build_one_gamma_lut(g_config.gammaB, g_gammaLutB);
+}
 
 static bool ambient_file_exists(const char *filename)
 {
@@ -367,6 +473,30 @@ static void ambient_create_default_config(void)
         "; this value again before turning back on) so it won't flicker\n" \
         "; on scenes hovering right at the threshold. 0 = disabled.\n" \
         "dark_threshold=0\n" \
+        "; --- Below this line: ported from the Android version's own\n" \
+        "; per-channel color engine. NOTE THE DIFFERENT CONVENTION: these\n" \
+        "; use Android's \"100 = unchanged\" percent scale, NOT this file's\n" \
+        "; usual \"0 = unchanged\" scale used by saturation/brightness above.\n" \
+        "; Contrast: -100..300, 0 = unchanged (stretches/shrinks around\n" \
+        "; mid-grey 128, same math as saturation but around brightness\n" \
+        "; instead of hue).\n" \
+        "contrast=0\n" \
+        "; Per-channel brightness, 0-500, 100 = unchanged. Multiplies with\n" \
+        "; the single [color] brightness above rather than replacing it.\n" \
+        "brightness_r=100\n" \
+        "brightness_g=100\n" \
+        "brightness_b=100\n" \
+        "; Per-channel gamma, 10-500, 100 = unchanged. Unlike the fixed\n" \
+        "; gamma= list above (8 preset curves, shared across all 3\n" \
+        "; channels), these accept ANY value in range and are independent\n" \
+        "; per channel. Applied PER SAMPLE PIXEL before zone-averaging,\n" \
+        "; not to the already-averaged zone color -- matches how the\n" \
+        "; Android version does it, and avoids a single stray bright\n" \
+        "; pixel in an otherwise-dark zone getting averaged in BEFORE\n" \
+        "; being gamma-crushed.\n" \
+        "gamma_r=100\n" \
+        "gamma_g=100\n" \
+        "gamma_b=100\n" \
         "\n" \
         "[timing]\n" \
         "; How many times per second to sample and send color.\n" \
@@ -438,7 +568,12 @@ static void ambient_load_config(void)
 {
     if (!ambient_file_exists(AMBIENT_CONFIG_PATH)) {
         ambient_create_default_config();
-        return; // g_config's compile-time defaults (== v1.3 behavior) stand
+        ambient_rebuild_perchannel_gamma_luts(); // g_gammaLut{R,G,B} are static, zero-init by
+                                                  // default -- MUST build the identity LUTs here
+                                                  // too, or defaults (gammaR/G/B=100, meant to be
+                                                  // a no-op) would silently crush every sample to
+                                                  // black instead.
+        return; // g_config's compile-time defaults (== v1.3 behavior) stand otherwise
     }
 
     ini_table_s *table = ini_table_create();
@@ -492,6 +627,25 @@ static void ambient_load_config(void)
         g_config.whiteLevel = (uint32_t)iv;
     if (ini_table_get_entry_as_int(table, "color", "dark_threshold", &iv) && iv >= 0 && iv <= 255)
         g_config.darkThreshold = (uint32_t)iv;
+
+    // v2.2: Android-ported per-channel color knobs (see AmbientConfig
+    // struct comment for why these use a different 0-neutral-point
+    // convention than the fields just above).
+    if (ini_table_get_entry_as_int(table, "color", "contrast", &iv) && iv >= -100 && iv <= 300)
+        g_config.contrast = iv;
+    if (ini_table_get_entry_as_int(table, "color", "brightness_r", &iv) && iv >= 0 && iv <= 500)
+        g_config.brightnessR = (uint32_t)iv;
+    if (ini_table_get_entry_as_int(table, "color", "brightness_g", &iv) && iv >= 0 && iv <= 500)
+        g_config.brightnessG = (uint32_t)iv;
+    if (ini_table_get_entry_as_int(table, "color", "brightness_b", &iv) && iv >= 0 && iv <= 500)
+        g_config.brightnessB = (uint32_t)iv;
+    if (ini_table_get_entry_as_int(table, "color", "gamma_r", &iv) && iv >= 10 && iv <= 500)
+        g_config.gammaR = (uint32_t)iv;
+    if (ini_table_get_entry_as_int(table, "color", "gamma_g", &iv) && iv >= 10 && iv <= 500)
+        g_config.gammaG = (uint32_t)iv;
+    if (ini_table_get_entry_as_int(table, "color", "gamma_b", &iv) && iv >= 10 && iv <= 500)
+        g_config.gammaB = (uint32_t)iv;
+    ambient_rebuild_perchannel_gamma_luts();
 
     if (ini_table_get_entry_as_int(table, "timing", "update_frequency_hz", &iv) && iv > 0 && iv <= 240)
         g_config.updateFrequencyHz = (uint32_t)iv;
@@ -568,8 +722,16 @@ static void debug_send_raw(const uint8_t *data, int len)
         return;
     }
 
-    uint8_t packet[DDP_HEADER_SIZE + 64];
-    if (len > 64) len = 64;
+    // BUGFIX (found via disassembly of a real deployed .prx, not source
+    // inspection alone -- the compiled binary's call site correctly passed
+    // 68 for the config-reload packet, but this cap silently truncated it
+    // to 64 before it ever hit the wire, dropping exactly the last_hash
+    // field added in v2.1.5). This cap predates that packet's growth past
+    // 64 bytes and was never updated to match. Raised with headroom rather
+    // than tuned to exactly 68, so the next packet that grows a few bytes
+    // doesn't silently reintroduce the same class of bug.
+    uint8_t packet[DDP_HEADER_SIZE + 128];
+    if (len > 128) len = 128;
     packet[0] = 0x40 | 0x01;
     packet[1] = 0;
     packet[2] = 0x0B;
@@ -1514,7 +1676,15 @@ static void sampleZoneAverage(const TileParams *p, uint64_t bufferAddr, PixelUnp
     // ZONE_SAMPLE_RADIUS #define). int32_t cast since scanDepth is
     // unsigned but used in a signed loop range below.
     int32_t radius = (int32_t)g_config.scanDepth;
-    uint32_t sumR = 0, sumG = 0, sumB = 0, n = 0;
+    // v2.2: float accumulators, not uint32_t -- the per-sample gamma
+    // LUTs (g_gammaLutR/G/B) now return unclamped/unrounded float, so
+    // rounding each sample to a byte before summing would reintroduce
+    // exactly the precision loss this change is meant to avoid. This
+    // only touches (2*radius+1)^2 samples per zone -- basic float
+    // add/multiply, no libm -- so it's the same cost class as the
+    // uint32_t version it replaces.
+    float sumR = 0.0f, sumG = 0.0f, sumB = 0.0f;
+    uint32_t n = 0;
     for (int32_t dy = -radius; dy <= radius; dy++) {
         for (int32_t dx = -radius; dx <= radius; dx++) {
             int32_t sx = (int32_t)cx + dx;
@@ -1532,43 +1702,121 @@ static void sampleZoneAverage(const TileParams *p, uint64_t bufferAddr, PixelUnp
             memcpy(&px, (const void*)(bufferAddr + off), 4);
             uint8_t r, g, b;
             unpack(px, &r, &g, &b);
-            sumR += r; sumG += g; sumB += b; n++;
+            // v2.2: per-channel gamma (gamma_r/g/b) applied to THIS
+            // sample now, before it's folded into the zone sum --
+            // see the big comment above applyColorProcessing for why
+            // this one specific step moved here instead of staying in
+            // the post-average pipeline like everything else.
+            sumR += g_gammaLutR[r];
+            sumG += g_gammaLutG[g];
+            sumB += g_gammaLutB[b];
+            n++;
         }
     }
     if (n == 0) n = 1;
-    *outR = (uint8_t)(sumR / n);
-    *outG = (uint8_t)(sumG / n);
-    *outB = (uint8_t)(sumB / n);
+    float avgR = sumR / (float)n, avgG = sumG / (float)n, avgB = sumB / (float)n;
+    // This IS the one deliberate round-to-byte boundary in the whole
+    // v2.2 pipeline before the final output: the legacy post-average
+    // stages (applyColorProcessing) take uint8_t in/out to stay a
+    // drop-in match for the pre-v2.2 function signature and call
+    // site. Everything from here through applyColorProcessing's
+    // internals is unclamped int32_t, with only ONE more round+clamp
+    // at the very end -- see that function.
+    #define CLAMPF(v) ((v) < 0.0f ? 0.0f : ((v) > 255.0f ? 255.0f : (v)))
+    *outR = (uint8_t)(CLAMPF(avgR) + 0.5f);
+    *outG = (uint8_t)(CLAMPF(avgG) + 0.5f);
+    *outB = (uint8_t)(CLAMPF(avgB) + 0.5f);
+    #undef CLAMPF
 }
 
 // ============================================================
-// v2.0 color processing: gamma -> saturation -> brightness -> color
-// order, applied once per zone AFTER averaging (not per-sample --
-// cheaper, and averaging first then correcting is the same order the
-// Android inspiration project uses). No libm anywhere in this path:
-// gamma is a LUT lookup (kGammaLuts, generated offline -- see the top
-// of this file), saturation is pure integer math (verified in Python
-// before porting, handoff §43), brightness is a plain integer scale.
+// v2.2 color processing (see handoff §49): gamma -> brightness ->
+// contrast -> saturation -> levels -> color order. Most of this is
+// still applied once per zone AFTER averaging, for the same
+// cheapness argument as before -- EXCEPT the new per-channel
+// gamma_r/g/b, which is applied per-sample BEFORE averaging (see
+// sampleZoneAverage), because gamma is non-linear and this project's
+// own comment claiming "averaging first then correcting matches the
+// Android inspiration project" was simply wrong -- the real Android
+// source (ColorProcessor.kt, called from e.g. ScreenEncoder before
+// any zone/border cropping) corrects every pixel first, then
+// averages. That distinction is invisible for linear ops (brightness,
+// levels) but real for gamma, so only gamma moved.
+//
+// No libm anywhere in this path: the legacy global gamma is a LUT
+// lookup (kGammaLuts, generated offline), the new per-channel gammas
+// are LUTs too (g_gammaLutR/G/B, built from a libm-free fast-pow
+// approximation at config load -- see ambient_rebuild_perchannel_
+// gamma_luts above), saturation/contrast are pure integer math
+// (verified in Python before porting), brightness is a plain integer
+// scale.
 // ============================================================
 
-static uint8_t applyBrightness(uint8_t c, uint32_t brightness)
+// ------------------------------------------------------------
+// v2.2: brightness/contrast/saturation below all take and return
+// UNCLAMPED int32_t, not uint8_t, and NONE of them clamp to 0-255
+// internally. This matters, and isn't just a style choice: Android's
+// ColorProcessor.kt keeps every intermediate value as an unclamped
+// Float and only clamps+rounds once, at the very end of the whole
+// pipeline. Clamping to a byte between every stage (the v2.0/v2.1
+// behavior) throws away sign/overflow information that a LATER,
+// luma-relative stage (saturation) actually needs -- e.g. a channel
+// that contrast pushed to -37 is meaningfully different input to
+// saturation's luma math than a channel clamped to 0 first. Verified
+// in Python before porting: on ordinary test inputs this produced
+// final answers up to ~13/255 away from Android's real result, not
+// mere rounding noise (handoff §49). The only clamp+round in this
+// whole chain is in applyColorProcessing, right before the wire-order
+// write.
+// ------------------------------------------------------------
+
+static int32_t applyBrightness(int32_t c, uint32_t brightness)
 {
-    return (uint8_t)(((uint32_t)c * brightness) / 255);
+    return (c * (int32_t)brightness) / 255;
 }
 
-static void applySaturation(uint8_t r, uint8_t g, uint8_t b, int32_t sat,
-                             uint8_t *outR, uint8_t *outG, uint8_t *outB)
+// v2.2: per-channel brightness multiplier, ported from Android's
+// (brightness/100) * (brightnessChannel/100) combined factor. Kept as
+// its own integer scale (0-500, 100=neutral) separate from the 0-255
+// global `applyBrightness` above rather than trying to unify the two
+// scales -- see the AmbientConfig struct comment for why.
+static int32_t applyChannelBrightnessPct(int32_t c, uint32_t pct)
+{
+    if (pct == 100) return c; // no-op fast path
+    return (c * (int32_t)pct) / 100;
+}
+
+// v2.2: contrast, ported from Android's `128 + (c-128)*cf` with
+// cf = 1 + contrast/100. Uses this file's usual "0 = unchanged"
+// convention (same as saturation), NOT Android's raw "100 = unchanged"
+// percentage -- see the AmbientConfig struct comment.
+static void applyContrast(int32_t r, int32_t g, int32_t b, int32_t contrast,
+                           int32_t *outR, int32_t *outG, int32_t *outB)
+{
+    if (contrast == 0) { *outR = r; *outG = g; *outB = b; return; }
+    *outR = 128 + ((r - 128) * (100 + contrast)) / 100;
+    *outG = 128 + ((g - 128) * (100 + contrast)) / 100;
+    *outB = 128 + ((b - 128) * (100 + contrast)) / 100;
+}
+
+// v2.2: input/output are unclamped int32_t now (see the big comment
+// above applyBrightness) -- a channel that arrived negative (from
+// contrast) or >255 (from a >100% per-channel brightness) still needs
+// to pull the luma calculation in that same, un-clamped direction, or
+// this stage disagrees with what Android's real float math does.
+static void applySaturation(int32_t r, int32_t g, int32_t b, int32_t sat,
+                             int32_t *outR, int32_t *outG, int32_t *outB)
 {
     if (sat == 0) { *outR = r; *outG = g; *outB = b; return; }
-    // Integer luma (BT.601-ish weights, >>8 to avoid floats) then move
-    // each channel toward/away from it by (100+sat)/100.
-    int32_t luma = ((int32_t)r * 77 + (int32_t)g * 151 + (int32_t)b * 28) >> 8;
-    int32_t rr = luma + (((int32_t)r - luma) * (100 + sat)) / 100;
-    int32_t gg = luma + (((int32_t)g - luma) * (100 + sat)) / 100;
-    int32_t bb = luma + (((int32_t)b - luma) * (100 + sat)) / 100;
-    *outR = (uint8_t)(rr < 0 ? 0 : (rr > 255 ? 255 : rr));
-    *outG = (uint8_t)(gg < 0 ? 0 : (gg > 255 ? 255 : gg));
-    *outB = (uint8_t)(bb < 0 ? 0 : (bb > 255 ? 255 : bb));
+    // Integer luma using the real BT.601 weights (Android uses
+    // 0.299/0.587/0.114 as floats; /1000 here instead of the old
+    // >>8-and-round-to-256ths approximation, now that this whole path
+    // carries enough precision to make the more exact weights worth
+    // using -- see handoff §49).
+    int32_t luma = (r * 299 + g * 587 + b * 114) / 1000;
+    *outR = luma + ((r - luma) * (100 + sat)) / 100;
+    *outG = luma + ((g - luma) * (100 + sat)) / 100;
+    *outB = luma + ((b - luma) * (100 + sat)) / 100;
 }
 
 // Writes the 3 output bytes in the configured wire order (most
@@ -1586,46 +1834,95 @@ static void writeColorOrdered(uint8_t r, uint8_t g, uint8_t b, ColorOrder order,
     }
 }
 
-// v2.1: levels adjustment (black_level/white_level) -- a "stretch" of
-// the 0-255 range, verified in Python before porting (handoff §45).
-// Applied last in the color pipeline, matching the Android inspiration
-// project's own ColorProcessor order (gamma -> brightness -> saturation
-// -> levels).
-static void applyLevels(uint8_t r, uint8_t g, uint8_t b, uint32_t blackLevel, uint32_t whiteLevel,
+// v2.1/v2.2: levels adjustment (black_level/white_level) -- a
+// "stretch" of the 0-255 range, verified in Python before porting
+// (handoff §45). Applied last in the color pipeline, matching the
+// real Android ColorProcessor order (gamma -> brightness -> contrast
+// -> saturation -> levels).
+//
+// This is now ALSO the single final clamp-to-byte for the entire
+// v2.2 pipeline (see the big comment above applyBrightness) -- input
+// here may be negative or >255 coming out of contrast/saturation, so
+// even the "no-op" (blackLevel=0, whiteLevel=100) fast path below
+// must still clamp, not just pass through, or an out-of-range
+// unclamped value would wrap/truncate incorrectly when cast to
+// uint8_t by the caller.
+static void applyLevels(int32_t r, int32_t g, int32_t b, uint32_t blackLevel, uint32_t whiteLevel,
                          uint8_t *outR, uint8_t *outG, uint8_t *outB)
 {
-    if (blackLevel == 0 && whiteLevel == 100) { *outR = r; *outG = g; *outB = b; return; } // no-op fast path
+    #define CLAMP255(c) (uint8_t)((c) < 0 ? 0 : ((c) > 255 ? 255 : (c)))
+    if (blackLevel == 0 && whiteLevel == 100) {
+        *outR = CLAMP255(r); *outG = CLAMP255(g); *outB = CLAMP255(b);
+        return;
+    }
     int32_t blackThresh = (int32_t)(blackLevel * 255 / 100);
     int32_t whiteThresh = (int32_t)(whiteLevel * 255 / 100);
     int32_t range = whiteThresh - blackThresh;
     if (range <= 0) { *outR = 0; *outG = 0; *outB = 0; return; } // degenerate config -- fail to black, not undefined
-    #define STRETCH(c) (uint8_t)(((c) < blackThresh) ? 0 : ((c) >= whiteThresh) ? 255 : \
-                                  (((int32_t)(c) - blackThresh) * 255) / range)
+    #define STRETCH(c) CLAMP255(((c) < blackThresh) ? 0 : ((c) >= whiteThresh) ? 255 : \
+                                  (((c) - blackThresh) * 255) / range)
     *outR = STRETCH(r);
     *outG = STRETCH(g);
     *outB = STRETCH(b);
     #undef STRETCH
+    #undef CLAMP255
 }
 
-// Full per-zone pipeline: raw averaged RGB -> gamma -> saturation ->
-// brightness -> levels (black/white point) -> wire-order bytes. Called
-// once per zone per send. dark_threshold is deliberately NOT applied
-// here -- it needs per-zone hysteresis STATE across calls, which lives
-// with the smoothing state in the thread loop instead (handoff §45).
-static void applyColorProcessing(uint8_t r, uint8_t g, uint8_t b, uint8_t *out3)
+// Full per-zone pipeline, v2.2 order -- now matches the Android source
+// exactly: gamma -> brightness -> contrast -> saturation -> levels
+// (black/white point) -> wire-order bytes. (v2.0/v2.1 had saturation
+// BEFORE brightness, contradicting this file's own comment about
+// matching Android -- see handoff §49. Harmless while brightness was
+// only ever a single uniform scalar, since a uniform scale commutes
+// with saturation's luma-relative math either way, but it stops being
+// harmless the moment per-channel brightness enters the picture below,
+// so it's fixed here rather than left as a latent trap.)
+//
+// Note the input (r,g,b) here has ALREADY had the new per-channel
+// gamma_r/gamma_g/gamma_b applied, per-sample, before zone-averaging
+// (see sampleZoneAverage) -- that part deliberately happens BEFORE
+// this function, not in it, because gamma is non-linear and Android
+// applies it before any downsampling too. The legacy fixed-LUT
+// `gamma=` global below is a SEPARATE, ADDITIONAL curve applied here,
+// zone-wide, after averaging -- kept for backward compatibility with
+// existing configs. Both default to a no-op, so an unmodified ini
+// still behaves exactly like before.
+//
+// dark_threshold is deliberately NOT applied here -- it needs
+// per-zone hysteresis STATE across calls, which lives with the
+// smoothing state in the thread loop instead (handoff §45).
+static void applyColorProcessing(uint8_t r8, uint8_t g8, uint8_t b8, uint8_t *out3)
 {
+    // --- gamma (legacy global fixed-LUT stage; per-channel gamma_r/g/b
+    // already happened per-sample before this call). This is the one
+    // remaining byte-rounding step before the pipeline goes fully
+    // unclamped int32_t below -- see the struct comment on why the
+    // legacy uint8_t LUT itself wasn't also upgraded to float. ---
     uint32_t gi = g_config.gammaLutIndex < NUM_GAMMA_LUTS ? g_config.gammaLutIndex : 0;
-    r = kGammaLuts[gi][r];
-    g = kGammaLuts[gi][g];
-    b = kGammaLuts[gi][b];
+    int32_t r = kGammaLuts[gi][r8];
+    int32_t g = kGammaLuts[gi][g8];
+    int32_t b = kGammaLuts[gi][b8];
 
-    uint8_t sr, sg, sb;
-    applySaturation(r, g, b, g_config.saturation, &sr, &sg, &sb);
+    // --- brightness: global (0-255 scale) then per-channel (Android's
+    // 0-500pct scale) on top of it. Unclamped from here on. ---
+    r = applyBrightness(r, g_config.brightness);
+    g = applyBrightness(g, g_config.brightness);
+    b = applyBrightness(b, g_config.brightness);
+    r = applyChannelBrightnessPct(r, g_config.brightnessR);
+    g = applyChannelBrightnessPct(g, g_config.brightnessG);
+    b = applyChannelBrightnessPct(b, g_config.brightnessB);
 
-    sr = applyBrightness(sr, g_config.brightness);
-    sg = applyBrightness(sg, g_config.brightness);
-    sb = applyBrightness(sb, g_config.brightness);
+    // --- contrast ---
+    int32_t cr, cg, cb;
+    applyContrast(r, g, b, g_config.contrast, &cr, &cg, &cb);
 
+    // --- saturation ---
+    int32_t sr, sg, sb;
+    applySaturation(cr, cg, cb, g_config.saturation, &sr, &sg, &sb);
+
+    // --- levels (black/white point) -- the ONE clamp+round back to a
+    // byte for this whole unclamped chain, matching Android's own
+    // single final clamp+round. ---
     uint8_t lr, lg, lb;
     applyLevels(sr, sg, sb, g_config.blackLevel, g_config.whiteLevel, &lr, &lg, &lb);
 
@@ -1636,7 +1933,7 @@ static void applyColorProcessing(uint8_t r, uint8_t g, uint8_t b, uint8_t *out3)
 attr_public const char *g_pluginName = "ps4_ambient_light";
 attr_public const char *g_pluginDesc = "Live per-frame ambient light: detiles the real scanout buffer and streams zone colors to WLED";
 attr_public const char *g_pluginAuth = "(null)";
-attr_public uint32_t g_pluginVersion = 0x00000206; // v2.1.5: BUGFIX -- real-hardware capture with v2.1.4 confirmed the size signal itself now works (cur_size/last_size both read a real, stable 2809 matching the actual file, no longer the fixed bogus 8), but live reload STILL didn't fire on a real edit (RGB -> RBG in the config). Root cause is definitional, not a bug in the size-reading mechanism: that edit is a same-length in-place swap, so the file's byte count genuinely does not change, and a size-only comparison has no way to see a change that isn't a size change. Fixed by adding a content hash (FNV-1a/32, ambient_get_real_config_size_and_hash) read over the whole file via the same proven sceKernelOpen/Lseek/Read path, compared alongside size -- either differing now triggers reload. Packet grows from 60 to 68 bytes (two new 4-byte fields, cur_hash/last_hash, appended after content_preview) rather than reusing/resizing any existing field, so old 60-byte captures still decode unambiguously as the v2.1.3/v2.1.4 format. Confirmed on real hardware: live reload now fires correctly, including on the exact same-length edit that v2.1.4 alone missed.
+attr_public uint32_t g_pluginVersion = 0x00000207; // v2.2: ported the Android ("Universal Ambient Light") sister project's own ColorProcessor.kt -- contrast, independent per-channel brightness (brightness_r/g/b) and gamma (gamma_r/g/b) knobs, and two real fixes found while porting rather than assumed: (1) the v2.0/v2.1 pipeline ran saturation BEFORE brightness, contradicting this file's own comment claiming it matched Android's order -- fixed to gamma->brightness->contrast->saturation->levels, the real order confirmed by reading ColorProcessor.kt directly; (2) per-channel gamma is applied PER SAMPLE PIXEL, before zone-averaging (see sampleZoneAverage), not to the already-averaged zone color like every other knob here -- confirmed by tracing Android's ScreenEncoder.kt, which corrects the whole captured buffer before it's ever cropped into zones. Also fixes a latent precision bug this port would otherwise have introduced: every stage from brightness onward now carries unclamped int32_t (verified against a Python reimplementation of Android's real float math on 500 randomized cases -- clamping each stage to a byte, as v2.0/v2.1's saturation/levels functions did, threw away sign information a later luma-relative stage needed, producing answers up to 165/255 off; unclamped brings that to <=8/255, in line with ordinary fixed-point rounding). No libm anywhere in this: the new arbitrary-percentage per-channel gamma LUTs are built once at config load using a bit-trick fast-log2/exp2 approximation (verified in Python against real pow(), exact match across the dark end that matters for the black-crush issue, +-1/255 elsewhere), not a runtime pow() call. NOT verified on real hardware by this session -- only compiled and numerically fuzz-tested in isolation with plain gcc, since no PS4 toolchain was available. See ps4-ambient-light-handoff-v18.md for the session's full account of what was and wasn't verified.
 
 int32_t (*sceVideoOutRegisterBuffersPtr)(int32_t handle, int32_t startIndex,
                                           void *const *addresses, int32_t bufferNum,
