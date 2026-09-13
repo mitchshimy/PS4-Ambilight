@@ -37,6 +37,15 @@ one per ~1s window of ambient_sample_thread's own loop time (handoff
 iterations in that window exceeded the ~30Hz budget. Also distinguished
 purely by length -- paste these into PAYLOADS alongside everything else.
 
+ps4_ambient_light.prx v2.1.2 also emits a 44-byte config-reload
+diagnostic packet, one per ambient_check_config_reload() call, added
+because the v2.1.1 mtime-sentinel fix didn't make live reload work on
+real hardware. Reports which branch that function took (disabled /
+stat() failed / baseline established / no change / change detected),
+the full 64-bit mtime and size values it compared, and a running call
+count -- so a capture shows exactly where reload is getting stuck
+instead of guessing again. Also distinguished purely by length.
+
 WHAT'S NEW IN v3
 ----------------
 Previously this script always unpacked the 4 raw pixel bytes as
@@ -320,14 +329,86 @@ def decode_timing_packet(data: bytes):
     }
 
 
+_CONFIG_RELOAD_EVENT_NAMES = {
+    0: "disabled (configReloadCheckSeconds == 0)",
+    1: "stat() FAILED",
+    2: "baseline established",
+    3: "checked, no change",
+    4: "CHANGE DETECTED -- reload triggered",
+}
+
+
+def decode_config_reload_debug_packet(data: bytes):
+    """v2.1.2 ps4_ambient_light diagnostic packet (44 bytes) -- one per
+    ambient_check_config_reload() call, reporting which branch it took.
+    mtime/size are full 64-bit (not truncated) since the bug being
+    chased is specifically about mtime edge cases. See
+    send_config_reload_debug_packet in main.c for the exact layout."""
+    event, stat_errno = struct.unpack("<II", data[0:8])
+    cur_mtime, last_mtime, cur_size, last_size = struct.unpack("<QQQQ", data[8:40])
+    check_count = struct.unpack("<I", data[40:44])[0]
+    return {
+        "kind": "config_reload",
+        "event": event,
+        "event_name": _CONFIG_RELOAD_EVENT_NAMES.get(event, f"?unknown ({event})"),
+        "stat_errno": stat_errno,
+        "cur_mtime": cur_mtime,
+        "last_mtime": last_mtime,
+        "cur_size": cur_size,
+        "last_size": last_size,
+        "check_count": check_count,
+    }
+
+
+def decode_config_reload_debug_packet_v2(data: bytes):
+    """v2.1.3 ps4_ambient_light diagnostic packet (60 bytes) -- same as
+    the 44-byte v2.1.2 packet above, plus a 16-byte raw content preview
+    of whatever AMBIENT_CONFIG_PATH resolves to from the plugin's own
+    point of view (bytes [44:60]). Zero bytes here mean either a
+    genuinely zero-filled file OR that the plugin's own open/read of
+    that path failed -- check event/stat_errno to disambiguate. See
+    ambient_read_content_preview/send_config_reload_debug_packet in
+    main.c for the exact layout."""
+    base = decode_config_reload_debug_packet(data[0:44])
+    preview = data[44:60]
+    base["content_preview_hex"] = preview.hex()
+    # Non-printable bytes shown as '.', like a standard hex-dump ASCII gutter.
+    base["content_preview_ascii"] = "".join(
+        chr(b) if 32 <= b < 127 else "." for b in preview
+    )
+    return base
+
+
+def decode_config_reload_debug_packet_v3(data: bytes):
+    """v2.1.5 ps4_ambient_light diagnostic packet (68 bytes) -- same as
+    the 60-byte v2.1.3/v2.1.4 packet above, plus an 8-byte FNV-1a/32
+    content hash pair (bytes [60:68]: cur_hash, last_hash), added
+    because size alone can't detect a same-length edit (confirmed on
+    hardware: an RGB->RBG swap left cur_size/last_size both correct and
+    stable but never differing). See
+    ambient_get_real_config_size_and_hash/send_config_reload_debug_packet
+    in main.c for the exact layout."""
+    base = decode_config_reload_debug_packet_v2(data[0:60])
+    cur_hash, last_hash = struct.unpack("<II", data[60:68])
+    base["cur_hash"] = cur_hash
+    base["last_hash"] = last_hash
+    return base
+
+
 def decode_packet(hexstr: str):
     data = bytes.fromhex(hexstr.strip())
+    if len(data) == 68:
+        return decode_config_reload_debug_packet_v3(data)
+    if len(data) == 60:
+        return decode_config_reload_debug_packet_v2(data)
+    if len(data) == 44:
+        return decode_config_reload_debug_packet(data)
     if len(data) == 32:
         return decode_registration_packet(data)
     if len(data) == 24:
         return decode_timing_packet(data)
     if len(data) < 10:
-        raise ValueError(f"packet too short: {len(data)} bytes, need 10, 11, 24, or 32")
+        raise ValueError(f"packet too short: {len(data)} bytes, need 10, 11, 24, 32, 44, 60, or 68")
     return decode_pixel_packet_raw(data)
 
 
@@ -357,7 +438,58 @@ def main(payloads):
                          key=lambda r: r["call_idx"])
     timing_events = sorted([r for r in all_results if r["kind"] == "timing"],
                             key=lambda r: r["window_id"])
+    config_events = sorted([r for r in all_results if r["kind"] == "config_reload"],
+                            key=lambda r: r["check_count"])
     results = [r for r in all_results if r["kind"] == "pixel"]
+
+    if config_events:
+        has_preview = any("content_preview_hex" in c for c in config_events)
+        label = "v2.1.3" if has_preview else "v2.1.2"
+        print(f"{len(config_events)} config-reload check(s) captured ({label} diagnostic):")
+        header = (f"{'call#':>5} {'event':<38} {'cur_mtime':>12} {'last_mtime':>12} "
+                  f"{'cur_size':>10} {'last_size':>10} {'errno':>6}")
+        if has_preview:
+            header += f"  {'content_preview (hex / ascii)':<40}"
+        print(header)
+        print("-" * (100 if not has_preview else 145))
+        for c in config_events:
+            line = (f"{c['check_count']:>5} {c['event_name']:<38} {c['cur_mtime']:>12} "
+                    f"{c['last_mtime']:>12} {c['cur_size']:>10} {c['last_size']:>10} "
+                    f"{c['stat_errno']:>6}")
+            if "content_preview_hex" in c:
+                line += f"  {c['content_preview_hex']} {c['content_preview_ascii']!r}"
+            print(line)
+        print()
+        counts = sorted(c["check_count"] for c in config_events)
+        if counts[0] > 1:
+            print(f"NOTE: first captured call# is {counts[0]}, not 1 -- earlier checks ran")
+            print("before this capture started, that's expected, not a problem.")
+        if len(counts) >= 2 and counts != list(range(counts[0], counts[0] + len(counts))):
+            print("WARNING: call# has gaps -- some checks weren't captured (packet loss or")
+            print("capture started/stopped mid-run), not necessarily a plugin problem.")
+        events_seen = {c["event"] for c in config_events}
+        if events_seen == {0}:
+            print("ALL captured checks show event 0 (disabled) -- configReloadCheckSeconds")
+            print("is 0 in the currently-loaded config, so the reload check never runs at")
+            print("all. Check the ini value and whether THIS binary actually re-read it.")
+        elif 1 in events_seen:
+            print("At least one stat() FAILURE was captured -- check the errno column above")
+            print("against errno.h on the PS4 toolchain (e.g. 2=ENOENT, 13=EACCES) to see")
+            print("whether AMBIENT_CONFIG_PATH (/data/ps4_ambient_light.ini) is even the file")
+            print("being edited, or a permissions issue.")
+        elif 4 not in events_seen and len(config_events) > 1:
+            print("No 'CHANGE DETECTED' event in this capture -- every check saw the SAME")
+            print("mtime/size as its own baseline. If you edited the ini between captures")
+            print("and cur_mtime/cur_size never moved between rows, the OS-level mtime on")
+            print("this filesystem may genuinely not be updating on save (worth testing by")
+            print("changing the file's SIZE, e.g. adding a comment line, since size is the")
+            print("independent fallback signal here).")
+        else:
+            print("At least one 'CHANGE DETECTED' event was captured -- live reload IS")
+            print("firing at the check/detection level. If the light still doesn't visibly")
+            print("update, the remaining bug is downstream of this function (e.g. in")
+            print("ambient_load_config()/buildZoneGeometry(), not in change detection).")
+        print()
 
     if timing_events:
         print(f"{len(timing_events)} ambient_sample_thread timing window(s) captured "
