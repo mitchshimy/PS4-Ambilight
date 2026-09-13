@@ -253,7 +253,7 @@ typedef struct {
     // [color]
     uint32_t brightness;        // 0-255 global scale, applied after gamma
     uint32_t gammaLutIndex;     // index into kGammaLuts -- see NUM_GAMMA_LUTS below
-    int32_t saturation;         // -100 (grayscale) .. 0 (unchanged) .. 100 (2x boost)
+    int32_t saturation;         // -100 (grayscale) .. 0 (unchanged) .. 300 (4x boost, mostly clipped by then)
     ColorOrder colorOrder;
     uint32_t blackLevel;        // v2.1: 0-100, percent of 255 below which output clips to 0
     uint32_t whiteLevel;        // v2.1: 0-100, percent of 255 at/above which output clips to 255 (100 = no change)
@@ -345,7 +345,10 @@ static void ambient_create_default_config(void)
         "; Must be exactly one of: 1.0 1.4 1.8 2.0 2.2 2.4 2.6 2.8\n" \
         "; (precomputed lookup tables -- no other value is accepted).\n" \
         "gamma=1.0\n" \
-        "; -100 (grayscale) to 100 (2x color boost). 0 = unchanged.\n" \
+        "; -100 (grayscale) to 300 (4x color boost, mostly clipped by\n" \
+        "; then -- verified overflow-safe well beyond this, the cap is\n" \
+        "; just where it stops looking meaningfully different).\n" \
+        "; 0 = unchanged.\n" \
         "saturation=0\n" \
         "; Match your strip's actual wiring. Valid values: RGB, RBG,\n" \
         "; GRB, GBR, BRG, BGR. Most WS2812B/NeoPixel strips are GRB.\n" \
@@ -478,7 +481,7 @@ static void ambient_load_config(void)
     if (ini_table_get_entry_as_int(table, "color", "brightness", &iv) && iv >= 0 && iv <= 255)
         g_config.brightness = (uint32_t)iv;
     g_config.gammaLutIndex = parse_gamma_index(ini_table_get_entry(table, "color", "gamma"), g_config.gammaLutIndex);
-    if (ini_table_get_entry_as_int(table, "color", "saturation", &iv) && iv >= -100 && iv <= 100)
+    if (ini_table_get_entry_as_int(table, "color", "saturation", &iv) && iv >= -100 && iv <= 300)
         g_config.saturation = iv;
     g_config.colorOrder = parse_color_order(ini_table_get_entry(table, "color", "color_order"), g_config.colorOrder);
     if (ini_table_get_entry_as_int(table, "color", "black_level", &iv) && iv >= 0 && iv <= 100)
@@ -1528,7 +1531,7 @@ static void applyColorProcessing(uint8_t r, uint8_t g, uint8_t b, uint8_t *out3)
 attr_public const char *g_pluginName = "ps4_ambient_light";
 attr_public const char *g_pluginDesc = "Live per-frame ambient light: detiles the real scanout buffer and streams zone colors to WLED";
 attr_public const char *g_pluginAuth = "(null)";
-attr_public uint32_t g_pluginVersion = 0x00000201; // v2.1: adds black_level/white_level (levels stretch), dark_threshold (per-zone hysteresis cutoff to full black), and config_reload_check_seconds (re-reads the ini file WHILE RUNNING, no restart needed) -- see handoff §45. All three default to a no-op/disabled, reproducing v2.0 behavior unchanged unless a user opts in.
+attr_public uint32_t g_pluginVersion = 0x00000202; // v2.1.1: BUGFIX -- live config reload never fired on real hardware (handoff §46). Root cause: the mtime-tracking sentinel used 0 as "not yet checked", which collides with a legitimate (or platform-broken) mtime of 0 and gets stuck forever. Fixed with a real boolean flag + file-size as a second change signal. Also raises the saturation cap from 100 to 300 (verified overflow-safe).
 
 int32_t (*sceVideoOutRegisterBuffersPtr)(int32_t handle, int32_t startIndex,
                                           void *const *addresses, int32_t bufferNum,
@@ -1681,15 +1684,43 @@ static void applyDarkThreshold(uint32_t zoneIdx, uint8_t *r, uint8_t *g, uint8_t
 // buildZoneGeometry() call happens before this thread is even spawned,
 // and the flip hook only ever touches g_currentDisplayBufferIndex, not
 // any of this state (handoff §45).
+// v2.1.1 BUGFIX (real hardware confirmed live reload never fired --
+// see handoff §46): the original version used g_configLastMtime==0 as
+// its own "not yet initialized" sentinel. That's a real, fatal design
+// flaw independent of any PS4-specific quirk: 0 is also a value
+// st_mtime could legitimately have (unpopulated/unsupported on this
+// filesystem, or just a coincidence). If st_mtime is ever actually 0,
+// this check would conclude "still establishing baseline" FOREVER,
+// on every single call, and reload would silently never fire again --
+// exactly the symptom reported. Fixed with a separate boolean flag so
+// the sentinel state can never collide with a real mtime value.
+//
+// Also now tracks file SIZE alongside mtime and reloads if EITHER
+// changed -- not because mtime is confirmed broken on this platform
+// (not verified from here), but because this is cheap insurance
+// against exactly that class of platform-level uncertainty, and this
+// project has already spent one whole session finding out an
+// assumption about low-level platform behavior was wrong (§17-22).
+static bool g_haveConfigBaseline = false;
 static time_t g_configLastMtime = 0;
+static off_t g_configLastSize = 0;
+
 static void ambient_check_config_reload(void)
 {
     if (g_config.configReloadCheckSeconds == 0) return;
     struct stat st;
     if (stat(AMBIENT_CONFIG_PATH, &st) != 0) return; // file gone/unreadable -- keep running on current config
-    if (g_configLastMtime == 0) { g_configLastMtime = st.st_mtime; return; } // first check just establishes a baseline
-    if (st.st_mtime == g_configLastMtime) return; // unchanged
+
+    if (!g_haveConfigBaseline) {
+        g_configLastMtime = st.st_mtime;
+        g_configLastSize = st.st_size;
+        g_haveConfigBaseline = true;
+        return; // first check just establishes a baseline, nothing to compare against yet
+    }
+    if (st.st_mtime == g_configLastMtime && st.st_size == g_configLastSize) return; // unchanged, by both signals
+
     g_configLastMtime = st.st_mtime;
+    g_configLastSize = st.st_size;
     ambient_load_config();  // re-reads the file; unset/removed keys keep their CURRENT g_config value, not the compiled default (see note below)
     buildZoneGeometry();    // layout settings may have changed -- rebuild g_zoneX/g_zoneY/g_numZones
     g_smoothedRgbValid = false; // avoid smoothing a hard cut between old and new zone counts/positions
