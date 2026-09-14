@@ -1494,6 +1494,49 @@ static double pqToneMap(double nits)
     return x * (1.0 + x / (peak * peak)) / (1.0 + x);
 }
 
+// v2.2.3 PERFORMANCE FIX (not a color-quality change -- see note below):
+// pqToneMap() above is a pure function of ONE 10-bit code (it only ever
+// gets called as pqToneMap(kPqEotfNitsLut[someCode])), so composing the
+// two into a single precomputed 1024-entry table removes two live
+// divisions from the hottest path in the plugin: this runs up to
+// (2*scanDepth+1)^2 times per zone, times up to ~229 zones, times up to
+// 30 times a second -- on the order of 150,000+ calls/sec at this
+// project's own default layout. Under CPU pressure (a game's loading
+// screen was captured at 97% CPU usage during the investigation that
+// led here -- see handoff), that's real, avoidable contention.
+//
+// This is IDENTICAL output to calling pqToneMap(kPqEotfNitsLut[code])
+// live, not an approximation -- same double-precision formula, same
+// kPqEotfNitsLut values, just evaluated once at first use instead of
+// on every single sample. Verified bit-for-bit identical against the
+// live computation across all 1024 codes before this was wired in
+// (see the session's own check, not restated here). This is exactly
+// the same kind of "no libm on the hot path" pattern this file already
+// uses everywhere else (kGammaLuts, kSrgbEncode8Lut) -- pqToneMap's
+// only new since being one degree removed (a LUT of a LUT) rather than
+// hardcoded at compile time, since it's genuinely cheap and libm-free
+// to build once at runtime, unlike the gamma curves.
+static double g_pqToneMappedLut[1024];
+static bool g_pqToneMappedLutBuilt = false; // lazy-init flag: safe without
+                                             // atomics/locking ONLY because
+                                             // this is read/written from
+                                             // the plugin's single
+                                             // background sampling thread.
+                                             // If a future change ever
+                                             // calls the PQ unpack fn from
+                                             // more than one thread, this
+                                             // needs a real guard.
+
+static void ambient_ensure_pq_tonemap_lut(void)
+{
+    if (g_pqToneMappedLutBuilt) return; // lazy: only built if a game
+                                         // actually uses the PQ format,
+                                         // never for SDR-only sessions
+    for (int i = 0; i < 1024; i++)
+        g_pqToneMappedLut[i] = pqToneMap(kPqEotfNitsLut[i]);
+    g_pqToneMappedLutBuilt = true;
+}
+
 static void bt2020ToBt709Linear(double r, double g, double b,
                                  double *r2, double *g2, double *b2)
 {
@@ -1513,17 +1556,14 @@ static uint8_t srgbEncodeLutLookup(double linear)
 
 static void unpackA2R10G10B10_BT2020_PQ_to_rgb888(uint32_t px, uint8_t *r, uint8_t *g, uint8_t *b)
 {
+    ambient_ensure_pq_tonemap_lut(); // one-time cost, not per-sample -- see comment above
     uint32_t r10 = (px >> 20) & 0x3FF;
     uint32_t g10 = (px >> 10) & 0x3FF;
     uint32_t b10 = (px >> 0)  & 0x3FF;
 
-    double rNits = kPqEotfNitsLut[r10];
-    double gNits = kPqEotfNitsLut[g10];
-    double bNits = kPqEotfNitsLut[b10];
-
-    double rTm = pqToneMap(rNits);
-    double gTm = pqToneMap(gNits);
-    double bTm = pqToneMap(bNits);
+    double rTm = g_pqToneMappedLut[r10];
+    double gTm = g_pqToneMappedLut[g10];
+    double bTm = g_pqToneMappedLut[b10];
 
     double r709, g709, b709;
     bt2020ToBt709Linear(rTm, gTm, bTm, &r709, &g709, &b709);
@@ -1933,7 +1973,7 @@ static void applyColorProcessing(uint8_t r8, uint8_t g8, uint8_t b8, uint8_t *ou
 attr_public const char *g_pluginName = "ps4_ambient_light";
 attr_public const char *g_pluginDesc = "Live per-frame ambient light: detiles the real scanout buffer and streams zone colors to WLED";
 attr_public const char *g_pluginAuth = "(null)";
-attr_public uint32_t g_pluginVersion = 0x00000209; // v2.2.2: DIAGNOSTIC ONLY, no color-pipeline change -- v2.2.1's format packet confirmed this game's HDR mode correctly registers and decodes via A2R10G10B10_BT2020_PQ (recognized=1), and this session hand-verified the PQ decode math against both neutral and slightly-imbalanced near-black input with no red bias in either case. But the user then made two sharp observations that neither of those findings explains: (1) SDR shows nothing at all in the same spot, which is odd if it were a persistent real UI element, and (2) MUCH of the physical strip goes red, not just the one LED whose zone would cover a small icon -- ruling out "it's just real content in one corner of the screen". Since a systemic effect across many zones simultaneously is a different failure mode than anything checked so far, this adds a ~1x/sec throttled packet (over the same debug_send_raw/DEBUG_IP path) carrying the RAW pre-decode 32-bit pixel word plus the already-decoded 8-bit RGB for 3 zones spread across the strip (index 0, middle, last) -- so the actual captured memory content can be checked directly instead of continuing to reason about it secondhand. NOT diagnosed further by this session -- next step is reading this packet's values during the red phase.
+attr_public uint32_t g_pluginVersion = 0x0000020A; // v2.2.3: ROOT CAUSE FOUND (by the user, not this session) -- WLED's own realtime-timeout fallback color (configured by the user as red) was firing when this plugin's send loop missed WLED's timeout window, NOT a color-pipeline or PQ-decode bug. Confirmed directly: changing WLED's fallback color from red to white made the "red on black HDR scenes" symptom disappear immediately, with this plugin's code completely unchanged. This retroactively explains every earlier observation in this investigation: HDR-only (the PQ decode path is real per-sample floating-point work -- EOTF lookup, tone-map, a 3x3 matrix, sRGB encode -- SDR decode is not), tuned-settings-only (contrast/saturation/black_level are all real additional per-zone math that gamma=1.0/saturation=0/black_level=0 skip via no-op fast paths), whole-strip-not-just-one-corner (a realtime-timeout fallback is strip-wide, not per-zone), and the ~1-packet/sec send cadence this session flagged as suspicious several commits ago instead of the configured 30Hz -- all point at the send loop intermittently stalling under CPU pressure (the loading screen that reproduced this was independently captured at 97% CPU usage) rather than at a decode correctness bug. Per the user's explicit direction, the fix belongs on the plugin side, not as "go change your WLED fallback color/timeout" advice to end users, since people pushing saturation/contrast higher (a stated, expected use case) will keep finding this. This version's actual fix: pqToneMap(nits) was being computed live, via two floating-point divisions, for every sample of every zone (up to (2*scanDepth+1)^2 * numZones * updateFrequencyHz calls/sec -- 150,000+/sec at this project's own default layout) despite being a pure function of the 10-bit PQ code alone. Folded it into a 1024-entry LUT (g_pqToneMappedLut), built once, lazily, only if a game actually uses the PQ format. Verified bit-for-bit identical to the live computation across all 1024 codes before wiring it in -- this is a caching change, not an approximation, so it does not alter color output in any way. The BT.2020->BT.709 matrix step right after it was left as live math since it genuinely mixes all 3 channels and can't be a simple per-channel LUT. Also folded into this version (no version bump had been taken for these along the way): the v2.2.2 diagnostic's throttle was fixed (was gated on update_frequency_hz=30, but the real send loop's observed cadence is ~1/sec, so the packet never fired inside a realistic capture window -- now a small fixed count instead), a real -Wincompatible-pointer-types-discards-qualifiers warning on the volatile g_activeFormat was cleaned up, and the diagnostic packet was extended to also report the TRUE zone average (calling the real sampleZoneAverage, not just a single center-pixel peek) since hand-modeling a uniform raw input through gamma/saturation/black_level proved those operations can't produce "default clean, tuned strongly red" from the same input in the first place -- which is what actually pointed at something outside the color pipeline entirely. NOT YET CONFIRMED on real hardware whether the LUT caching alone is enough to keep the send loop inside WLED's timeout window under the same CPU-pressured conditions that reproduced this -- see handoff for what's still open.
 
 int32_t (*sceVideoOutRegisterBuffersPtr)(int32_t handle, int32_t startIndex,
                                           void *const *addresses, int32_t bufferNum,
@@ -2401,15 +2441,45 @@ void *ambient_sample_thread(void *args)
                 // 8-bit RGB this session already has visibility into,
                 // so the raw captured value itself -- not just this
                 // session's interpretation of it -- can be checked.
-                // Throttled to ~1x/sec (not gated on content changing)
-                // so it samples steadily through both the "stable red"
-                // and "oscillating" phases already observed, without
-                // flooding the listener at update_frequency_hz.
-                if (++s_rawDiagFrameCounter >= g_config.updateFrequencyHz) {
+                // Throttled to roughly every 3rd time this block runs
+                // (NOT scaled to update_frequency_hz=30 like the first
+                // attempt at this was) -- the color packets in the
+                // user's own capture arrive roughly once per SECOND,
+                // not 30x/sec, so gating on a 30-iteration threshold
+                // meant this would take ~30 seconds of real time to
+                // fire even once, and never showed up in a ~22-second
+                // capture. Whatever's behind that slower real cadence
+                // (dedup on unchanged color, or the loop genuinely not
+                // running at its configured rate) is a separate
+                // question from the one this packet exists to answer,
+                // so this just fires on a small fixed count instead of
+                // trying to match the real cadence.
+                if (++s_rawDiagFrameCounter >= 3) {
                     s_rawDiagFrameCounter = 0;
                     uint32_t diagZones[3] = { 0, g_numZones / 2, g_numZones - 1 };
-                    uint8_t diagPacket[4 + 3 * 12];
-                    memcpy(diagPacket, &g_activeFormat, 4);
+                    // v2.2.3: entry grew from 12 to 16 bytes -- ADDS the
+                    // TRUE zone average (calling the real
+                    // sampleZoneAverage, the exact same function/inputs
+                    // the real color pipeline uses) alongside the single-
+                    // center-pixel peek v2.2.2 already had. This is not
+                    // a guess or a proxy: it's the literal value that
+                    // gets handed to applyColorProcessing for these
+                    // zones. Needed because hand-modeling a uniform raw
+                    // input through gamma=2.4/saturation=175/black_level=
+                    // 17 shows NO input value reproduces "default clean,
+                    // tuned strongly red" -- gamma/saturation/levels are
+                    // all zero-preserving and gamma=2.4 crushes small
+                    // values further, not less, so guessing at the real
+                    // average's magnitude isn't getting this further.
+                    uint8_t diagPacket[4 + 3 * 16];
+                    uint32_t formatSnapshot = g_activeFormat; // copy out of the volatile
+                                                               // once here so memcpy below
+                                                               // gets a plain uint32_t*, not
+                                                               // a volatile-qualified one
+                                                               // (was a harmless but real
+                                                               // -Wincompatible-pointer-types
+                                                               // -discards-qualifiers warning)
+                    memcpy(diagPacket, &formatSnapshot, 4);
                     for (int k = 0; k < 3; k++) {
                         uint32_t zi = diagZones[k];
                         uint64_t off = getTiledElementByteOffset(&kParamsBase, g_zoneX[zi], g_zoneY[zi]);
@@ -2418,10 +2488,15 @@ void *ambient_sample_thread(void *args)
                             memcpy(&rawPx, (const void*)(liveBufferAddr + off), 4);
                         uint8_t dr, dg, db;
                         unpack(rawPx, &dr, &dg, &db);
-                        uint8_t *entry = diagPacket + 4 + k * 12;
+                        uint8_t avgR, avgG, avgB;
+                        sampleZoneAverage(&kParamsBase, liveBufferAddr, unpack,
+                                           g_zoneX[zi], g_zoneY[zi], &avgR, &avgG, &avgB);
+                        uint8_t *entry = diagPacket + 4 + k * 16;
                         memcpy(entry + 0, &zi, 4);
                         memcpy(entry + 4, &rawPx, 4);
-                        entry[8] = dr; entry[9] = dg; entry[10] = db; entry[11] = 0;
+                        entry[8] = dr; entry[9] = dg; entry[10] = db;
+                        entry[11] = avgR; entry[12] = avgG; entry[13] = avgB;
+                        entry[14] = 0; entry[15] = 0;
                     }
                     debug_send_raw(diagPacket, sizeof(diagPacket));
                 }
