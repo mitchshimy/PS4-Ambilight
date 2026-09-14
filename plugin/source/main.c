@@ -276,6 +276,17 @@ typedef struct {
                                                      // This matters because gamma is non-linear: correcting-then-averaging
                                                      // and averaging-then-correcting are NOT the same operation, and the
                                                      // Android source applies its gamma per-pixel, before any downsampling.
+    // v2.2.5: opt-in developer telemetry destination. Deliberately NOT
+    // part of ambient_create_default_config()'s generated template
+    // (see AMBIENT_DEFAULT_INI below) -- a person has to type a [dev]
+    // section into their own ini by hand for this to ever do anything.
+    // Empty devIp / false devLoggingEnabled (the zero-init default,
+    // same as every other field in this struct before a real ini is
+    // read) means debug_send_raw() sends nothing at all, full stop --
+    // see its own comment for why this check lives there and not
+    // scattered across each call site.
+    char devIp[16];          // dotted-quad only, e.g. "192.168.2.117"; empty = disabled regardless of devLoggingEnabled
+    bool devLoggingEnabled;  // both this AND a non-empty devIp are required -- neither alone is enough
     // [timing]
     uint32_t updateFrequencyHz;
     int smoothingEnabled;
@@ -305,6 +316,7 @@ static AmbientConfig g_config = {
     .contrast = 0,       // no-op -- new in v2.2, matches "didn't exist before" like the rest of this block
     .brightnessR = 100, .brightnessG = 100, .brightnessB = 100, // no-op (100 = unchanged, Android convention)
     .gammaR = 100, .gammaG = 100, .gammaB = 100,                 // no-op (100 = unchanged, Android convention)
+    .devIp = "", .devLoggingEnabled = false, // v2.2.5: disabled unless a real ini opts in -- see struct comment
     .updateFrequencyHz = 30,
     .smoothingEnabled = 0, // off by default -- v1.3 had no smoothing, don't change behavior silently
     .settlingTimeMs = 200,
@@ -647,6 +659,23 @@ static void ambient_load_config(void)
         g_config.gammaB = (uint32_t)iv;
     ambient_rebuild_perchannel_gamma_luts();
 
+    // v2.2.5: [dev] is intentionally undocumented in the generated ini
+    // template (AMBIENT_DEFAULT_INI) and absent from both reference
+    // configs in this folder -- someone has to already know to type
+    // "[dev]" / "dev_ip=..." / "dev_logging=true" into their own ini
+    // by hand. That's deliberate: see the struct comment on why this
+    // shouldn't be one flag away from accidentally-on for a normal
+    // user. Both keys are required together -- a stray dev_ip with no
+    // dev_logging=true does nothing, and vice versa (checked again,
+    // redundantly, right at the one place that actually sends
+    // anything -- see debug_send_raw).
+    if ((v = ini_table_get_entry(table, "dev", "dev_ip")) != NULL) {
+        strncpy(g_config.devIp, v, sizeof(g_config.devIp) - 1);
+        g_config.devIp[sizeof(g_config.devIp) - 1] = '\0';
+    }
+    if (ini_table_get_entry_as_bool(table, "dev", "dev_logging", &bv))
+        g_config.devLoggingEnabled = bv;
+
     if (ini_table_get_entry_as_int(table, "timing", "update_frequency_hz", &iv) && iv > 0 && iv <= 240)
         g_config.updateFrequencyHz = (uint32_t)iv;
     if (ini_table_get_entry_as_bool(table, "timing", "smoothing_enabled", &bv))
@@ -706,10 +735,24 @@ static int wled_ensure_socket(void)
 // hot path -- unlike wled_send_rgb_zones above there's no reason to hold
 // a persistent socket open for this) rather than routing through the
 // production WLED path.
-#define DEBUG_IP "192.168.2.117"   // dev-PC debug listener -- confirm this still matches (handoff §2, changes over time)
+#define DEBUG_IP "192.168.2.117"   // v2.2.5: NO LONGER USED as a send target -- kept only as
+                                    // a comment/reference of what this used to be hardcoded to
+                                    // (handoff §2). debug_send_raw now requires g_config.devIp
+                                    // to be set via an explicit [dev] section in the ini; see
+                                    // that function and the AmbientConfig struct comment.
 
 static void debug_send_raw(const uint8_t *data, int len)
 {
+    // v2.2.5: single choke point for ALL debug/diagnostic UDP sends in
+    // this file (the v2.2.1 format-change packet, the v2.2.2 raw-pixel
+    // dump, AND this pre-existing config-reload packet) -- requires an
+    // explicit opt-in via the ini's [dev] section, checked here rather
+    // than at each call site so there's exactly one place to get this
+    // right, not three. Neither devIp alone nor devLoggingEnabled alone
+    // is enough; both are required. See handoff for why this replaced
+    // a hardcoded always-on DEBUG_IP.
+    if (!g_config.devLoggingEnabled || g_config.devIp[0] == '\0') return;
+
     int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0) return;
 
@@ -717,7 +760,7 @@ static void debug_send_raw(const uint8_t *data, int len)
     memset(&destAddr, 0, sizeof(destAddr));
     destAddr.sin_family = AF_INET;
     destAddr.sin_port = htons(WLED_PORT);
-    if (inet_pton(AF_INET, DEBUG_IP, &destAddr.sin_addr) != 1) {
+    if (inet_pton(AF_INET, g_config.devIp, &destAddr.sin_addr) != 1) {
         close(sockfd);
         return;
     }
@@ -1973,7 +2016,7 @@ static void applyColorProcessing(uint8_t r8, uint8_t g8, uint8_t b8, uint8_t *ou
 attr_public const char *g_pluginName = "ps4_ambient_light";
 attr_public const char *g_pluginDesc = "Live per-frame ambient light: detiles the real scanout buffer and streams zone colors to WLED";
 attr_public const char *g_pluginAuth = "(null)";
-attr_public uint32_t g_pluginVersion = 0x0000020B; // v2.2.4: gated the v2.2.1 format-change packet and the v2.2.2 raw-pixel-dump packet behind `#if (__FINAL__) == 0` (i.e. only present when built with `make DEBUG=1`) -- the same idiom frame_logger and force_1080p_display already use elsewhere in this repo. Through v2.2.3 both ran completely unconditionally: the format packet is cheap (only fires on real format transitions) but still sent a UDP packet to a hardcoded DEBUG_IP for every single end user on every real build; the raw-pixel-dump packet was worse -- 3 extra sampleZoneAverage calls plus a UDP send, on an ongoing basis for as long as HDR stayed active, which is real avoidable CPU/network cost sitting inside the exact build meant to REDUCE CPU cost after the v2.2.3 WLED-timeout fix. Both packets already did their job (they're what let root cause actually get found -- see handoff §53) and have no reason to ship active. No functional/color-pipeline change in this version; a normal `make` (DEBUG unset, __FINAL__=1) now compiles neither block in at all.
+attr_public uint32_t g_pluginVersion = 0x0000020C; // v2.2.5: the user (correctly) didn't want to rely on a compile-time flag for this -- pointed out that after building with build.bat (which hardcodes -D__FINAL__=1 directly, completely bypassing each plugin's own Makefile/DEBUG=1 logic -- confirmed by reading build.bat itself, not assumed), packets were STILL arriving at their listener. Root cause of THAT: those were very likely the pre-existing config-reload diagnostic packet (send_timing_packet/the content-preview+hash packet), which was never part of the v2.2.1/v2.2.2/v2.2.4 gating in the first place -- it's older functionality this session hadn't touched. Rather than keep chasing which of three call sites needs which flag, moved the gate to the one place all three converge: debug_send_raw() now requires an explicit [dev] section in the ini (dev_ip=<ip> AND dev_logging=true, both required, neither alone enough) before it will open a socket at all. This section is deliberately ABSENT from ambient_create_default_config()'s generated template and from both reference configs in this folder -- nothing populates it automatically; a person has to type it into their own ini by hand, exactly as asked. The old hardcoded DEBUG_IP constant is no longer used as a send target (kept only as a comment). This covers all three debug_send_raw call sites uniformly (the v2.2.1 format packet, the v2.2.2 raw-pixel dump, AND the pre-existing config-reload/timing packets) rather than requiring each to independently remember to check something -- one choke point, not three. The __FINAL__==0 compile gating from v2.2.4 stays in place on the v2.2.1/v2.2.2 blocks as defense in depth (a real release build still doesn't compile that code in at all), but is no longer the only thing standing between a diagnostic packet and the network.
 
 int32_t (*sceVideoOutRegisterBuffersPtr)(int32_t handle, int32_t startIndex,
                                           void *const *addresses, int32_t bufferNum,
