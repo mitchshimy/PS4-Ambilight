@@ -1973,7 +1973,7 @@ static void applyColorProcessing(uint8_t r8, uint8_t g8, uint8_t b8, uint8_t *ou
 attr_public const char *g_pluginName = "ps4_ambient_light";
 attr_public const char *g_pluginDesc = "Live per-frame ambient light: detiles the real scanout buffer and streams zone colors to WLED";
 attr_public const char *g_pluginAuth = "(null)";
-attr_public uint32_t g_pluginVersion = 0x0000020A; // v2.2.3: ROOT CAUSE FOUND (by the user, not this session) -- WLED's own realtime-timeout fallback color (configured by the user as red) was firing when this plugin's send loop missed WLED's timeout window, NOT a color-pipeline or PQ-decode bug. Confirmed directly: changing WLED's fallback color from red to white made the "red on black HDR scenes" symptom disappear immediately, with this plugin's code completely unchanged. This retroactively explains every earlier observation in this investigation: HDR-only (the PQ decode path is real per-sample floating-point work -- EOTF lookup, tone-map, a 3x3 matrix, sRGB encode -- SDR decode is not), tuned-settings-only (contrast/saturation/black_level are all real additional per-zone math that gamma=1.0/saturation=0/black_level=0 skip via no-op fast paths), whole-strip-not-just-one-corner (a realtime-timeout fallback is strip-wide, not per-zone), and the ~1-packet/sec send cadence this session flagged as suspicious several commits ago instead of the configured 30Hz -- all point at the send loop intermittently stalling under CPU pressure (the loading screen that reproduced this was independently captured at 97% CPU usage) rather than at a decode correctness bug. Per the user's explicit direction, the fix belongs on the plugin side, not as "go change your WLED fallback color/timeout" advice to end users, since people pushing saturation/contrast higher (a stated, expected use case) will keep finding this. This version's actual fix: pqToneMap(nits) was being computed live, via two floating-point divisions, for every sample of every zone (up to (2*scanDepth+1)^2 * numZones * updateFrequencyHz calls/sec -- 150,000+/sec at this project's own default layout) despite being a pure function of the 10-bit PQ code alone. Folded it into a 1024-entry LUT (g_pqToneMappedLut), built once, lazily, only if a game actually uses the PQ format. Verified bit-for-bit identical to the live computation across all 1024 codes before wiring it in -- this is a caching change, not an approximation, so it does not alter color output in any way. The BT.2020->BT.709 matrix step right after it was left as live math since it genuinely mixes all 3 channels and can't be a simple per-channel LUT. Also folded into this version (no version bump had been taken for these along the way): the v2.2.2 diagnostic's throttle was fixed (was gated on update_frequency_hz=30, but the real send loop's observed cadence is ~1/sec, so the packet never fired inside a realistic capture window -- now a small fixed count instead), a real -Wincompatible-pointer-types-discards-qualifiers warning on the volatile g_activeFormat was cleaned up, and the diagnostic packet was extended to also report the TRUE zone average (calling the real sampleZoneAverage, not just a single center-pixel peek) since hand-modeling a uniform raw input through gamma/saturation/black_level proved those operations can't produce "default clean, tuned strongly red" from the same input in the first place -- which is what actually pointed at something outside the color pipeline entirely. NOT YET CONFIRMED on real hardware whether the LUT caching alone is enough to keep the send loop inside WLED's timeout window under the same CPU-pressured conditions that reproduced this -- see handoff for what's still open.
+attr_public uint32_t g_pluginVersion = 0x0000020B; // v2.2.4: gated the v2.2.1 format-change packet and the v2.2.2 raw-pixel-dump packet behind `#if (__FINAL__) == 0` (i.e. only present when built with `make DEBUG=1`) -- the same idiom frame_logger and force_1080p_display already use elsewhere in this repo. Through v2.2.3 both ran completely unconditionally: the format packet is cheap (only fires on real format transitions) but still sent a UDP packet to a hardcoded DEBUG_IP for every single end user on every real build; the raw-pixel-dump packet was worse -- 3 extra sampleZoneAverage calls plus a UDP send, on an ongoing basis for as long as HDR stayed active, which is real avoidable CPU/network cost sitting inside the exact build meant to REDUCE CPU cost after the v2.2.3 WLED-timeout fix. Both packets already did their job (they're what let root cause actually get found -- see handoff §53) and have no reason to ship active. No functional/color-pipeline change in this version; a normal `make` (DEBUG unset, __FINAL__=1) now compiles neither block in at all.
 
 int32_t (*sceVideoOutRegisterBuffersPtr)(int32_t handle, int32_t startIndex,
                                           void *const *addresses, int32_t bufferNum,
@@ -2013,6 +2013,7 @@ int32_t sceVideoOutRegisterBuffersPtr_hook(int32_t handle, int32_t startIndex,
             uint32_t prevFormat = g_activeFormat;
             g_activeFormat = fmt;
             g_haveValidFormat = (getUnpackFnForFormat(fmt) != NULL);
+#if (__FINAL__) == 0
             // v2.2.1: diagnostic-only telemetry, added to answer a real
             // live question (does this specific game's HDR mode register
             // a format this plugin actually recognizes?) rather than
@@ -2029,6 +2030,12 @@ int32_t sceVideoOutRegisterBuffersPtr_hook(int32_t handle, int32_t startIndex,
             //   [0:4] format     -- raw attribute->format, uint32 LE
             //   [4:8] wasRecognized -- 0/1, uint32 LE (matches one of the
             //                          getUnpackFnForFormat cases or not)
+            // v2.2.4: gated behind __FINAL__==0 (make DEBUG=1), same
+            // idiom frame_logger/force_1080p_display already use in this
+            // repo. This unconditionally sent a UDP packet to a
+            // hardcoded DEBUG_IP for every single end user on every real
+            // release build, which is not something a shipped plugin
+            // should do -- see handoff.
             if (fmt != prevFormat || g_haveValidFormat != wasValid) {
                 uint8_t fmtPacket[8];
                 memcpy(fmtPacket + 0, &fmt, 4);
@@ -2036,6 +2043,9 @@ int32_t sceVideoOutRegisterBuffersPtr_hook(int32_t handle, int32_t startIndex,
                 memcpy(fmtPacket + 4, &recognized, 4);
                 debug_send_raw(fmtPacket, sizeof(fmtPacket));
             }
+#else
+            (void)wasValid; (void)prevFormat; // avoid unused-variable warnings in release builds
+#endif
         }
     }
     return HOOK_CONTINUE(sceVideoOutRegisterBuffersPtr,
@@ -2111,7 +2121,9 @@ int32_t sceGnmSubmitAndFlipCommandBuffersPtr_hook(uint32_t count, void *dcbGpuAd
 // = 200" should be read as "roughly", not as a precise guarantee.
 static uint8_t g_smoothedRgb[MAX_TOTAL_ZONES][3];
 static bool g_smoothedRgbValid = false; // false until the first real frame, so startup doesn't fade in from black
-static uint32_t s_rawDiagFrameCounter = 0; // v2.2.2: throttles the raw-pixel diagnostic packet to ~1x/sec
+#if (__FINAL__) == 0
+static uint32_t s_rawDiagFrameCounter = 0; // v2.2.2: throttles the raw-pixel diagnostic packet to ~1x/sec (debug-only, see v2.2.4 gating note at its use site)
+#endif
 
 // v2.1 dark_threshold state: per-zone hysteresis flag (see
 // applyDarkThreshold below) -- separate from g_smoothedRgb since it's
@@ -2425,6 +2437,20 @@ void *ambient_sample_thread(void *args)
                 g_smoothedRgbValid = true;
                 wled_send_rgb_zones(rgbTriplets, (int)g_numZones);
 
+#if (__FINAL__) == 0
+                // v2.2.4: gated behind __FINAL__==0 (make DEBUG=1), same
+                // idiom frame_logger/force_1080p_display already use in
+                // this repo. As written through v2.2.3, this ran
+                // unconditionally on every real release build for every
+                // end user: 3 extra sampleZoneAverage calls plus a UDP
+                // send, on an ongoing basis for as long as HDR stayed
+                // active -- real, avoidable CPU and network cost that
+                // was still present in the exact build meant to REDUCE
+                // CPU cost after the WLED-timeout root cause was found
+                // (see handoff §53). It has already served its purpose
+                // (it's what let root cause get found at all) and has
+                // no reason to ship active in a release build.
+                //
                 // v2.2.2: DIAGNOSTIC ONLY, no color-pipeline change --
                 // the format-diagnostic in v2.2.1 confirmed this game's
                 // HDR mode correctly registers as A2R10G10B10_BT2020_PQ
@@ -2500,6 +2526,7 @@ void *ambient_sample_thread(void *args)
                     }
                     debug_send_raw(diagPacket, sizeof(diagPacket));
                 }
+#endif
             }
         }
         // If g_haveValidFormat is 0 (unknown/unconfirmed format), we
