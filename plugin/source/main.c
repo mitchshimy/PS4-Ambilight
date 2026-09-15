@@ -252,6 +252,12 @@ typedef struct {
     // wledHost/wledPort.
     char relayHost[64];
     uint16_t relayPort;
+    // v2.3.1: this whole external-source signal is a personal-setup
+    // integration with one specific wled-relay project, not something
+    // every user of this plugin has (or should have to configure a
+    // dead host for) -- OFF by default, only sends anything if a user
+    // explicitly opts in via the ini.
+    bool relaySignalEnabled;
     // [layout]
     uint32_t ledCountTop, ledCountRight, ledCountBottom, ledCountLeft;
     StartCorner startCorner;
@@ -307,12 +313,14 @@ typedef struct {
 static AmbientConfig g_config = {
     .wledHost = "192.168.2.110",
     .wledPort = 4048,
-    // v2.3: best-guess default -- same host as wled-relay's own MQTT
-    // broker config (common.MQTT_BROKER in that repo), since the relay
-    // runs with network_mode: host on that same box. Confirm this
-    // matches your actual deployment and override in the ini if not.
-    .relayHost = "192.168.2.104",
+    // v2.3: personal-setup default, corrected via real testing this
+    // session (was a wrong guess at 192.168.2.104 before). Moot for
+    // anyone else building this plugin -- relaySignalEnabled defaults
+    // to false below, so this address is never dialed unless a user
+    // explicitly opts in and sets their own relay_host in the ini.
+    .relayHost = "192.168.2.115",
     .relayPort = 24689, // must match wled-relay's tv_external_source.EXTERNAL_SOURCE_PORT
+    .relaySignalEnabled = false, // opt-in only -- see the field comment above
     .ledCountTop = 73, .ledCountRight = 41, .ledCountBottom = 73, .ledCountLeft = 42,
     .startCorner = CORNER_BOTTOM_LEFT,
     .direction = DIR_CLOCKWISE,
@@ -443,12 +451,16 @@ static void ambient_create_default_config(void)
         "; The real WLED controller's IP -- NOT this PC's own IP.\n" \
         "wled_host=192.168.2.110\n" \
         "wled_port=4048\n" \
-        "; The wled-relay host (tv_external_source.py's listener) -- NOT\n" \
-        "; the WLED controller above. Told \"on\" once this plugin starts\n" \
-        "; actually streaming color (so the relay's own audio-reactive TV\n" \
-        "; backlight system stops sending to the same physical strip while\n" \
-        "; this plugin owns it), and \"off\" on plugin unload/game exit.\n" \
-        "relay_host=192.168.2.104\n" \
+        "; Advanced/optional: only relevant if you're also running the\n" \
+        "; wled-relay companion project and want this plugin to tell it\n" \
+        "; when it's driving the TV backlight WLED controller above\n" \
+        "; directly, so that project's own audio-reactive effects don't\n" \
+        "; fight this plugin for the same strip during a real game. OFF\n" \
+        "; by default -- most users don't run that project and don't\n" \
+        "; need this. relay_host/relay_port below are ignored unless you\n" \
+        "; set relay_signal_enabled=true.\n" \
+        "relay_signal_enabled=false\n" \
+        "relay_host=192.168.2.115\n" \
         "relay_port=24689\n" \
         "\n" \
         "[layout]\n" \
@@ -630,6 +642,8 @@ static void ambient_load_config(void)
     }
     if (ini_table_get_entry_as_int(table, "network", "relay_port", &iv) && iv > 0 && iv <= 65535)
         g_config.relayPort = (uint16_t)iv;
+    if (ini_table_get_entry_as_bool(table, "network", "relay_signal_enabled", &bv))
+        g_config.relaySignalEnabled = bv;
 
     if (ini_table_get_entry_as_int(table, "layout", "led_count_top", &iv) && iv > 0)
         g_config.ledCountTop = (uint32_t)iv;
@@ -834,8 +848,72 @@ static void debug_send_raw(const uint8_t *data, int len)
 // plugin_unload), nowhere near the per-frame hot path, so there's no
 // reason to hold a socket open for it. Same pattern debug_send_raw
 // already uses for exactly that reason.
+// v2.4: real field layout confirmed against shadPS4's own independently
+// reverse-engineered implementation (shadps4-emu/shadPS4,
+// src/core/libraries/system/systemservice.{h,cpp} -- fetched and read
+// directly this session, not recited from memory) because this
+// plugin's own OpenOrbis toolchain header (<orbis/SystemService.h>)
+// declares sceSystemServiceGetStatus() as a bare, argument-less `void`
+// stub -- the exact same "unfixed auto-generated placeholder" problem
+// already flagged for sceHttpSetRecvTimeOut (see
+// ps4-ambient-light-handoff-v9.md). This plugin does NOT call through
+// that broken declaration -- the real symbol is resolved by name at
+// runtime instead (sys_dynlib_load_prx + sys_dynlib_dlsym in
+// plugin_load), the exact same pattern this file already uses for
+// sceVideoOutRegisterBuffers/sceGnmSubmitAndFlipCommandBuffers, with
+// its own correct function-pointer type declared here.
+//
+// shadPS4's own struct only defines 5 known bool/int32 fields plus a
+// flexible, UNSIZED `reserved[]` array at the end -- i.e. even that
+// project doesn't claim to know this struct's true total size on real
+// hardware, only enough of its front to satisfy real games running
+// under HLE. Real firmware could plausibly write further into
+// `reserved` than either project accounts for.
+// AMBIENT_SYS_SERVICE_STATUS_PADDING pads this struct's real buffer
+// generously past every known field specifically so an
+// unexpectedly-larger real write lands in our own padding rather than
+// adjacent stack memory -- this project has already had one full
+// crash requiring a console power cycle from an unverified
+// system-level assumption (klog -- see ps4-ambient-light-handoff-v10.md
+// §2's "do not re-enable without a very good reason and a safety-net
+// signal plan"), and this isn't repeating that mistake without a
+// safety margin.
+//
+// NOT verified against Sony's own official SDK (not available to this
+// session) or against real hardware -- only against shadPS4's public,
+// independently-reverse-engineered source. See
+// ps4-ambient-light-handoff-v22.md for the full account and the
+// recommended staged hardware-verification plan before trusting this
+// for anything beyond an isolated debug-telemetry read-back test.
+#define AMBIENT_SYS_SERVICE_STATUS_PADDING 128
+
+typedef struct {
+    int32_t eventNum;
+    bool isSystemUiOverlaid;
+    bool isInBackgroundExecution; // the one field this whole feature actually reads
+    bool isCpuMode7CpuNormal;
+    bool isGameLiveStreamingOnAir;
+    bool isOutOfVrPlayArea;
+    uint8_t reservedPadding[AMBIENT_SYS_SERVICE_STATUS_PADDING];
+} AmbientSystemServiceStatus;
+
+static int32_t (*sceSystemServiceGetStatusPtr)(AmbientSystemServiceStatus *status);
+
+// v2.4: last known foreground/background state, checked once per
+// ambient_sample_thread iteration (throttled -- see the poll counter
+// there) so both the direct WLED send AND the relay signal react to
+// the same real transition instead of two separate, possibly
+// disagreeing detectors.
+static bool g_isBackgrounded = false;
+
 static void relay_send_external_source(bool active)
 {
+    // v2.3.1: OFF by default (see AmbientConfig.relaySignalEnabled) --
+    // gated here, in one place, rather than at each call site, so
+    // there's exactly one spot that can ever accidentally dial someone
+    // else's relay_host default.
+    if (!g_config.relaySignalEnabled) return;
+
     int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0) return;
 
@@ -2081,7 +2159,7 @@ static void applyColorProcessing(uint8_t r8, uint8_t g8, uint8_t b8, uint8_t *ou
 attr_public const char *g_pluginName = "ps4_ambient_light";
 attr_public const char *g_pluginDesc = "Live per-frame ambient light: detiles the real scanout buffer and streams zone colors to WLED";
 attr_public const char *g_pluginAuth = "(null)";
-attr_public uint32_t g_pluginVersion = 0x0000020D; // v2.2.5 -> v2.4: MERGED a genuinely separate fork's work rather than authored fresh in this session -- a "signal wled-relay when this plugin is driving the TV backlight directly" feature, developed on top of the OLD v2.2 base (commit 6dae6d7) and so unaware of everything in v2.2.1-v2.2.5 (the diagnostic telemetry, the WLED-timeout root-cause fix/PQ-tonemap-LUT caching, and the [dev] ini opt-in mechanism). Ported that fork's diff onto this file's real current state (6 of 7 hunks applied cleanly via `patch`, only this version-comment line needed hand merging) rather than re-implementing it from scratch. What it adds: new [network] ini fields relay_host/relay_port (default 192.168.2.104:24689, a best guess at wled-relay's host -- confirm/override via ini if wrong) and relay_send_external_source(bool), a one-shot raw UDP datagram (not DDP, no MQTT client on this side) carrying bare ASCII "on"/"off", matching the payload convention wled-relay's own MQTT gaming-mode topic already used. Sent "on" only at the very end of a plugin_load() that got all the way through (every earlier failure path already returns 0 without this plugin driving anything); sent "off" unconditionally at the top of plugin_unload(), regardless of whether load fully succeeded, since the relay has no other way to notice this plugin is gone. Why: this plugin and wled-relay's own audio-reactive TV backlight system (tv_spectrum/tv_intro/tv_audiosync, a separate repo) target the same physical WLED controller (192.168.2.110) -- this tells the relay to stop driving that strip itself while this plugin is doing so directly, and hand control back the instant this plugin stops. Deliberately does NOT touch or replace that relay's own gaming_mode_active detection (tv_gate.py) -- an independent, additive signal layered on top of it, not a replacement. NOT verified on real hardware or against the real wled-relay process by the fork that wrote it, and NOT independently re-verified by this merge either -- carried forward at the same trust level it arrived at (round-tripped in a Linux sandbox against a stubbed loopback UDP listener, per that fork's own account; see ps4-ambient-light-handoff-v20.md, and this repo's own handoff for the merge itself).
+attr_public uint32_t g_pluginVersion = 0x0000020E; // v2.4 -> v2.5: MERGED three more commits from the same external fork whose v2.3 relay feature was merged previously (this fork's own numbering: v2.3->v2.3.1->v2.4->v2.4.1; called v2.5 here purely to avoid colliding with this repo's own independent version sequence). Ported via `patch`, same as before: functional hunks applied cleanly across all three (line-offset only), just the version-comment line needed hand merging each time. What's new, in order: (1) v2.3.1 -- real-hardware testing of the v2.3 relay signal found the "off" datagram unreliable on both normal exit paths tested (PS button to home, full Close Application), so wled-relay's own gaming_mode_active "off" transition (tv_gate.py, that repo) is now the authoritative backstop rather than relying on plugin_unload alone; corrected relayHost's default from an unconfirmed guess (192.168.2.104) to the real address (192.168.2.115); and -- important -- added relaySignalEnabled ([network] relay_signal_enabled, default FALSE), gated once inside relay_send_external_source() itself, since this whole feature is one personal integration and must not dial anyone's relay_host by default. (2) v2.4 (theirs) -- real foreground/background detection via sceSystemServiceGetStatus, polled ~1x/sec from inside ambient_sample_thread's own loop: skips the capture/send pipeline entirely while backgrounded (fixes a real bug -- suspending via the PS button previously froze the strip on the last on-screen frame instead of stopping) and drives relay_send_external_source on each real transition (still fully gated by relaySignalEnabled). The real symbol is resolved by name (sys_dynlib_load_prx+dlsym, matching this file's own existing video-out/flip-hook pattern) rather than called through this SDK's own header declaration, which is an argument-less bare `void` stub -- an auto-generated placeholder, same class of problem already flagged for sceHttpSetRecvTimeOut -- with the function-pointer type/struct cross-checked against shadPS4's own independently-reverse-engineered source and given generous defensive padding past every known real field. (3) v2.4.1 -- bugfix: relay_send_external_source(true) was previously only ever called once, at the end of a successful plugin_load; live-editing relay_signal_enabled from false to true afterward (the common case, via this plugin's own live-reload mechanism) never actually sent "on" for the rest of that session even though the config value itself updated correctly. ambient_check_config_reload now compares relaySignalEnabled before/after each reload and fires the signal on real false<->true transitions. NONE of this chain (v2.3.1/v2.4/v2.4.1) is verified on real hardware by the fork that wrote it beyond what each commit's own message states (mostly Linux-sandbox logic tests of the throttling/transition/gating behavior), and NOT independently re-verified by this merge either -- carried forward at the same trust level it arrived at. See ps4-ambient-light-handoff-v21.md, -v22.md, -v23.md (from that fork) and this repo's own handoff for the merge itself.
 
 int32_t (*sceVideoOutRegisterBuffersPtr)(int32_t handle, int32_t startIndex,
                                           void *const *addresses, int32_t bufferNum,
@@ -2453,7 +2531,25 @@ static void ambient_check_config_reload(void)
 
     g_configLastSize = (off_t)realSize;
     g_configLastHash = realHash;
+    // v2.4.1: relay_send_external_source(true) was previously only
+    // ever called once, at the very end of a successful plugin_load --
+    // if relay_signal_enabled was still false at that moment (e.g. the
+    // game was already running when the ini was edited to turn it on),
+    // nothing would ever re-send "on" for the rest of that session,
+    // even though g_config.relaySignalEnabled below picks up the new
+    // value correctly. Capturing the value BEFORE reload and comparing
+    // after closes that gap: a live false->true edit now sends "on"
+    // immediately (matching plugin_load's own real transition), and a
+    // live true->false edit sends "off" once, so wled-relay isn't left
+    // waiting on a flag this plugin will now never touch again.
+    // Skipped while backgrounded -- matches ambient_sample_thread's own
+    // condition for what "on" means, so this can't contradict whatever
+    // that loop decides once it resumes.
+    bool wasRelaySignalEnabled = g_config.relaySignalEnabled;
     ambient_load_config();  // re-reads the file; unset/removed keys keep their CURRENT g_config value, not the compiled default (see note below)
+    if (g_config.relaySignalEnabled != wasRelaySignalEnabled && !g_isBackgrounded) {
+        relay_send_external_source(g_config.relaySignalEnabled);
+    }
     buildZoneGeometry();    // layout settings may have changed -- rebuild g_zoneX/g_zoneY/g_numZones
     g_smoothedRgbValid = false; // avoid smoothing a hard cut between old and new zone counts/positions
 }
@@ -2485,6 +2581,34 @@ void *ambient_sample_thread(void *args)
         // the config-reload check below also uses real elapsed time.
         uint64_t t0 = sceKernelGetProcessTimeCounter();
 
+        // v2.4: throttled to roughly once a second (every ~30
+        // iterations of this thread's own ~30Hz loop) rather than
+        // every iteration -- this calls into a symbol resolved by
+        // name against a real signature this session could only
+        // corroborate from a third-party reimplementation (see the
+        // struct's own comment above), not Sony's actual SDK or real
+        // hardware, so its exposure is kept low while unproven. Once
+        // a second is already far faster than a human needs for this.
+        if (sceSystemServiceGetStatusPtr != NULL) {
+            static uint32_t sysServicePollCounter = 0;
+            if ((++sysServicePollCounter % 30) == 0) {
+                AmbientSystemServiceStatus status;
+                memset(&status, 0, sizeof(status));
+                if (sceSystemServiceGetStatusPtr(&status) == 0) {
+                    bool nowBackgrounded = status.isInBackgroundExecution;
+                    if (nowBackgrounded != g_isBackgrounded) {
+                        g_isBackgrounded = nowBackgrounded;
+                        // true ("on") = foregrounded again, this plugin
+                        // is driving the strip; false ("off") =
+                        // backgrounded, hand control back to wled-relay.
+                        // No-ops entirely unless relaySignalEnabled is
+                        // set (see that function's own gate).
+                        relay_send_external_source(!nowBackgrounded);
+                    }
+                }
+            }
+        }
+
         if (g_config.configReloadCheckSeconds > 0) {
             uint64_t elapsedTicks = t0 - lastReloadCheckTicks;
             if (elapsedTicks >= tscFreq * (uint64_t)g_config.configReloadCheckSeconds) {
@@ -2502,6 +2626,20 @@ void *ambient_sample_thread(void *args)
         uint32_t smoothingIntervalMs = sampleIntervalUs / 1000u;
         smoothingAlpha = (smoothingIntervalMs * 256u) / (g_config.settlingTimeMs + 1u);
         if (smoothingAlpha > 256u) smoothingAlpha = 256u;
+
+        if (g_isBackgrounded) {
+            // v2.4: closes the real, confirmed gap from handoff §36 --
+            // suspending via the PS button no longer leaves the strip
+            // frozen showing the last on-screen frame indefinitely;
+            // skip the capture/process/send pipeline below while
+            // backgrounded. Placed AFTER the reload check/smoothing
+            // recompute above (not before) so live config reload still
+            // works even while suspended, and this recovers
+            // immediately, with fresh settings, the instant this
+            // plugin is foregrounded again.
+            usleep(sampleIntervalUs);
+            continue;
+        }
 
         uint32_t displayBufferIndex = g_currentDisplayBufferIndex;
         uint64_t liveBufferAddr = (displayBufferIndex != 0xFFFFFFFFu &&
@@ -2694,6 +2832,21 @@ int32_t attr_public plugin_load(int32_t argc, const char* argv[])
     sys_dynlib_dlsym(hVideoOut, "sceVideoOutRegisterBuffers", (void**)&sceVideoOutRegisterBuffersPtr);
     sys_dynlib_dlsym(hGnm, "sceGnmSubmitAndFlipCommandBuffers", (void**)&sceGnmSubmitAndFlipCommandBuffersPtr);
     if (sceVideoOutRegisterBuffersPtr == NULL || sceGnmSubmitAndFlipCommandBuffersPtr == NULL) return 0;
+
+    // v2.4: resolved separately from the two required loads above, and
+    // deliberately NOT fatal if it fails -- foreground/background
+    // detection is additive. If this symbol can't be resolved (wrong
+    // firmware, sprx renamed, etc.), ambient_sample_thread's own check
+    // below just no-ops (sceSystemServiceGetStatusPtr stays NULL) and
+    // this plugin falls back to its pre-v2.4 behavior: freezes the
+    // strip on the last frame when suspended, per the known, pre-
+    // existing handoff §36 gap -- not a new regression, just not yet
+    // fixed on whatever system rejected this symbol.
+    int32_t hSystemService = 0;
+    sys_dynlib_load_prx("libSceSystemService.sprx", &hSystemService);
+    if (hSystemService != 0) {
+        sys_dynlib_dlsym(hSystemService, "sceSystemServiceGetStatus", (void**)&sceSystemServiceGetStatusPtr);
+    }
 
     // Same forwarding-stub guard as detile_verify_probe -- proven
     // necessary, do not skip.
