@@ -245,6 +245,13 @@ typedef struct {
     // [network]
     char wledHost[64];
     uint16_t wledPort;
+    // v2.3: separate destination for the external-source on/off signal
+    // (see relay_send_external_source below) -- the relay that owns
+    // this (wled-relay's tv_external_source.py) runs on its own host,
+    // NOT the WLED controller itself, so this can't just reuse
+    // wledHost/wledPort.
+    char relayHost[64];
+    uint16_t relayPort;
     // [layout]
     uint32_t ledCountTop, ledCountRight, ledCountBottom, ledCountLeft;
     StartCorner startCorner;
@@ -300,6 +307,12 @@ typedef struct {
 static AmbientConfig g_config = {
     .wledHost = "192.168.2.110",
     .wledPort = 4048,
+    // v2.3: best-guess default -- same host as wled-relay's own MQTT
+    // broker config (common.MQTT_BROKER in that repo), since the relay
+    // runs with network_mode: host on that same box. Confirm this
+    // matches your actual deployment and override in the ini if not.
+    .relayHost = "192.168.2.104",
+    .relayPort = 24689, // must match wled-relay's tv_external_source.EXTERNAL_SOURCE_PORT
     .ledCountTop = 73, .ledCountRight = 41, .ledCountBottom = 73, .ledCountLeft = 42,
     .startCorner = CORNER_BOTTOM_LEFT,
     .direction = DIR_CLOCKWISE,
@@ -430,6 +443,13 @@ static void ambient_create_default_config(void)
         "; The real WLED controller's IP -- NOT this PC's own IP.\n" \
         "wled_host=192.168.2.110\n" \
         "wled_port=4048\n" \
+        "; The wled-relay host (tv_external_source.py's listener) -- NOT\n" \
+        "; the WLED controller above. Told \"on\" once this plugin starts\n" \
+        "; actually streaming color (so the relay's own audio-reactive TV\n" \
+        "; backlight system stops sending to the same physical strip while\n" \
+        "; this plugin owns it), and \"off\" on plugin unload/game exit.\n" \
+        "relay_host=192.168.2.104\n" \
+        "relay_port=24689\n" \
         "\n" \
         "[layout]\n" \
         "; Physical LED counts per screen edge. Defaults match this\n" \
@@ -603,6 +623,13 @@ static void ambient_load_config(void)
     }
     if (ini_table_get_entry_as_int(table, "network", "wled_port", &iv) && iv > 0 && iv <= 65535)
         g_config.wledPort = (uint16_t)iv;
+
+    if ((v = ini_table_get_entry(table, "network", "relay_host")) != NULL) {
+        strncpy(g_config.relayHost, v, sizeof(g_config.relayHost) - 1);
+        g_config.relayHost[sizeof(g_config.relayHost) - 1] = '\0';
+    }
+    if (ini_table_get_entry_as_int(table, "network", "relay_port", &iv) && iv > 0 && iv <= 65535)
+        g_config.relayPort = (uint16_t)iv;
 
     if (ini_table_get_entry_as_int(table, "layout", "led_count_top", &iv) && iv > 0)
         g_config.ledCountTop = (uint32_t)iv;
@@ -785,6 +812,44 @@ static void debug_send_raw(const uint8_t *data, int len)
     memcpy(packet + DDP_HEADER_SIZE, data, len);
 
     sendto(sockfd, packet, DDP_HEADER_SIZE + len, 0, (struct sockaddr*)&destAddr, sizeof(destAddr));
+    close(sockfd);
+}
+
+// v2.3: tells wled-relay's tv_external_source.py whether THIS plugin
+// is currently the one driving the TV backlight WLED controller
+// directly (see the AmbientConfig relayHost/relayPort comment above
+// for why this is a separate destination from the WLED controller
+// itself). Deliberately a plain
+// raw UDP payload, not wrapped in the DDP header used everywhere else
+// in this file -- there's no WLED device on the receiving end here,
+// just wled-relay's own tiny listener socket, and it expects the exact
+// same bare "on"/"off" ASCII text tv_gate.py's MQTT handler already
+// parses for gaming_mode, just delivered over a plain UDP datagram
+// instead of an MQTT payload (this plugin has no MQTT client, and
+// implementing one here for a single on/off flag isn't worth the
+// complexity -- see that module's own docstring).
+//
+// One-shot, own socket per call (not the persistent g_wledSockfd) --
+// this is called at most twice per game session (plugin_load,
+// plugin_unload), nowhere near the per-frame hot path, so there's no
+// reason to hold a socket open for it. Same pattern debug_send_raw
+// already uses for exactly that reason.
+static void relay_send_external_source(bool active)
+{
+    int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0) return;
+
+    struct sockaddr_in destAddr;
+    memset(&destAddr, 0, sizeof(destAddr));
+    destAddr.sin_family = AF_INET;
+    destAddr.sin_port = htons(g_config.relayPort);
+    if (inet_pton(AF_INET, g_config.relayHost, &destAddr.sin_addr) != 1) {
+        close(sockfd);
+        return;
+    }
+
+    const char *payload = active ? "on" : "off";
+    sendto(sockfd, payload, strlen(payload), 0, (struct sockaddr*)&destAddr, sizeof(destAddr));
     close(sockfd);
 }
 
@@ -2016,7 +2081,7 @@ static void applyColorProcessing(uint8_t r8, uint8_t g8, uint8_t b8, uint8_t *ou
 attr_public const char *g_pluginName = "ps4_ambient_light";
 attr_public const char *g_pluginDesc = "Live per-frame ambient light: detiles the real scanout buffer and streams zone colors to WLED";
 attr_public const char *g_pluginAuth = "(null)";
-attr_public uint32_t g_pluginVersion = 0x0000020C; // v2.2.5: the user (correctly) didn't want to rely on a compile-time flag for this -- pointed out that after building with build.bat (which hardcodes -D__FINAL__=1 directly, completely bypassing each plugin's own Makefile/DEBUG=1 logic -- confirmed by reading build.bat itself, not assumed), packets were STILL arriving at their listener. Root cause of THAT: those were very likely the pre-existing config-reload diagnostic packet (send_timing_packet/the content-preview+hash packet), which was never part of the v2.2.1/v2.2.2/v2.2.4 gating in the first place -- it's older functionality this session hadn't touched. Rather than keep chasing which of three call sites needs which flag, moved the gate to the one place all three converge: debug_send_raw() now requires an explicit [dev] section in the ini (dev_ip=<ip> AND dev_logging=true, both required, neither alone enough) before it will open a socket at all. This section is deliberately ABSENT from ambient_create_default_config()'s generated template and from both reference configs in this folder -- nothing populates it automatically; a person has to type it into their own ini by hand, exactly as asked. The old hardcoded DEBUG_IP constant is no longer used as a send target (kept only as a comment). This covers all three debug_send_raw call sites uniformly (the v2.2.1 format packet, the v2.2.2 raw-pixel dump, AND the pre-existing config-reload/timing packets) rather than requiring each to independently remember to check something -- one choke point, not three. The __FINAL__==0 compile gating from v2.2.4 stays in place on the v2.2.1/v2.2.2 blocks as defense in depth (a real release build still doesn't compile that code in at all), but is no longer the only thing standing between a diagnostic packet and the network.
+attr_public uint32_t g_pluginVersion = 0x0000020D; // v2.2.5 -> v2.4: MERGED a genuinely separate fork's work rather than authored fresh in this session -- a "signal wled-relay when this plugin is driving the TV backlight directly" feature, developed on top of the OLD v2.2 base (commit 6dae6d7) and so unaware of everything in v2.2.1-v2.2.5 (the diagnostic telemetry, the WLED-timeout root-cause fix/PQ-tonemap-LUT caching, and the [dev] ini opt-in mechanism). Ported that fork's diff onto this file's real current state (6 of 7 hunks applied cleanly via `patch`, only this version-comment line needed hand merging) rather than re-implementing it from scratch. What it adds: new [network] ini fields relay_host/relay_port (default 192.168.2.104:24689, a best guess at wled-relay's host -- confirm/override via ini if wrong) and relay_send_external_source(bool), a one-shot raw UDP datagram (not DDP, no MQTT client on this side) carrying bare ASCII "on"/"off", matching the payload convention wled-relay's own MQTT gaming-mode topic already used. Sent "on" only at the very end of a plugin_load() that got all the way through (every earlier failure path already returns 0 without this plugin driving anything); sent "off" unconditionally at the top of plugin_unload(), regardless of whether load fully succeeded, since the relay has no other way to notice this plugin is gone. Why: this plugin and wled-relay's own audio-reactive TV backlight system (tv_spectrum/tv_intro/tv_audiosync, a separate repo) target the same physical WLED controller (192.168.2.110) -- this tells the relay to stop driving that strip itself while this plugin is doing so directly, and hand control back the instant this plugin stops. Deliberately does NOT touch or replace that relay's own gaming_mode_active detection (tv_gate.py) -- an independent, additive signal layered on top of it, not a replacement. NOT verified on real hardware or against the real wled-relay process by the fork that wrote it, and NOT independently re-verified by this merge either -- carried forward at the same trust level it arrived at (round-tripped in a Linux sandbox against a stubbed loopback UDP listener, per that fork's own account; see ps4-ambient-light-handoff-v20.md, and this repo's own handoff for the merge itself).
 
 int32_t (*sceVideoOutRegisterBuffersPtr)(int32_t handle, int32_t startIndex,
                                           void *const *addresses, int32_t bufferNum,
@@ -2692,11 +2757,27 @@ int32_t attr_public plugin_load(int32_t argc, const char* argv[])
     // scePthreadSetprio(thread, N) once N's semantics are confirmed against
     // scePthreadGetprio()'s (also confirmed) default reading.
 
+    // v2.3: only sent here, at the very end of a load that actually got
+    // this far (hooks installed, sample thread created) -- every early
+    // `return 0` above means this plugin never actually starts driving
+    // the strip, so telling the relay "on" from one of those paths
+    // would be a lie it has no way to detect or recover from on its
+    // own (nothing would ever send the matching "off").
+    relay_send_external_source(true);
+
     return 0;
 }
 
 int32_t attr_public plugin_unload(int32_t argc, const char* argv[])
 {
+    // v2.3: sent first and unconditionally, before any of the teardown
+    // below -- this must fire even if plugin_load returned early above
+    // and never actually hooked anything, since the relay's own state
+    // has no other way to notice this plugin is gone. Harmless if the
+    // matching "on" was never sent (tv_state.external_source_active is
+    // idempotent either way -- see tv_external_source.handle_payload).
+    relay_send_external_source(false);
+
     UNHOOK(sceVideoOutRegisterBuffersPtr);
     UNHOOK(sceGnmSubmitAndFlipCommandBuffersPtr);
     if (g_wledSockfd >= 0) { close(g_wledSockfd); g_wledSockfd = -1; }
