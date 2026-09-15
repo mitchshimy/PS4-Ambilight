@@ -28,16 +28,16 @@ static int ensure_socket(void)
     return g_sockfd;
 }
 
-void ddp_send_rgb_zones(const char *host, uint16_t port, const uint8_t *rgbTriplets, int numZones)
+bool ddp_send_rgb_zones(const char *host, uint16_t port, const uint8_t *rgbTriplets, int numZones)
 {
     int sockfd = ensure_socket();
-    if (sockfd < 0) return;
+    if (sockfd < 0) return false;
 
     struct sockaddr_in destAddr;
     memset(&destAddr, 0, sizeof(destAddr));
     destAddr.sin_family = AF_INET;
     destAddr.sin_port = htons(port);
-    if (inet_pton(AF_INET, host, &destAddr.sin_addr) != 1) return;
+    if (inet_pton(AF_INET, host, &destAddr.sin_addr) != 1) return false;
 
     if (numZones > DDP_MAX_ZONES) numZones = DDP_MAX_ZONES;
     int dataSize = numZones * 3;
@@ -52,4 +52,5 @@ void ddp_send_rgb_zones(const char *host, uint16_t port, const uint8_t *rgbTripl
     memcpy(packet + DDP_HEADER_SIZE, rgbTriplets, dataSize);
 
     sendto(sockfd, packet, DDP_HEADER_SIZE + dataSize, 0, (struct sockaddr*)&destAddr, sizeof(destAddr));
+    return true;
 }

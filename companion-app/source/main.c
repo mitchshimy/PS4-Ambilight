@@ -22,6 +22,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
+#include <stdlib.h>
 #include <unistd.h>
 
 #include <SDL2/SDL.h>
@@ -41,7 +42,7 @@
 #include <orbis/UserService.h>
 // On-screen keyboard for the wledHost field. Real signatures pulled
 // directly from these SDK headers, not written from memory -- see the
-// comment above open_wled_host_ime_dialog() for exactly what's
+// comment above open_field_ime_dialog() for exactly what's
 // confirmed vs. assumed (no working IME-dialog sample exists in this
 // SDK to check against; samples/keyboard is a *physical* USB/BT
 // keyboard API, orbis/Keyboard.h, a different thing entirely, despite
@@ -50,13 +51,27 @@
 #include <orbis/CommonDialog.h>
 #include <wchar.h>
 
+#include <math.h>
+
 #include "settings.h"
 #include "color_pipeline.h"
 #include "ddp.h"
 #include "config.h"
+#include "layout.h"
 
 #define FRAME_WIDTH  1920
 #define FRAME_HEIGHT 1080
+
+// On-screen rectangle the full-strip layout preview is drawn into --
+// shared between update_live_preview() (which needs it to compute LED
+// positions via layout_build) and render_setup_screen() (which draws
+// into the same rect), so the two never disagree about where things
+// are.
+#define PREVIEW_X 900
+#define PREVIEW_Y 90
+#define PREVIEW_W (FRAME_WIDTH - PREVIEW_X - 60)
+#define PREVIEW_H 560
+#define PREVIEW_PAD 26
 
 // Same path the plugin itself reads -- this app edits that exact
 // file, not a copy, so there's only ever one source of truth.
@@ -77,29 +92,126 @@
 
 // ---------------- Menu state ----------------
 
-typedef enum { SCREEN_SETTINGS, SCREEN_UPDATE, SCREEN_QUIT } Screen;
+typedef enum { SCREEN_HOME, SCREEN_SETUP, SCREEN_CUSTOMIZE, SCREEN_UPDATE, SCREEN_QUIT } Screen;
+
+// kMenuItems is ordered with every MENU_SCREEN_SETUP item first, then
+// every MENU_SCREEN_CUSTOMIZE item (see settings.c's own comment above
+// the table) -- so each screen's items are one contiguous run, and all
+// the list/scroll code below only needs a [start,count) range per
+// screen rather than filtering scattered indices every frame.
+static void screen_item_range(MenuScreen screen, int *outStart, int *outCount)
+{
+    int start = -1, count = 0;
+    for (int i = 0; i < kMenuItemCount; i++) {
+        if (kMenuItems[i].screen == screen) {
+            if (start < 0) start = i;
+            count++;
+        }
+    }
+    *outStart = (start < 0) ? 0 : start;
+    *outCount = count;
+}
 
 static AmbientConfig g_cfg;
 static int g_selectedIndex = 0;
 // Index of the first menu item drawn -- lets the list scroll once there
-// are more items than fit on screen. See settings_last_visible_index()
-// and its call site in handle_settings_input() for how this stays in
-// sync with g_selectedIndex, and render_settings_screen() for where
-// it's consumed.
+// are more items than fit on screen. See
+// settings_last_visible_index_for() and its call site in
+// handle_grouped_settings_input() for how this stays in sync with
+// g_selectedIndex, and render_grouped_settings_list() for where it's
+// consumed. Shared across both Set Up and Customisation -- reset to
+// that screen's first item whenever Home routes into one (see
+// handle_home_input()).
 static int g_scrollOffset = 0;
-static Screen g_screen = SCREEN_SETTINGS;
+static Screen g_screen = SCREEN_HOME;
+// Which control has focus on the Home screen: 0 = the big
+// Install/Update CTA, 1 = Help, 2 = Set Up, 3 = Customisation --
+// mirrors the reference screenshot's layout (one big button above a
+// row of three smaller ones).
+static int g_homeFocus = 0;
 static char g_statusLine[256] = "";
+// Set once in main() right after SDL_CreateWindow. Needed by
+// do_plugin_update() so it can present one real frame showing
+// "Downloading..." before the blocking network/file I/O that follows
+// it -- see that function for why.
+static SDL_Window *g_window = NULL;
 
-// A handful of representative test colors so every pipeline stage
-// (gamma, per-channel gamma, brightness, contrast, saturation,
-// levels, color order) is visible at once, not just one arbitrary
-// swatch. Pure red/green/blue exercise saturation/color-order/
-// per-channel controls; white and a mid-gray exercise brightness/
-// contrast/levels without a hue to complicate reading the result.
+// A second, larger text atlas used only for page titles ("PS4 Ambient
+// Light", "Update Plugin") -- text_renderer_create() rasterizes one
+// fixed pixelHeight per instance, so a visually distinct "big bold
+// title" size (matching the reference screenshots' page headers) needs
+// its own instance rather than reusing the 24px body-text atlas.
+// Global rather than threaded through every render_*() signature,
+// same pattern g_window already uses -- created once in main(),
+// destroyed once at shutdown, read (never written) everywhere else.
+static TextRenderer *g_titleFont = NULL;
+
+// Visual design tokens -- ported from a reference Android TV UI
+// (dark navy background, mint/teal accent, rounded card panels) the
+// user shared as screenshots. Kept as named constants, and declared
+// this early in the file (rather than down by draw_text/draw_card
+// where they're mostly used) so functions like do_plugin_update()
+// that render mid-operation feedback before the main loop starts can
+// use them too.
+static const SDL_Color COL_BG           = {10, 14, 22, 255};
+static const SDL_Color COL_CARD_BG      = {19, 27, 40, 255};
+static const SDL_Color COL_CARD_BORDER  = {40, 53, 76, 255};
+static const SDL_Color COL_FIELD_BG     = {12, 18, 28, 255};
+static const SDL_Color COL_FIELD_BORDER = {44, 57, 78, 255};
+static const SDL_Color COL_TEXT_PRIMARY = {240, 244, 248, 255};
+static const SDL_Color COL_TEXT_SECOND  = {148, 160, 180, 255};
+static const SDL_Color COL_ACCENT       = {53, 221, 196, 255};   // primary teal
+static const SDL_Color COL_ACCENT_TEXT  = {10, 22, 26, 255};     // text drawn ON the teal fill
+static const SDL_Color COL_SELECT_WASH  = {24, 46, 46, 255};     // selected-row background
+
+// Forward declaration: render_update_screen() is defined later, in the
+// Rendering section below, but do_plugin_update() (HTTP self-update,
+// right below) needs to call it before doing so.
+static void render_update_screen(SDL_Renderer *renderer, TextRenderer *font);
+
+// A handful of representative test colors, kept for the small
+// pipeline-correctness swatches (gamma/contrast/saturation/levels/
+// color order) that are still drawn on screen -- but these are no
+// longer what's sent to the real strip. See "Live preview" below for
+// the full-strip layout preview that replaced the old 5-swatches-at-
+// DDP-offset-0 approach.
 #define NUM_PREVIEW_SWATCHES 5
 static const uint8_t kPreviewInputs[NUM_PREVIEW_SWATCHES][3] = {
     {255, 0, 0}, {0, 255, 0}, {0, 0, 255}, {255, 255, 255}, {128, 128, 128}
 };
+
+// Full-strip layout state, rebuilt every frame in update_live_preview()
+// and reused by render_setup_screen() so the on-screen boxes and the
+// buffer actually sent over DDP always agree with each other and with
+// real physical wire order (see layout.c).
+static LedSlot g_layoutSlots[LAYOUT_MAX_LEDS];
+static uint8_t g_layoutRGB[LAYOUT_MAX_LEDS][3]; // true RGB (colorOrder-independent), for on-screen drawing only
+static int g_layoutCount = 0;
+
+// Simple HSV->RGB, used to give every configured LED in the layout
+// preview a distinct color (a full hue sweep around the strip)
+// instead of a handful of fixed swatches -- this is what actually
+// lets you confirm startCorner/direction/ledOffset match your real
+// physical install, since you can see the whole loop light up in
+// order, not just whether pixel 0 is lit.
+static void hsv_to_rgb(float h, float s, float v, uint8_t *r, uint8_t *g, uint8_t *b)
+{
+    h = fmodf(h, 360.0f);
+    if (h < 0.0f) h += 360.0f;
+    float c = v * s;
+    float x = c * (1.0f - fabsf(fmodf(h / 60.0f, 2.0f) - 1.0f));
+    float m = v - c;
+    float rf, gf, bf;
+    if      (h <  60.0f) { rf = c; gf = x; bf = 0; }
+    else if (h < 120.0f) { rf = x; gf = c; bf = 0; }
+    else if (h < 180.0f) { rf = 0; gf = c; bf = x; }
+    else if (h < 240.0f) { rf = 0; gf = x; bf = c; }
+    else if (h < 300.0f) { rf = x; gf = 0; bf = c; }
+    else                  { rf = c; gf = 0; bf = x; }
+    *r = (uint8_t)((rf + m) * 255.0f);
+    *g = (uint8_t)((gf + m) * 255.0f);
+    *b = (uint8_t)((bf + m) * 255.0f);
+}
 
 // ---------------- HTTP self-update (verified pattern from
 // OpenOrbis samples/net_http/main.c) ----------------
@@ -147,6 +259,34 @@ static bool http_download(const char *full_url, const char *local_dst)
     int tpl = sceHttpCreateTemplate(g_libhttpCtxId, "Mozilla/5.0 (PLAYSTATION 4; 1.00)", ORBIS_HTTP_VERSION_1_1, 1);
     if (tpl < 0) return false;
     sceHttpsSetSslCallback(tpl, skip_ssl_callback, NULL);
+
+    // Bounds how long a hung/unreachable PLUGIN_UPDATE_URL can freeze
+    // this app -- previously unbounded, so a bad URL or a dead network
+    // path just hung the whole UI indefinitely with no way to cancel.
+    // sceHttpSetConnectTimeOut/SetResolveTimeOut/SetSendTimeOut all have
+    // real, confirmed 2-arg signatures in orbis/Http.h (unlike
+    // sceHttpSetRecvTimeOut, see below), applied here at the template
+    // level to match how sceHttpsSetSslCallback above already works.
+    // NOT verified against a working call site in this SDK though --
+    // no sample here (net_http included) actually calls any of these,
+    // so treat this as a real, compilable improvement over no timeout
+    // at all, not a confirmed-correct one; a real hardware run against
+    // a genuinely unresponsive server is the only way to confirm it
+    // actually bounds the hang.
+    sceHttpSetConnectTimeOut(tpl, 10 * 1000 * 1000);  // 10s
+    sceHttpSetResolveTimeOut(tpl, 10 * 1000 * 1000);  // 10s
+    sceHttpSetSendTimeOut(tpl, 10 * 1000 * 1000);     // 10s
+    // sceHttpSetRecvTimeOut deliberately NOT called: this header
+    // declares it as a bare `void sceHttpSetRecvTimeOut();`, unlike its
+    // three siblings above which all take (int32_t id, uint32_t usec).
+    // That looks like an unfixed auto-generated stub (same pattern
+    // found earlier in this SDK's freetype.h, where several functions
+    // kept their doc comments but lost their real prototypes) rather
+    // than a genuine 0-arg signature -- calling it with guessed
+    // arguments risks a real ABI mismatch/crash, so the actual body-read
+    // phase (sceHttpReadData below, the most likely place a slow-drip
+    // response hangs) remains unbounded by a real per-call timeout.
+    // Flagging this gap rather than guessing at a fix for it.
 
     bool ok = false;
     int conn = sceHttpCreateConnectionWithURL(tpl, full_url, 1);
@@ -204,23 +344,62 @@ static bool register_plugin_in_goldhen(void)
     return ok;
 }
 
-static void do_plugin_update(void)
+// Whether the plugin .prx is currently present at PLUGIN_PRX_PATH --
+// drives the Home screen's single CTA between "Install Plugin" (first
+// run, nothing there yet) and "Update Plugin" (already installed,
+// fetch the latest build). Uses the same sceKernelOpen/Close pair
+// already used elsewhere in this file for real file I/O rather than a
+// stat call, since sceKernelOpen(..., O_RDONLY, ...) failing IS the
+// existence check -- no separate stat API needed for a yes/no
+// question like this one.
+static bool plugin_exists(void)
+{
+    int32_t fd = sceKernelOpen(PLUGIN_PRX_PATH, 0 /* O_RDONLY */, 0777);
+    if (fd < 0) return false;
+    sceKernelClose(fd);
+    return true;
+}
+
+static void do_plugin_update(SDL_Renderer *renderer, TextRenderer *font)
 {
     snprintf(g_statusLine, sizeof(g_statusLine), "Downloading plugin...");
+    // Render+present this one line right now -- everything below this
+    // point blocks the main loop (network I/O, then file I/O), so
+    // without this the "Downloading..." message never actually gets a
+    // frame to appear on screen before being overwritten by the final
+    // success/failure line. A slow or hung server would otherwise make
+    // the app look completely frozen with zero feedback.
+    SDL_SetRenderDrawColor(renderer, COL_BG.r, COL_BG.g, COL_BG.b, 255);
+    SDL_RenderClear(renderer);
+    render_update_screen(renderer, font);
+    SDL_UpdateWindowSurface(g_window);
+
     const char *tmpPath = "/data/ps4_ambient_light_update.tmp";
     if (!http_download(PLUGIN_UPDATE_URL, tmpPath)) {
         snprintf(g_statusLine, sizeof(g_statusLine), "Download FAILED -- check PLUGIN_UPDATE_URL and network.");
         return;
     }
-    // Move into place. sceKernelRename isn't assumed available/named
-    // that in every OpenOrbis version -- copy+delete via
-    // sceKernelOpen/Read/Write/Close instead, using primitives already
-    // proven working above and in config.c, rather than a rename call
-    // this session hasn't verified exists under that name here.
+
+    // Stage the new build alongside the live one, and only ever touch
+    // PLUGIN_PRX_PATH itself via sceKernelRename() once the staged copy
+    // is fully verified good. sceKernelRename IS a real, confirmed
+    // function here (int32_t sceKernelRename(const char*, const
+    // char*), orbis/libkernel.h) -- contradicting this function's own
+    // earlier comment assuming it "isn't assumed available" and using
+    // manual copy+delete instead. That older approach opened
+    // PLUGIN_PRX_PATH directly with O_TRUNC before a single byte of the
+    // new build was copied in: a copy failure partway through (disk
+    // full, I/O error) left the previously-working, live plugin
+    // truncated and broken -- worse off than before the update was
+    // attempted. Staging first means a failed copy never touches the
+    // live file at all, and rename() replaces it as a single
+    // filesystem operation instead of that truncate-then-hope-the-
+    // write-completes window.
+    const char *stagingPath = PLUGIN_PRX_PATH ".new";
     int32_t src = sceKernelOpen(tmpPath, 0, 0777);
     if (src < 0) { snprintf(g_statusLine, sizeof(g_statusLine), "Update failed: couldn't reopen downloaded file."); return; }
-    int32_t dst = sceKernelOpen(PLUGIN_PRX_PATH, 0x200 | 0x001, 0777);
-    if (dst < 0) { sceKernelClose(src); snprintf(g_statusLine, sizeof(g_statusLine), "Update failed: can't write to %s", PLUGIN_PRX_PATH); return; }
+    int32_t dst = sceKernelOpen(stagingPath, 0x200 | 0x001, 0777);
+    if (dst < 0) { sceKernelClose(src); snprintf(g_statusLine, sizeof(g_statusLine), "Update failed: can't write staging file %s", stagingPath); return; }
     uint8_t buf[64 * 1024];
     bool copyOk = true;
     for (;;) {
@@ -231,7 +410,15 @@ static void do_plugin_update(void)
     }
     sceKernelClose(src);
     sceKernelClose(dst);
-    if (!copyOk) { snprintf(g_statusLine, sizeof(g_statusLine), "Update failed: copy into plugins/ was incomplete."); return; }
+    if (!copyOk) {
+        snprintf(g_statusLine, sizeof(g_statusLine), "Update failed: staging copy was incomplete. Your existing plugin is untouched.");
+        return;
+    }
+
+    if (sceKernelRename(stagingPath, PLUGIN_PRX_PATH) < 0) {
+        snprintf(g_statusLine, sizeof(g_statusLine), "Update failed: couldn't install staged build. Your existing plugin is untouched.");
+        return;
+    }
 
     if (!register_plugin_in_goldhen()) {
         snprintf(g_statusLine, sizeof(g_statusLine), "Plugin installed, but plugins.ini update failed -- add it manually.");
@@ -242,21 +429,80 @@ static void do_plugin_update(void)
 
 // ---------------- Live preview ----------------
 
-// Recomputed every frame from the current settings (cheap -- 5
-// swatches through a table-lookup-heavy pipeline, nowhere near a
-// per-frame cost concern) and both rendered on screen AND pushed to
-// the real WLED light so what the user sees in the app matches what
-// their actual strip shows, not a simulation of it.
+// Recomputed every frame from the current settings and both rendered
+// on screen AND pushed to the real WLED light, so what the user sees
+// in the app matches what their actual strip shows, not a simulation
+// of it.
+//
+// This used to build exactly 5 fixed swatches and send them as
+// numZones=5 at DDP pixel offset 0 (ddp_send_rgb_zones always writes
+// offset 0 -- see ddp.c). That's the "5/6 boxes, only the first LED
+// lighting up" bug: DDP offset 0 is always the physical start of the
+// strip, so no matter how ledCountTop/Right/Bottom/Left were
+// configured, only whichever few pixels happen to sit at the very
+// start of the strip ever lit up -- the rest of a real install (which
+// can be dozens of LEDs around all 4 edges) never received anything.
+// This now builds one color per *configured* LED, in real physical
+// wire order (layout_build -- see layout.c, a C port of the Android
+// app's LedLayoutGeometry.kt), and sends the whole thing, so the
+// preview and the real strip always show the same number of lit
+// pixels in the same order.
 static void update_live_preview(void)
 {
     colorpipeline_rebuild_perchannel_gamma_luts(&g_cfg);
 
-    uint8_t wireBytes[NUM_PREVIEW_SWATCHES * 3];
-    for (int i = 0; i < NUM_PREVIEW_SWATCHES; i++) {
-        colorpipeline_process(&g_cfg, kPreviewInputs[i][0], kPreviewInputs[i][1], kPreviewInputs[i][2],
-                               &wireBytes[i * 3]);
+    g_layoutCount = layout_build(&g_cfg, g_layoutSlots, LAYOUT_MAX_LEDS,
+                                  (float)PREVIEW_W, (float)PREVIEW_H, (float)PREVIEW_PAD);
+
+    if (g_layoutCount <= 0) {
+        // Nothing configured (all 4 side counts are 0) -- nothing to
+        // send or draw; leave the strip untouched rather than sending
+        // an empty/garbage packet.
+        return;
     }
-    ddp_send_rgb_zones(g_cfg.wledHost, g_cfg.wledPort, wireBytes, NUM_PREVIEW_SWATCHES);
+
+    uint8_t wireBytes[LAYOUT_MAX_LEDS * 3];
+    for (int i = 0; i < g_layoutCount; i++) {
+        uint8_t rIn, gIn, bIn;
+        // Hue derived from this slot's own fixed physical position
+        // (layout_hue_for_slot(), see layout.c) rather than its index
+        // i in g_layoutSlots[] -- see CHANGELOG-v11-to-v12.md: an
+        // index-based hue meant Start Corner/Direction/LED Offset only
+        // ever changed which screen position got drawn at wire-offset
+        // i, never what color was actually sent to wire-offset i, so
+        // those settings were invisible on the real strip even though
+        // the on-screen rectangle plainly rotated.
+        hsv_to_rgb(layout_hue_for_slot(&g_layoutSlots[i], (float)PREVIEW_W, (float)PREVIEW_H, (float)PREVIEW_PAD),
+                   1.0f, 1.0f, &rIn, &gIn, &bIn);
+
+        // Wire-order bytes -- what actually gets sent to the strip,
+        // honoring the configured colorOrder.
+        colorpipeline_process(&g_cfg, rIn, gIn, bIn, &wireBytes[i * 3]);
+
+        // True-RGB bytes -- for the on-screen box, which should show
+        // "what color is this really" rather than the wire byte
+        // order, same reasoning the old pipeline swatches used.
+        AmbientConfig rgbCfg = g_cfg;
+        rgbCfg.colorOrder = ORDER_RGB;
+        colorpipeline_process(&rgbCfg, rIn, gIn, bIn, g_layoutRGB[i]);
+    }
+
+    bool sent = ddp_send_rgb_zones(g_cfg.wledHost, g_cfg.wledPort, wireBytes, g_layoutCount);
+
+    // update_live_preview() runs every frame at 30fps, so only touch
+    // g_statusLine on the transition into/out of failure -- otherwise a
+    // bad WLED Host would permanently overwrite every other status
+    // message (save confirmations, update results, etc.) the instant it
+    // happened, the same throttling reasoning already used for the pad
+    // debug logging above.
+    static bool s_wasSending = true; // mismatched on purpose so a bad host present at startup is reported too
+    if (sent != s_wasSending) {
+        if (!sent) {
+            snprintf(g_statusLine, sizeof(g_statusLine),
+                     "WLED Host \"%s\" isn't a valid IPv4 address -- live preview/output paused.", g_cfg.wledHost);
+        }
+        s_wasSending = sent;
+    }
 }
 
 // ---------------- Rendering ----------------
@@ -264,6 +510,112 @@ static void update_live_preview(void)
 static void draw_text(SDL_Renderer *renderer, TextRenderer *font, int x, int y, const char *text, SDL_Color color)
 {
     text_renderer_draw(renderer, font, x, y, text, color);
+}
+
+// Fills a rounded rect using per-row horizontal spans (a filled center
+// strip, plus `radius` single-pixel-tall rows top and bottom whose
+// width follows the circle equation) -- there's no SDL2_gfx in this
+// SDK to lean on for real arc rendering, and this stays cheap enough
+// for the handful of panels this UI draws per frame (O(radius)
+// SDL_RenderFillRect calls per rounded rect, not O(radius^2) points).
+static void draw_rounded_rect_fill(SDL_Renderer *renderer, SDL_Rect rect, int radius, SDL_Color color)
+{
+    if (rect.w <= 0 || rect.h <= 0) return;
+    if (radius > rect.w / 2) radius = rect.w / 2;
+    if (radius > rect.h / 2) radius = rect.h / 2;
+    if (radius < 0) radius = 0;
+
+    SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
+
+    if (radius == 0) { SDL_RenderFillRect(renderer, &rect); return; }
+
+    SDL_Rect mid = { rect.x, rect.y + radius, rect.w, rect.h - 2 * radius };
+    if (mid.h > 0) SDL_RenderFillRect(renderer, &mid);
+
+    for (int i = 0; i < radius; i++) {
+        int dy = radius - i;
+        int dx = (int)sqrtf((float)(radius * radius - dy * dy));
+        int w = rect.w - 2 * (radius - dx);
+        if (w <= 0) continue;
+        SDL_Rect topRow = { rect.x + (radius - dx), rect.y + i, w, 1 };
+        SDL_Rect botRow = { rect.x + (radius - dx), rect.y + rect.h - 1 - i, w, 1 };
+        SDL_RenderFillRect(renderer, &topRow);
+        SDL_RenderFillRect(renderer, &botRow);
+    }
+}
+
+// "Stroke via double-fill": draws a filled rounded rect in `border`,
+// then a slightly smaller inset one in `fill` on top of it. Avoids
+// needing real rounded-rect outline/arc rendering while still giving
+// the thin-bordered card look the reference screenshots use
+// throughout (Colour Adjustment / WLED / Customisation panels).
+// borderWidth == 0 draws a plain filled rounded rect with no border.
+static void draw_card(SDL_Renderer *renderer, SDL_Rect rect, int radius, SDL_Color fill, SDL_Color border, int borderWidth)
+{
+    if (borderWidth > 0) {
+        draw_rounded_rect_fill(renderer, rect, radius, border);
+        SDL_Rect inner = { rect.x + borderWidth, rect.y + borderWidth, rect.w - 2 * borderWidth, rect.h - 2 * borderWidth };
+        int innerRadius = radius - borderWidth;
+        if (innerRadius < 0) innerRadius = 0;
+        draw_rounded_rect_fill(renderer, inner, innerRadius, fill);
+    } else {
+        draw_rounded_rect_fill(renderer, rect, radius, fill);
+    }
+}
+
+// ---- Small hand-drawn vector icons ---------------------------------
+// The bundled font atlas only covers printable ASCII (32-126, see
+// text_render.h) -- there's no palette/wifi/slider glyph to draw, so
+// these build simple icon-like shapes out of the same primitives
+// draw_card/draw_rounded_rect_fill already use, sized to fit a
+// `size`x`size` box at (x, y). draw_rounded_rect_fill with a square
+// rect and radius == size/2 draws a true filled circle (the corner
+// rows cover the whole shape, there's no straight-edge "mid" strip
+// left), which is reused below for every dot/circle.
+
+static void draw_icon_help(SDL_Renderer *renderer, TextRenderer *font, int x, int y, int size, SDL_Color color)
+{
+    SDL_Rect circle = { x, y, size, size };
+    draw_rounded_rect_fill(renderer, circle, size / 2, color);
+    // Dark glyph reads fine on the bright teal accent fill (focused
+    // state); on the muted unfocused fill it needs to stay light
+    // instead, or "?" all but disappears against it.
+    bool brightFill = (color.r == COL_ACCENT.r && color.g == COL_ACCENT.g && color.b == COL_ACCENT.b);
+    SDL_Color textColor = brightFill ? COL_ACCENT_TEXT : COL_TEXT_PRIMARY;
+    int qw = text_renderer_measure(font, "?");
+    draw_text(renderer, font, x + (size - qw) / 2, y + size / 2 - 10, "?", textColor);
+}
+
+static void draw_icon_setup(SDL_Renderer *renderer, int x, int y, int size, SDL_Color color)
+{
+    // Three bars of increasing height, like a slider/equalizer control
+    // -- echoes the reference screenshot's "Set Up" icon without
+    // needing an actual glyph for it.
+    int barW = size / 5;
+    int gap = barW;
+    int heights[3] = { size / 2, (size * 3) / 4, size };
+    for (int i = 0; i < 3; i++) {
+        SDL_Rect bar = { x + i * (barW + gap), y + (size - heights[i]), barW, heights[i] };
+        draw_rounded_rect_fill(renderer, bar, barW / 3, color);
+    }
+}
+
+static void draw_icon_palette(SDL_Renderer *renderer, int x, int y, int size, SDL_Color ringColor)
+{
+    // A ring (drawn via the same border-then-inset-fill trick as
+    // draw_card) with three small colored dots inside it, standing in
+    // for a palette/colour-picker icon.
+    SDL_Rect ring = { x, y, size, size };
+    draw_card(renderer, ring, size / 2, COL_CARD_BG, ringColor, 3);
+
+    int dot = size / 4;
+    SDL_Color dots[3] = { {235, 90, 90, 255}, {90, 210, 130, 255}, {90, 150, 235, 255} };
+    int cx = x + size / 2, cy = y + size / 2;
+    int off[3][2] = { { -dot, -dot / 2 }, { dot / 3, -dot }, { dot / 4, dot } };
+    for (int i = 0; i < 3; i++) {
+        SDL_Rect d = { cx + off[i][0], cy + off[i][1], dot, dot };
+        draw_rounded_rect_fill(renderer, d, dot / 2, dots[i]);
+    }
 }
 
 static void format_item_value(const MenuItem *item, const AmbientConfig *cfg, char *out, size_t outSize)
@@ -291,23 +643,44 @@ static void format_item_value(const MenuItem *item, const AmbientConfig *cfg, ch
     snprintf(out, outSize, "%d", settings_get_i32(cfg, item));
 }
 
-// Mirrors render_settings_screen()'s row layout (section headers + row
-// height + the same bottom clamp) without drawing anything, so
-// handle_settings_input() can tell whether a given item index is
-// actually on screen for a given scroll offset. Kept deliberately in
-// lockstep with render_settings_screen() below -- if that function's
-// pixel layout changes, this has to change with it, or scrolling and
-// rendering will disagree about what's visible.
-static int settings_last_visible_index(int scrollOffset)
+// Layout constants for the settings-list card. y stepping inside the
+// card (34px per group header, +LIST_GROUP_DESC_H when a description
+// is present, 30px per row) is kept numerically identical to before
+// this pass' screen split -- settings_last_visible_index_for() below
+// has to stay in lockstep with whatever render_grouped_settings_list()
+// draws, and re-skinning colors/chrome doesn't need to touch that
+// rhythm.
+#define LIST_CARD_X 40
+#define LIST_CARD_Y 92
+#define LIST_CARD_W 800
+#define LIST_ROW_X_PAD 22
+#define LIST_VALUE_CHIP_W 190
+#define LIST_VALUE_CHIP_H 34
+
+// Mirrors render_grouped_settings_list()'s row layout (group headers +
+// optional one-line description + row height + the same bottom clamp)
+// without drawing anything, so handle_grouped_settings_input() can
+// tell whether a given item index is actually on screen for a given
+// scroll offset. Kept deliberately in lockstep with that function --
+// if its pixel layout changes, this has to change with it, or
+// scrolling and rendering will disagree about what's visible. Only
+// counts rows belonging to `screen` -- kMenuItems' own ordering
+// guarantees those are one contiguous run (see screen_item_range()),
+// so skipping non-matching rows here is just a cheap no-op past the
+// end of that run, not a correctness issue.
+#define LIST_GROUP_DESC_H 22
+static int settings_last_visible_index_for(MenuScreen screen, int scrollOffset)
 {
-    int y = 90;
-    const char *currentSection = "";
+    int y = LIST_CARD_Y + 26;
+    const char *currentGroup = "";
     int last = scrollOffset - 1; // nothing shown yet
     for (int i = scrollOffset; i < kMenuItemCount; i++) {
         const MenuItem *item = &kMenuItems[i];
-        if (strcmp(currentSection, item->section) != 0) {
-            currentSection = item->section;
+        if (item->screen != screen) continue;
+        if (strcmp(currentGroup, item->group) != 0) {
+            currentGroup = item->group;
             y += 34;
+            if (item->groupDesc) y += LIST_GROUP_DESC_H;
         }
         y += 30;
         if (y > FRAME_HEIGHT - 260) break;
@@ -316,94 +689,386 @@ static int settings_last_visible_index(int scrollOffset)
     return last;
 }
 
-static void render_settings_screen(SDL_Renderer *renderer, TextRenderer *font)
+// Draws the scrollable card of items belonging to `screen` (Set Up or
+// Customisation), grouped into per-`group` headers with an optional
+// one-line description under each new heading -- same visual language
+// (rounded card, teal bullet + heading, boxed value chip, teal-
+// bordered selection) the original single-list screen already used,
+// just keyed off `group` instead of `section` so a screen's items can
+// be organized into topic cards instead of raw ini-section order.
+// Returns the index of the last item actually drawn, so the caller can
+// render the "X-Y of N" scroll indicator without a second pass.
+static int render_grouped_settings_list(SDL_Renderer *renderer, TextRenderer *font, MenuScreen screen)
 {
-    SDL_Color white = {255, 255, 255, 255};
-    SDL_Color yellow = {255, 220, 60, 255};
-    SDL_Color gray = {160, 160, 160, 255};
+    int listCardBottom = (FRAME_HEIGHT - 260) + 24;
+    SDL_Rect listCard = { LIST_CARD_X, LIST_CARD_Y, LIST_CARD_W, listCardBottom - LIST_CARD_Y };
+    draw_card(renderer, listCard, 22, COL_CARD_BG, COL_CARD_BORDER, 1);
 
-    draw_text(renderer, font, 60, 30, "PS4 Ambient Light -- Settings  (D-Pad: navigate/adjust, Cross: edit text, Triangle: Update Plugin, Options: Save & Quit)", gray);
-
-    int y = 90;
-    const char *currentSection = "";
+    int y = LIST_CARD_Y + 26;
+    const char *currentGroup = "";
     int lastShown = g_scrollOffset - 1; // nothing drawn yet
     for (int i = g_scrollOffset; i < kMenuItemCount; i++) {
         const MenuItem *item = &kMenuItems[i];
-        if (strcmp(currentSection, item->section) != 0) {
-            currentSection = item->section;
-            char sectionLabel[32];
-            snprintf(sectionLabel, sizeof(sectionLabel), "[%s]", currentSection);
-            draw_text(renderer, font, 60, y, sectionLabel, yellow);
+        if (item->screen != screen) continue;
+
+        if (strcmp(currentGroup, item->group) != 0) {
+            currentGroup = item->group;
+            // Small teal bullet ahead of the group name, echoing the
+            // icon-plus-heading pattern the reference screenshots use
+            // for every card/section title -- this build has no icon
+            // glyphs in its ASCII-only atlas, so a solid accent square
+            // stands in.
+            SDL_Rect bullet = { LIST_CARD_X + LIST_ROW_X_PAD, y + 6, 10, 10 };
+            draw_rounded_rect_fill(renderer, bullet, 3, COL_ACCENT);
+            draw_text(renderer, font, LIST_CARD_X + LIST_ROW_X_PAD + 20, y, currentGroup, COL_TEXT_PRIMARY);
             y += 34;
+            if (item->groupDesc) {
+                draw_text(renderer, font, LIST_CARD_X + LIST_ROW_X_PAD, y, item->groupDesc, COL_TEXT_SECOND);
+                y += LIST_GROUP_DESC_H;
+            }
         }
+
         char valueStr[80];
         format_item_value(item, &g_cfg, valueStr, sizeof(valueStr));
-        char line[160];
-        snprintf(line, sizeof(line), "%-20s %s", item->label, valueStr);
 
-        if (i == g_selectedIndex) {
-            SDL_SetRenderDrawColor(renderer, 40, 80, 40, 255);
-            SDL_Rect hl = { 50, y - 4, 700, 30 };
-            SDL_RenderFillRect(renderer, &hl);
+        bool selected = (i == g_selectedIndex);
+        SDL_Rect row = { LIST_CARD_X + 10, y - 4, LIST_CARD_W - 20, 30 };
+        if (selected) {
+            draw_card(renderer, row, 10, COL_SELECT_WASH, COL_ACCENT, 2);
         }
-        draw_text(renderer, font, 70, y, line, i == g_selectedIndex ? yellow : white);
+
+        draw_text(renderer, font, LIST_CARD_X + LIST_ROW_X_PAD, y, item->label,
+                  selected ? COL_ACCENT : COL_TEXT_PRIMARY);
+
+        // Value drawn inside its own small field chip, right-aligned in
+        // the row -- mirrors the boxed-input look every field uses in
+        // the reference screenshots.
+        SDL_Rect chip = {
+            LIST_CARD_X + LIST_CARD_W - LIST_VALUE_CHIP_W - LIST_ROW_X_PAD, y - 6,
+            LIST_VALUE_CHIP_W, LIST_VALUE_CHIP_H
+        };
+        draw_card(renderer, chip, 8, selected ? COL_ACCENT : COL_FIELD_BG,
+                  selected ? COL_ACCENT : COL_FIELD_BORDER, selected ? 0 : 1);
+        int valueW = text_renderer_measure(font, valueStr);
+        draw_text(renderer, font, chip.x + chip.w - valueW - 14, y - 1, valueStr,
+                  selected ? COL_ACCENT_TEXT : COL_TEXT_PRIMARY);
+
         y += 30;
         lastShown = i;
-        if (y > FRAME_HEIGHT - 260) break; // same clamp as before -- now paired with scrolling instead of just cutting the list off
+        if (y > FRAME_HEIGHT - 260) break;
     }
 
-    // Single scroll-position line between the header and the list --
-    // avoids drawing anything near the bottom clamp, where there isn't
-    // reliable vertical room between the last row and the live-preview
-    // swatches below it. ASCII-only since the bundled font's glyph
-    // coverage isn't guaranteed beyond that (same reasoning as the IME
-    // buffer's manual char<->wchar_t widening elsewhere in this file).
-    if (g_scrollOffset > 0 || lastShown < kMenuItemCount - 1) {
+    int start, count;
+    screen_item_range(screen, &start, &count);
+    if (g_scrollOffset > start || lastShown < start + count - 1) {
         char scrollLine[64];
-        snprintf(scrollLine, sizeof(scrollLine), "-- showing %d-%d of %d --",
-                 g_scrollOffset + 1, lastShown + 1, kMenuItemCount);
-        draw_text(renderer, font, 700, 64, scrollLine, gray);
+        snprintf(scrollLine, sizeof(scrollLine), "%d-%d of %d",
+                 g_scrollOffset - start + 1, lastShown - start + 1, count);
+        int w = text_renderer_measure(font, scrollLine);
+        draw_text(renderer, font, LIST_CARD_X + LIST_CARD_W - w - 22, 24, scrollLine, COL_TEXT_SECOND);
+    }
+    return lastShown;
+}
+
+static void render_setup_screen(SDL_Renderer *renderer, TextRenderer *font)
+{
+    draw_text(renderer, g_titleFont, 44, 24, "Set Up", COL_TEXT_PRIMARY);
+    draw_text(renderer, font, 44, 62,
+              "D-Pad: navigate   Cross: edit   Triangle: Update Plugin   Circle: Home   Options: Save & Quit",
+              COL_TEXT_SECOND);
+
+    render_grouped_settings_list(renderer, font, MENU_SCREEN_SETUP);
+
+    // ---- Full-strip layout preview -------------------------------
+    // Every configured LED, in real physical wire order and roughly
+    // its real position around a TV outline (see layout_build() in
+    // layout.c, a C port of the Android app's LedLayoutGeometry.kt).
+    // This is what's actually sent to the real WLED strip right now.
+    // Lives on Set Up rather than Customisation since it's a direct
+    // visualization of this screen's own LED-count/corner/direction
+    // fields, not the color pipeline.
+    SDL_Rect previewCard = { PREVIEW_X - 24, PREVIEW_Y - 68, PREVIEW_W + 48, PREVIEW_H + 68 + 90 };
+    draw_card(renderer, previewCard, 22, COL_CARD_BG, COL_CARD_BORDER, 1);
+
+    draw_text(renderer, font, PREVIEW_X, PREVIEW_Y - 44, "Live layout preview", COL_TEXT_PRIMARY);
+    draw_text(renderer, font, PREVIEW_X, PREVIEW_Y - 20,
+              "Every LED, real wire order -- also sent to your WLED strip right now.", COL_TEXT_SECOND);
+
+    draw_card(renderer, (SDL_Rect){ PREVIEW_X, PREVIEW_Y, PREVIEW_W, PREVIEW_H }, 16, COL_FIELD_BG, COL_FIELD_BORDER, 1);
+
+    // Capture-margin overlay -- purely informational, mirrors the
+    // percentages the plugin itself excludes from capture on each
+    // edge (set on the Customisation screen), same as the Android
+    // app's own layout screen shows.
+    {
+        float mL = (float)g_cfg.marginLeft, mR = (float)g_cfg.marginRight;
+        float mT = (float)g_cfg.marginTop, mB = (float)g_cfg.marginBottom;
+        if (mL > 0.0f || mR > 0.0f || mT > 0.0f || mB > 0.0f) {
+            SDL_SetRenderDrawColor(renderer, 90, 140, 170, 200);
+            SDL_Rect inner = {
+                PREVIEW_X + (int)(PREVIEW_W * mL / 100.0f),
+                PREVIEW_Y + (int)(PREVIEW_H * mT / 100.0f),
+                (int)(PREVIEW_W * (1.0f - (mL + mR) / 100.0f)),
+                (int)(PREVIEW_H * (1.0f - (mT + mB) / 100.0f))
+            };
+            SDL_RenderDrawRect(renderer, &inner);
+        }
     }
 
-    // Live preview swatches, actually reflecting the current settings
-    // through the real pipeline -- not decoration.
-    int swatchX = 900, swatchY = 120, swatchSize = 140;
-    const char *swatchLabels[NUM_PREVIEW_SWATCHES] = {"Red in", "Green in", "Blue in", "White in", "Gray in"};
+    for (int i = 0; i < g_layoutCount; i++) {
+        const LedSlot *s = &g_layoutSlots[i];
+        SDL_Rect r = {
+            PREVIEW_X + (int)(s->cx - s->w / 2.0f),
+            PREVIEW_Y + (int)(s->cy - s->h / 2.0f),
+            (int)(s->w > 1.0f ? s->w : 1.0f),
+            (int)(s->h > 1.0f ? s->h : 1.0f)
+        };
+        SDL_SetRenderDrawColor(renderer, g_layoutRGB[i][0], g_layoutRGB[i][1], g_layoutRGB[i][2], 255);
+        SDL_RenderFillRect(renderer, &r);
+        // First physical pixel gets a bright outline so
+        // startCorner/direction/ledOffset are visually confirmable at
+        // a glance -- same idea as the Android preview highlighting
+        // LED #1 in green.
+        if (i == 0) SDL_SetRenderDrawColor(renderer, COL_TEXT_PRIMARY.r, COL_TEXT_PRIMARY.g, COL_TEXT_PRIMARY.b, 255);
+        else        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 90);
+        SDL_RenderDrawRect(renderer, &r);
+    }
+
+    if (g_layoutCount == 0) {
+        draw_text(renderer, font, PREVIEW_X + 20, PREVIEW_Y + PREVIEW_H / 2,
+                  "No LEDs configured -- set Top/Right/Bottom/Left LED counts above 0.", COL_TEXT_SECOND);
+    } else {
+        char countLine[128];
+        snprintf(countLine, sizeof(countLine),
+                 "%d LEDs total (Top %u / Right %u / Bottom %u / Left %u) -- highlighted box = physical pixel 0",
+                 g_layoutCount, g_cfg.ledCountTop, g_cfg.ledCountRight, g_cfg.ledCountBottom, g_cfg.ledCountLeft);
+        draw_text(renderer, font, PREVIEW_X, PREVIEW_Y + PREVIEW_H + 14, countLine, COL_TEXT_SECOND);
+    }
+
+    draw_text(renderer, font, 44, FRAME_HEIGHT - 44, g_statusLine, COL_ACCENT);
+}
+
+static void render_customize_screen(SDL_Renderer *renderer, TextRenderer *font)
+{
+    draw_text(renderer, g_titleFont, 44, 24, "Customisation", COL_TEXT_PRIMARY);
+    draw_text(renderer, font, 44, 62,
+              "D-Pad: navigate   Cross: edit   Triangle: Update Plugin   Circle: Home   Options: Save & Quit",
+              COL_TEXT_SECOND);
+
+    render_grouped_settings_list(renderer, font, MENU_SCREEN_CUSTOMIZE);
+
+    // ---- Pipeline-correctness swatches -----------------------------
+    // On-screen only, NOT sent to the strip. Lives on Customisation
+    // since it's a direct visualization of this screen's own color
+    // fields -- exercises gamma/contrast/saturation/levels on pure
+    // primaries so tuning color science doesn't depend on the physical
+    // layout (set on the Set Up screen) being right first.
+    SDL_Rect swatchCard = { PREVIEW_X - 24, PREVIEW_Y - 68, PREVIEW_W + 48, 220 };
+    draw_card(renderer, swatchCard, 22, COL_CARD_BG, COL_CARD_BORDER, 1);
+
+    draw_text(renderer, font, PREVIEW_X, PREVIEW_Y - 44, "Pipeline test swatches", COL_TEXT_PRIMARY);
+    draw_text(renderer, font, PREVIEW_X, PREVIEW_Y - 20,
+              "On-screen only, not sent to the strip -- for judging gamma/saturation/contrast on pure primaries.",
+              COL_TEXT_SECOND);
+
+    int swatchX = PREVIEW_X, swatchY = PREVIEW_Y + 20, swatchSize = 90;
+    const char *swatchLabels[NUM_PREVIEW_SWATCHES] = {"Red", "Green", "Blue", "White", "Gray"};
     for (int i = 0; i < NUM_PREVIEW_SWATCHES; i++) {
         uint8_t rgbOut[3];
-        // NOTE: colorpipeline_process's out3 is in WIRE order (per
-        // colorOrder); for an on-screen "what does this really look
-        // like" swatch we want true RGB, so remap back for display --
-        // reprocess and only take the RGB triplet before the final
-        // wire-order write. Simplest correct way: call the pipeline
-        // manually up to levels, or just always preview with RGB order
-        // for the on-screen swatch regardless of the configured wire
-        // order. Second option chosen here since it's simpler and the
-        // real color-order effect matters for the STRIP, which the DDP
-        // send already exercises correctly -- the screen swatch's job
-        // is showing color-correctness, not wire-order.
         AmbientConfig previewCfg = g_cfg;
         previewCfg.colorOrder = ORDER_RGB;
         colorpipeline_process(&previewCfg, kPreviewInputs[i][0], kPreviewInputs[i][1], kPreviewInputs[i][2], rgbOut);
 
-        SDL_SetRenderDrawColor(renderer, rgbOut[0], rgbOut[1], rgbOut[2], 255);
         SDL_Rect sw = { swatchX + i * (swatchSize + 20), swatchY, swatchSize, swatchSize };
-        SDL_RenderFillRect(renderer, &sw);
-        draw_text(renderer, font, swatchX + i * (swatchSize + 20), swatchY + swatchSize + 8, swatchLabels[i], gray);
+        draw_rounded_rect_fill(renderer, sw, 14, (SDL_Color){ rgbOut[0], rgbOut[1], rgbOut[2], 255 });
+        draw_text(renderer, font, swatchX + i * (swatchSize + 20), swatchY + swatchSize + 8, swatchLabels[i], COL_TEXT_SECOND);
     }
-    draw_text(renderer, font, swatchX, swatchY - 40, "Live preview (also sent to your real WLED light right now):", gray);
 
-    draw_text(renderer, font, 60, FRAME_HEIGHT - 60, g_statusLine, yellow);
+    draw_text(renderer, font, 44, FRAME_HEIGHT - 44, g_statusLine, COL_ACCENT);
 }
 
 static void render_update_screen(SDL_Renderer *renderer, TextRenderer *font)
 {
-    SDL_Color white = {255, 255, 255, 255};
-    SDL_Color gray = {160, 160, 160, 255};
-    draw_text(renderer, font, 60, 30, "Update Plugin  (X: download and install now, Circle: back)", gray);
-    draw_text(renderer, font, 60, 100, "This fetches the latest ps4_ambient_light.prx from:", white);
-    draw_text(renderer, font, 60, 130, PLUGIN_UPDATE_URL, gray);
-    draw_text(renderer, font, 60, 200, g_statusLine, white);
+    draw_text(renderer, g_titleFont, 44, 24, "Update Plugin", COL_TEXT_PRIMARY);
+    draw_text(renderer, font, 44, 62, "Fetches the latest ps4_ambient_light.prx and installs it.", COL_TEXT_SECOND);
+
+    SDL_Rect card = { 40, 110, 1200, 220 };
+    draw_card(renderer, card, 22, COL_CARD_BG, COL_CARD_BORDER, 1);
+
+    draw_text(renderer, font, card.x + 24, card.y + 24, "Source URL", COL_TEXT_SECOND);
+    SDL_Rect urlChip = { card.x + 24, card.y + 50, card.w - 48, 40 };
+    draw_card(renderer, urlChip, 10, COL_FIELD_BG, COL_FIELD_BORDER, 1);
+    draw_text(renderer, font, urlChip.x + 14, urlChip.y + 8, PLUGIN_UPDATE_URL, COL_TEXT_PRIMARY);
+
+    draw_text(renderer, font, card.x + 24, card.y + 108, g_statusLine, COL_TEXT_PRIMARY);
+
+    // X-to-download affordance, styled the same teal filled pill as
+    // the reference screenshots' primary CTA ("Save customisation" /
+    // "Start SceneGlow") -- purely informational here (there's no
+    // pointer input, only D-Pad/buttons), but it visually reinforces
+    // which button actually does the thing, same role the pill plays
+    // in the reference UI.
+    SDL_Rect cta = { card.x + 24, card.y + card.h - 60, 420, 48 };
+    draw_rounded_rect_fill(renderer, cta, 14, COL_ACCENT);
+    const char *ctaLabel = "X: Download & Install";
+    int ctaW = text_renderer_measure(font, ctaLabel);
+    draw_text(renderer, font, cta.x + (cta.w - ctaW) / 2, cta.y + 12, ctaLabel, COL_ACCENT_TEXT);
+
+    draw_text(renderer, font, 44, FRAME_HEIGHT - 44, "Circle: back to Home (no changes made until X is pressed)", COL_TEXT_SECOND);
+}
+
+// ---------------- Home screen ----------------
+// Entry point matching the reference screenshot: title + subtitle,
+// a status card, one big primary CTA (Install/Update Plugin --
+// whichever applies), and a row of three smaller buttons (Help, Set
+// Up, Customisation). Set Up and Customisation now route to their own
+// grouped screens (SCREEN_SETUP / SCREEN_CUSTOMIZE, see
+// render_setup_screen()/render_customize_screen() and
+// handle_grouped_settings_input() below) instead of one flat list.
+// Help still has no dedicated screen, and says so rather than
+// pretending to do something.
+#define HOME_FOCUS_CTA   0
+#define HOME_FOCUS_HELP  1
+#define HOME_FOCUS_SETUP 2
+#define HOME_FOCUS_CUST  3
+
+// Computed once per frame by render_home_screen() -- kept around
+// (rather than being locals) in case a future pass adds pointer/touch
+// input, so hit-testing would have real button bounds to check
+// against instead of needing to duplicate this layout math. Not read
+// anywhere yet; D-Pad-only navigation in handle_home_input() below
+// only needs g_homeFocus's index, not actual screen coordinates.
+static SDL_Rect g_homeCtaRect;
+static SDL_Rect g_homeButtonRects[3]; // Help, Set Up, Customisation, in that order
+
+static void render_home_screen(SDL_Renderer *renderer, TextRenderer *font)
+{
+    bool installed = plugin_exists();
+
+    draw_text(renderer, g_titleFont, 60, 40, "PS4 Ambilight", COL_TEXT_PRIMARY);
+    draw_text(renderer, font, 60, 92, "Screen-reactive ambient lighting for your PS4, powered by GoldHEN.", COL_TEXT_SECOND);
+
+    // Status card -- mirrors the reference's "SceneGlow is ready" /
+    // "Ready to request screen capture." pairing, but reporting the
+    // thing that's actually relevant to a companion app for a
+    // background plugin: whether the plugin itself is installed.
+    SDL_Rect statusCard = { 60, 170, 1800, 190 };
+    draw_card(renderer, statusCard, 24, COL_CARD_BG, COL_CARD_BORDER, 1);
+    const char *statusTitle = installed ? "Plugin installed" : "Plugin not installed";
+    const char *statusSub = installed
+        ? "ps4_ambient_light.prx is registered with GoldHEN. Adjust settings below, or update anytime."
+        : "Install the plugin to enable ambient lighting -- settings alone don't do anything until it's running.";
+    int titleW = text_renderer_measure(g_titleFont, statusTitle);
+    draw_text(renderer, g_titleFont, statusCard.x + (statusCard.w - titleW) / 2, statusCard.y + 44, statusTitle, COL_TEXT_PRIMARY);
+    int subW = text_renderer_measure(font, statusSub);
+    draw_text(renderer, font, statusCard.x + (statusCard.w - subW) / 2, statusCard.y + 108, statusSub, COL_TEXT_SECOND);
+
+    // Primary CTA -- label follows plugin state directly from
+    // plugin_exists(), same check driving the status card above, so
+    // the two can never disagree about whether it's installed.
+    g_homeCtaRect = (SDL_Rect){ 360, statusCard.y + statusCard.h + 40, 1200, 140 };
+    bool ctaFocused = (g_homeFocus == HOME_FOCUS_CTA);
+    if (ctaFocused) {
+        // Focus ring: a slightly larger rounded rect in the outline
+        // color with the actual button rect (in accent color) drawn
+        // on top of it as the "fill" -- same border-via-double-fill
+        // technique draw_card() uses internally, just done manually
+        // here so the ring can be a couple pixels larger than the
+        // button itself instead of sharing its exact bounds.
+        SDL_Rect ring = { g_homeCtaRect.x - 5, g_homeCtaRect.y - 5, g_homeCtaRect.w + 10, g_homeCtaRect.h + 10 };
+        draw_rounded_rect_fill(renderer, ring, 28, COL_TEXT_PRIMARY);
+    }
+    draw_rounded_rect_fill(renderer, g_homeCtaRect, 24, COL_ACCENT);
+    const char *ctaLabel = installed ? "Update Plugin" : "Install Plugin";
+    int ctaW = text_renderer_measure(font, ctaLabel);
+    draw_text(renderer, font, g_homeCtaRect.x + (g_homeCtaRect.w - ctaW) / 2, g_homeCtaRect.y + (g_homeCtaRect.h - 24) / 2, ctaLabel, COL_ACCENT_TEXT);
+
+    // Bottom row: Help / Set Up / Customisation, each a smaller card
+    // with an icon + label, matching the reference's bottom nav row.
+    int rowY = g_homeCtaRect.y + g_homeCtaRect.h + 50;
+    int btnW = 380, btnH = 110, gap = 40;
+    int rowW = btnW * 3 + gap * 2;
+    int rowX = (FRAME_WIDTH - rowW) / 2;
+    const char *labels[3] = { "Help", "Set Up", "Customisation" };
+
+    for (int i = 0; i < 3; i++) {
+        SDL_Rect r = { rowX + i * (btnW + gap), rowY, btnW, btnH };
+        g_homeButtonRects[i] = r;
+        bool focused = (g_homeFocus == HOME_FOCUS_HELP + i);
+        draw_card(renderer, r, 18, COL_CARD_BG, focused ? COL_ACCENT : COL_CARD_BORDER, focused ? 2 : 1);
+
+        int iconSize = 44;
+        int iconX = r.x + 24, iconY = r.y + (r.h - iconSize) / 2;
+        if (i == 0)      draw_icon_help(renderer, font, iconX, iconY, iconSize, focused ? COL_ACCENT : COL_FIELD_BORDER);
+        else if (i == 1) draw_icon_setup(renderer, iconX, iconY, iconSize, focused ? COL_ACCENT : COL_TEXT_PRIMARY);
+        else              draw_icon_palette(renderer, iconX, iconY, iconSize, focused ? COL_ACCENT : COL_FIELD_BORDER);
+
+        draw_text(renderer, font, iconX + iconSize + 18, r.y + (r.h - 20) / 2, labels[i], COL_TEXT_PRIMARY);
+    }
+
+    draw_text(renderer, font, 60, FRAME_HEIGHT - 44, g_statusLine, COL_ACCENT);
+    draw_text(renderer, font, 60, FRAME_HEIGHT - 76,
+              "D-Pad: move   Cross: select   Options: Save & Quit", COL_TEXT_SECOND);
+}
+
+static void handle_home_input(const OrbisPadData *pad, const OrbisPadData *prevPad, SDL_Renderer *renderer, TextRenderer *font)
+{
+    bool up    = (pad->buttons & ORBIS_PAD_BUTTON_UP)    && !(prevPad->buttons & ORBIS_PAD_BUTTON_UP);
+    bool down  = (pad->buttons & ORBIS_PAD_BUTTON_DOWN)  && !(prevPad->buttons & ORBIS_PAD_BUTTON_DOWN);
+    bool left  = (pad->buttons & ORBIS_PAD_BUTTON_LEFT)  && !(prevPad->buttons & ORBIS_PAD_BUTTON_LEFT);
+    bool right = (pad->buttons & ORBIS_PAD_BUTTON_RIGHT) && !(prevPad->buttons & ORBIS_PAD_BUTTON_RIGHT);
+    bool crossUp = !(pad->buttons & ORBIS_PAD_BUTTON_CROSS) && (prevPad->buttons & ORBIS_PAD_BUTTON_CROSS);
+    bool options = (pad->buttons & ORBIS_PAD_BUTTON_OPTIONS) && !(prevPad->buttons & ORBIS_PAD_BUTTON_OPTIONS);
+
+    if (up)   g_homeFocus = HOME_FOCUS_CTA;
+    if (down) g_homeFocus = (g_homeFocus == HOME_FOCUS_CTA) ? HOME_FOCUS_SETUP : g_homeFocus;
+    if (g_homeFocus != HOME_FOCUS_CTA) {
+        if (right) g_homeFocus = HOME_FOCUS_HELP + ((g_homeFocus - HOME_FOCUS_HELP + 1) % 3);
+        if (left)  g_homeFocus = HOME_FOCUS_HELP + ((g_homeFocus - HOME_FOCUS_HELP + 2) % 3);
+    }
+
+    if (crossUp) {
+        switch (g_homeFocus) {
+            case HOME_FOCUS_CTA:
+                // Same download+stage+rename+register flow the Update
+                // screen's X press uses -- do_plugin_update() renders
+                // its own one-frame "Downloading..." progress via
+                // render_update_screen() internally regardless of
+                // which screen is actually active; a brief flash of
+                // that screen's chrome during the (blocking) download
+                // is a known, accepted cosmetic quirk of reusing it
+                // here rather than threading a "what to render mid-
+                // download" callback through for this first pass.
+                do_plugin_update(renderer, font);
+                break;
+            case HOME_FOCUS_HELP:
+                snprintf(g_statusLine, sizeof(g_statusLine), "Help screen isn't built yet -- see README.md for setup docs.");
+                break;
+            case HOME_FOCUS_SETUP: {
+                int start, count;
+                screen_item_range(MENU_SCREEN_SETUP, &start, &count);
+                g_selectedIndex = start;
+                g_scrollOffset = start;
+                g_screen = SCREEN_SETUP;
+                break;
+            }
+            case HOME_FOCUS_CUST: {
+                int start, count;
+                screen_item_range(MENU_SCREEN_CUSTOMIZE, &start, &count);
+                g_selectedIndex = start;
+                g_scrollOffset = start;
+                g_screen = SCREEN_CUSTOMIZE;
+                break;
+            }
+        }
+    }
+
+    if (options) {
+        if (settings_save(&g_cfg, AMBIENT_CONFIG_PATH))
+            snprintf(g_statusLine, sizeof(g_statusLine), "Saved to %s -- the plugin will pick this up on its own reload check.", AMBIENT_CONFIG_PATH);
+        else
+            snprintf(g_statusLine, sizeof(g_statusLine), "Save FAILED -- check %s is writable.", AMBIENT_CONFIG_PATH);
+    }
 }
 
 // ---------------- Input / navigation ----------------
@@ -443,7 +1108,7 @@ static bool pad_init(void)
     return g_padHandle >= 0;
 }
 
-// ---------------- On-screen keyboard (wledHost field) ----------------
+// ---------------- On-screen keyboard (any numeric or string field) ----------------
 //
 // Real API surface, pulled directly from orbis/ImeDialog.h,
 // orbis/_types/ime_dialog.h, and orbis/CommonDialog.h in this SDK --
@@ -457,6 +1122,10 @@ static bool pad_init(void)
 // OrbisImeDialogSetting's fields (userId, type, inputTextBuffer,
 // maxTextLength, posx/posy, alignment, placeholder, title, etc.) are
 // all real, confirmed struct members -- this isn't a guessed layout.
+// ORBIS_TYPE_NUMBER = 4 (orbis/_types/ime_dialog.h) is likewise a
+// real, confirmed constant -- used below for numeric fields instead of
+// ORBIS_TYPE_BASIC_LATIN, restricting the on-screen keyboard's own
+// layout to digits (and '-' -- see the min<0 comment below).
 //
 // Genuinely NOT confirmed, because no working IME-dialog sample exists
 // in this SDK to check against (samples/keyboard is a *physical*
@@ -472,53 +1141,65 @@ static bool pad_init(void)
 //     point vs. some other anchor.
 //   - supportedLanguages=0 as "default/unrestricted" -- not documented
 //     in this header at all, just the least-surprising guess.
+//   - Whether ORBIS_TYPE_NUMBER's on-screen layout actually includes a
+//     '-' key for entering a negative value (LED Offset, Saturation,
+//     and Contrast all allow negatives) -- if it doesn't, this falls
+//     back to letting strtol() reject/clamp whatever was actually
+//     typeable, which is still safe (never writes an unparseable or
+//     out-of-range value) but might mean those three specific fields
+//     can't reach their negative range from this dialog. Flagging
+//     rather than guessing a workaround for a keyboard layout this
+//     session can't see.
 // This needs a real hardware run to confirm the dialog actually shows
 // where/how expected -- flagging that plainly rather than treating a
 // clean compile as proof.
 //
-// wledHost is always plain ASCII (IP address or hostname), so this
-// widens/narrows manually instead of via mbstowcs/wcstombs -- avoids
-// depending on locale support that hasn't been checked in this SDK's
-// libc, for a charset simple enough not to need it.
+// All text here is plain ASCII (IP addresses, hostnames, digits, '-',
+// '.'), so this widens/narrows manually instead of via
+// mbstowcs/wcstombs -- avoids depending on locale support that hasn't
+// been checked in this SDK's libc, for a charset simple enough not to
+// need it.
 static bool g_imeDialogOpen = false;
 static wchar_t g_imeBuffer[64];
+static int g_imeItemIndex = -1; // which kMenuItems[] entry this dialog is editing
 
-static void open_wled_host_ime_dialog(void)
+static void widen_ascii(wchar_t *dst, const char *src, size_t dstCount)
+{
+    size_t i = 0;
+    for (; i < dstCount - 1 && src[i] != '\0'; i++) dst[i] = (wchar_t)(unsigned char)src[i];
+    dst[i] = L'\0';
+}
+
+// itemIndex must refer to a FIELD_STRING, FIELD_U32, FIELD_I32, or
+// FIELD_U16 item -- FIELD_ENUM/FIELD_BOOL have no sensible "type a
+// value" equivalent and are still cycled/toggled with D-Pad Left/Right
+// (see handle_grouped_settings_input()), never routed here.
+static void open_field_ime_dialog(int itemIndex)
 {
     if (g_imeDialogOpen || sceCommonDialogIsUsed()) return;
+    const MenuItem *item = &kMenuItems[itemIndex];
 
-    // NOT L"..." literals: this SDK's own wchar.h resolves wchar_t to
-    // unsigned short (2 bytes, UTF-16-style, matching what
-    // OrbisImeDialogSetting's placeholder/title/inputTextBuffer fields
-    // actually expect -- confirmed by a real build's own compiler
-    // warning: "assigning to 'const wchar_t *' (aka 'const unsigned
-    // short *')"). But clang's built-in L"..." literal type is fixed
-    // by the target's __WCHAR_TYPE__ (4-byte int on this
-    // x86_64-freebsd target) regardless of that header typedef -- a
-    // typedef can't override what the compiler produces for a wide
-    // string literal. So L"..." here silently builds the wrong-width
-    // array and gets flagged as an incompatible pointer type. These
-    // are plain ASCII, so populated element-by-element into an
-    // explicitly-sized wchar_t array instead, same reasoning as the
-    // manual char<->wchar_t widening used elsewhere in this function
-    // rather than trusting mbstowcs/wcstombs.
-    static const char kPlaceholderAscii[] = "192.168.x.x";
-    static const char kTitleAscii[] = "WLED Host";
-    static wchar_t placeholderBuf[sizeof(kPlaceholderAscii)];
-    static wchar_t titleBuf[sizeof(kTitleAscii)];
-    for (size_t i = 0; i < sizeof(kPlaceholderAscii); i++) placeholderBuf[i] = (wchar_t)(unsigned char)kPlaceholderAscii[i];
-    for (size_t i = 0; i < sizeof(kTitleAscii); i++) titleBuf[i] = (wchar_t)(unsigned char)kTitleAscii[i];
+    char placeholderAscii[80], titleAscii[80], currentAscii[64];
+    if (item->type == FIELD_STRING) {
+        snprintf(placeholderAscii, sizeof(placeholderAscii), "192.168.x.x");
+        snprintf(currentAscii, sizeof(currentAscii), "%s", g_cfg.wledHost);
+    } else {
+        snprintf(placeholderAscii, sizeof(placeholderAscii), "%d to %d", item->min, item->max);
+        snprintf(currentAscii, sizeof(currentAscii), "%d", settings_get_i32(&g_cfg, item));
+    }
+    snprintf(titleAscii, sizeof(titleAscii), "%s", item->label);
+
+    static wchar_t placeholderBuf[80], titleBuf[80];
+    widen_ascii(placeholderBuf, placeholderAscii, sizeof(placeholderBuf) / sizeof(placeholderBuf[0]));
+    widen_ascii(titleBuf, titleAscii, sizeof(titleBuf) / sizeof(titleBuf[0]));
 
     memset(g_imeBuffer, 0, sizeof(g_imeBuffer));
-    size_t i = 0;
-    for (; i < sizeof(g_imeBuffer) / sizeof(g_imeBuffer[0]) - 1 && g_cfg.wledHost[i] != '\0'; i++) {
-        g_imeBuffer[i] = (wchar_t)(unsigned char)g_cfg.wledHost[i];
-    }
+    widen_ascii(g_imeBuffer, currentAscii, sizeof(g_imeBuffer) / sizeof(g_imeBuffer[0]));
 
     OrbisImeDialogSetting setting;
     memset(&setting, 0, sizeof(setting));
     setting.userId = g_userId;
-    setting.type = ORBIS_TYPE_BASIC_LATIN;
+    setting.type = (item->type == FIELD_STRING) ? ORBIS_TYPE_BASIC_LATIN : ORBIS_TYPE_NUMBER;
     setting.supportedLanguages = 0;
     setting.enterLabel = ORBIS_BUTTON_LABEL_DEFAULT;
     setting.inputMethod = ORBIS__DEFAULT;
@@ -534,9 +1215,10 @@ static void open_wled_host_ime_dialog(void)
     setting.title = titleBuf;
 
     int32_t ret = sceImeDialogInit(&setting, NULL);
-    printf("[ime] sceImeDialogInit() = %d\n", ret);
+    printf("[ime] sceImeDialogInit() = %d (field \"%s\")\n", ret, item->label);
     if (ret == 0) {
         g_imeDialogOpen = true;
+        g_imeItemIndex = itemIndex;
     } else {
         snprintf(g_statusLine, sizeof(g_statusLine), "Couldn't open the keyboard (sceImeDialogInit = %d).", ret);
     }
@@ -546,17 +1228,6 @@ static void open_wled_host_ime_dialog(void)
 static void update_ime_dialog(void)
 {
     OrbisDialogStatus status = sceImeDialogGetStatus();
-    // DIAGNOSTIC (temporary): reported symptom is the dialog closing on
-    // the first character selected, not just on an actual Enter/Close.
-    // No working PS4 sample exists to check OrbisImeDialogSetting's
-    // real behavior against, and the closest documented analog
-    // (Vita's SceImeDialogButton: ENTER and CLOSE are distinct from
-    // ordinary character input) suggests this shouldn't happen by
-    // design -- so before changing any setting/option blind, log every
-    // status transition so the next putty.log capture shows exactly
-    // what's actually being reported the instant X is pressed on a
-    // letter, rather than guessing at a fix that might not address the
-    // real cause.
     static OrbisDialogStatus s_lastLoggedStatus = (OrbisDialogStatus)-1;
     if (status != s_lastLoggedStatus) {
         printf("[ime] sceImeDialogGetStatus() = %d (0=NONE,1=RUNNING,2=STOPPED)\n", (int)status);
@@ -569,24 +1240,51 @@ static void update_ime_dialog(void)
     int32_t getResultRet = sceImeDialogGetResult(&result);
     printf("[ime] sceImeDialogGetResult() = %d, endstatus = %d (0=OK,1=CANCEL,2=ABORD)\n", getResultRet, (int)result.endstatus);
 
-    if (result.endstatus == ORBIS_DIALOG_OK) {
+    const MenuItem *item = (g_imeItemIndex >= 0 && g_imeItemIndex < kMenuItemCount) ? &kMenuItems[g_imeItemIndex] : NULL;
+
+    if (result.endstatus == ORBIS_DIALOG_OK && item != NULL) {
+        char typed[64];
         size_t i = 0;
-        for (; i < sizeof(g_cfg.wledHost) - 1 && g_imeBuffer[i] != L'\0'; i++) {
-            g_cfg.wledHost[i] = (char)g_imeBuffer[i];
+        for (; i < sizeof(typed) - 1 && g_imeBuffer[i] != L'\0'; i++) typed[i] = (char)g_imeBuffer[i];
+        typed[i] = '\0';
+
+        if (item->type == FIELD_STRING) {
+            char *dst = (char *)&g_cfg + item->offset;
+            snprintf(dst, (size_t)item->max /* buffer size, see STRBUF() in settings.c */, "%s", typed);
+            printf("[ime] %s set to \"%s\"\n", item->label, dst);
+            snprintf(g_statusLine, sizeof(g_statusLine), "%s set to %s (Options to save).", item->label, dst);
+        } else {
+            // strtol, not atoi: atoi has no way to report "that wasn't
+            // a number at all" (both return 0), and silently writing 0
+            // for garbage/empty input is exactly the kind of accepted-
+            // but-wrong save this project's settings_load() hardening
+            // pass (see clamp_to_schema()) was written to prevent on
+            // the load side -- worth the same care here on entry.
+            char *end = NULL;
+            long v = strtol(typed, &end, 10);
+            if (end == typed || *end != '\0') {
+                snprintf(g_statusLine, sizeof(g_statusLine), "\"%s\" isn't a number -- %s unchanged.", typed, item->label);
+            } else {
+                // settings_set_i32() already clamps into [item->min,
+                // item->max] -- same single source of truth
+                // settings_load() itself uses, so a keyboard-typed
+                // out-of-range value can't reach g_cfg unclamped any
+                // more than a corrupted ini file's value could.
+                settings_set_i32(&g_cfg, item, (int32_t)v);
+                snprintf(g_statusLine, sizeof(g_statusLine), "%s set to %d (Options to save).", item->label, settings_get_i32(&g_cfg, item));
+            }
         }
-        g_cfg.wledHost[i] = '\0';
-        printf("[ime] result text (widened back to char): \"%s\"\n", g_cfg.wledHost);
-        snprintf(g_statusLine, sizeof(g_statusLine), "WLED Host set to %s (Options to save).", g_cfg.wledHost);
     } else {
-        snprintf(g_statusLine, sizeof(g_statusLine), "Keyboard cancelled -- WLED Host unchanged.");
+        snprintf(g_statusLine, sizeof(g_statusLine), "Keyboard cancelled -- %s unchanged.", item ? item->label : "field");
     }
 
     s_lastLoggedStatus = (OrbisDialogStatus)-1; // reset for the next time the dialog opens
     sceImeDialogTerm();
     g_imeDialogOpen = false;
+    g_imeItemIndex = -1;
 }
 
-static void handle_settings_input(const OrbisPadData *pad, const OrbisPadData *prevPad)
+static void handle_grouped_settings_input(const OrbisPadData *pad, const OrbisPadData *prevPad, MenuScreen screen)
 {
     bool up    = (pad->buttons & ORBIS_PAD_BUTTON_UP)    && !(prevPad->buttons & ORBIS_PAD_BUTTON_UP);
     bool down  = (pad->buttons & ORBIS_PAD_BUTTON_DOWN)  && !(prevPad->buttons & ORBIS_PAD_BUTTON_DOWN);
@@ -595,60 +1293,48 @@ static void handle_settings_input(const OrbisPadData *pad, const OrbisPadData *p
     bool leftEdge  = left  && !(prevPad->buttons & ORBIS_PAD_BUTTON_LEFT);
     bool rightEdge = right && !(prevPad->buttons & ORBIS_PAD_BUTTON_RIGHT);
     bool triangle = (pad->buttons & ORBIS_PAD_BUTTON_TRIANGLE) && !(prevPad->buttons & ORBIS_PAD_BUTTON_TRIANGLE);
+    bool circle   = (pad->buttons & ORBIS_PAD_BUTTON_CIRCLE)   && !(prevPad->buttons & ORBIS_PAD_BUTTON_CIRCLE);
     bool options  = (pad->buttons & ORBIS_PAD_BUTTON_OPTIONS)  && !(prevPad->buttons & ORBIS_PAD_BUTTON_OPTIONS);
-    // BUGFIX: open the keyboard on Cross's RELEASE edge, not its press edge.
-    // putty.log showed sceImeDialogGetResult() coming back CANCEL within a
-    // couple of frames of sceImeDialogInit(), with no second Cross press
-    // logged in between -- i.e. the dialog was cancelling itself before the
-    // user could have tapped anything. The pad trace makes the mechanism
-    // clear: right after ImeDialogBaseScene goes Alive, the *same* Cross
-    // press that triggered open_wled_host_ime_dialog() is still being
-    // reported as held (buttons=0x80004000, ORBIS_PAD_BUTTON_INTERCEPTED |
-    // CROSS) before it's released a frame later (0x80000000). Opening the
-    // dialog on the press edge means Cross is still physically down the
-    // instant the system UI takes focus, so that leftover press is what the
-    // dialog scene sees as its first input -- landing on Close/Cancel
-    // instead of any key the user goes on to actually press. Triggering on
-    // release instead guarantees Cross is already up by the time
-    // sceImeDialogInit() runs, so there's no stale press left for the
-    // dialog to consume as an immediate Cancel.
-    //
-    // Cross stays the select/open button here (X = select, Circle =
-    // cancel) -- that's confirmed correct for this console; the earlier
-    // "Circle selects" read turned out to be this same stale-press bug
-    // showing up as the on-screen keyboard closing on the first X instead
-    // of registering a keystroke, not an actual button-assignment swap.
+    // Cross opens the on-screen keyboard for numeric/string fields --
+    // same release-edge fix this app already relied on for WLED Host
+    // (see the original bug: opening on Cross's *press* edge left a
+    // stale press for the IME dialog scene to consume as an immediate
+    // Cancel before any real input could register). Now applies to
+    // every numeric field too, not just the one string field.
     bool crossUp  = !(pad->buttons & ORBIS_PAD_BUTTON_CROSS) && (prevPad->buttons & ORBIS_PAD_BUTTON_CROSS);
 
-    if (up)   g_selectedIndex = (g_selectedIndex - 1 + kMenuItemCount) % kMenuItemCount;
-    if (down) g_selectedIndex = (g_selectedIndex + 1) % kMenuItemCount;
+    int start, count;
+    screen_item_range(screen, &start, &count);
 
-    // Keep the selected row scrolled into view. Scrolling up is direct
-    // (the selected index just becomes the new top row); scrolling down
-    // has to walk forward since a page's worth of rows varies with how
-    // many section headers fall inside it. Also correctly handles
-    // wraparound at either end of the list: Down from the last item
-    // sets g_selectedIndex to 0, which is always < g_scrollOffset once
-    // scrolled, snapping the view back to the top; Up from the first
-    // item sets it to the last item, which the while loop below scrolls
-    // down to reveal.
+    if (up)   g_selectedIndex = start + (g_selectedIndex - start - 1 + count) % count;
+    if (down) g_selectedIndex = start + (g_selectedIndex - start + 1) % count;
+
+    // Keep the selected row scrolled into view -- same logic as
+    // before, just bounded to this screen's own [start, start+count)
+    // range via settings_last_visible_index_for() instead of the
+    // whole flat list.
     if (g_selectedIndex < g_scrollOffset) {
         g_scrollOffset = g_selectedIndex;
     } else {
-        while (settings_last_visible_index(g_scrollOffset) < g_selectedIndex) g_scrollOffset++;
+        while (settings_last_visible_index_for(screen, g_scrollOffset) < g_selectedIndex) g_scrollOffset++;
     }
 
     const MenuItem *item = &kMenuItems[g_selectedIndex];
-    if (item->type != FIELD_STRING) {
+    // ENUM/BOOL still cycle/toggle directly with D-Pad Left/Right --
+    // there's no sensible "type a value" keyboard equivalent for
+    // either (what would you type for "Direction"?). Only
+    // numeric/string fields moved to the on-screen keyboard this pass.
+    if (item->type == FIELD_ENUM || item->type == FIELD_BOOL) {
         if (leftEdge)  settings_set_i32(&g_cfg, item, settings_get_i32(&g_cfg, item) - item->step);
         if (rightEdge) settings_set_i32(&g_cfg, item, settings_get_i32(&g_cfg, item) + item->step);
     } else if (crossUp) {
-        open_wled_host_ime_dialog();
+        open_field_ime_dialog(g_selectedIndex);
     } else if (leftEdge || rightEdge) {
-        snprintf(g_statusLine, sizeof(g_statusLine), "Press Cross to edit WLED Host with the on-screen keyboard.");
+        snprintf(g_statusLine, sizeof(g_statusLine), "Press Cross to edit %s with the on-screen keyboard.", item->label);
     }
 
     if (triangle) g_screen = SCREEN_UPDATE;
+    if (circle) g_screen = SCREEN_HOME;
 
     if (options) {
         if (settings_save(&g_cfg, AMBIENT_CONFIG_PATH))
@@ -658,7 +1344,7 @@ static void handle_settings_input(const OrbisPadData *pad, const OrbisPadData *p
     }
 }
 
-static void handle_update_input(const OrbisPadData *pad, const OrbisPadData *prevPad)
+static void handle_update_input(const OrbisPadData *pad, const OrbisPadData *prevPad, SDL_Renderer *renderer, TextRenderer *font)
 {
     // X = select/open (download and install), Circle = cancel/back --
     // do_plugin_update() doesn't open any system dialog, so there's no
@@ -666,8 +1352,8 @@ static void handle_update_input(const OrbisPadData *pad, const OrbisPadData *pre
     // both.
     bool cross  = (pad->buttons & ORBIS_PAD_BUTTON_CROSS)  && !(prevPad->buttons & ORBIS_PAD_BUTTON_CROSS);
     bool circle = (pad->buttons & ORBIS_PAD_BUTTON_CIRCLE) && !(prevPad->buttons & ORBIS_PAD_BUTTON_CIRCLE);
-    if (cross) do_plugin_update();
-    if (circle) g_screen = SCREEN_SETTINGS;
+    if (cross) do_plugin_update(renderer, font);
+    if (circle) g_screen = SCREEN_HOME;
 }
 
 // ---------------- Entry point ----------------
@@ -713,6 +1399,7 @@ int main(void)
     // (SDL_RenderCopy still works fine against this software renderer for
     // the text atlas below -- only SDL_RenderPresent is the no-op here,
     // and nothing in this file calls it.)
+    g_window = window;
     SDL_Surface *windowSurface = SDL_GetWindowSurface(window);
     SDL_Renderer *renderer = SDL_CreateSoftwareRenderer(windowSurface);
 
@@ -728,6 +1415,10 @@ int main(void)
         // to "rects/highlighting only" instead of crashing the app.
         printf("[text] text_renderer_create failed -- UI will run without text labels\n");
     }
+    g_titleFont = text_renderer_create(renderer, "/app0/assets/fonts/font.ttf", 40);
+    if (!g_titleFont) {
+        printf("[text] title text_renderer_create failed -- page titles fall back to the body font size\n");
+    }
 
     if (!pad_init()) {
         snprintf(g_statusLine, sizeof(g_statusLine), "Controller not detected -- plug in a DualShock and restart.");
@@ -736,7 +1427,7 @@ int main(void)
     // Required before any sce*Dialog call (confirmed: orbis/CommonDialog.h).
     // Return code isn't gated on here since the IME dialog's own
     // sceImeDialogInit return code (checked in
-    // open_wled_host_ime_dialog) is the more direct signal that
+    // open_field_ime_dialog) is the more direct signal that
     // something's actually wrong.
     // BUGFIX -- root cause of a real crash on hardware (putty.log:
     // "PRX_NOT_RESOLVED_FUNCTION", Required Module Name:
@@ -804,9 +1495,9 @@ int main(void)
             bool commonDialogUsed = sceCommonDialogIsUsed();
             // DIAGNOSTIC (temporary, same investigation as update_ime_dialog's
             // logging): if this ever reads false while g_imeDialogOpen is
-            // true, our own handle_settings_input is firing underneath the
+            // true, our own handle_grouped_settings_input is firing underneath the
             // system keyboard, which could plausibly explain "X closes
-            // instead of types" if it's re-entering open_wled_host_ime_dialog
+            // instead of types" if it's re-entering open_field_ime_dialog
             // or otherwise reacting to that same X press.
             static bool s_lastLoggedCommonDialogUsed = true; // mismatched on purpose so the first real frame logs
             if (commonDialogUsed != s_lastLoggedCommonDialogUsed) {
@@ -814,8 +1505,10 @@ int main(void)
                 s_lastLoggedCommonDialogUsed = commonDialogUsed;
             }
             if (!commonDialogUsed) {
-                if (g_screen == SCREEN_SETTINGS) handle_settings_input(&pad, &prevPad);
-                else if (g_screen == SCREEN_UPDATE) handle_update_input(&pad, &prevPad);
+                if (g_screen == SCREEN_HOME) handle_home_input(&pad, &prevPad, renderer, font);
+                else if (g_screen == SCREEN_SETUP) handle_grouped_settings_input(&pad, &prevPad, MENU_SCREEN_SETUP);
+                else if (g_screen == SCREEN_CUSTOMIZE) handle_grouped_settings_input(&pad, &prevPad, MENU_SCREEN_CUSTOMIZE);
+                else if (g_screen == SCREEN_UPDATE) handle_update_input(&pad, &prevPad, renderer, font);
             }
         }
 
@@ -823,10 +1516,12 @@ int main(void)
 
         update_live_preview();
 
-        SDL_SetRenderDrawColor(renderer, 20, 20, 25, 255);
+        SDL_SetRenderDrawColor(renderer, COL_BG.r, COL_BG.g, COL_BG.b, 255);
         SDL_RenderClear(renderer);
 
-        if (g_screen == SCREEN_SETTINGS) render_settings_screen(renderer, font);
+        if (g_screen == SCREEN_HOME) render_home_screen(renderer, font);
+        else if (g_screen == SCREEN_SETUP) render_setup_screen(renderer, font);
+        else if (g_screen == SCREEN_CUSTOMIZE) render_customize_screen(renderer, font);
         else if (g_screen == SCREEN_UPDATE) render_update_screen(renderer, font);
 
         // Propagate the software-rendered surface to the actual screen --
@@ -837,6 +1532,7 @@ int main(void)
     }
 
     text_renderer_destroy(font);
+    text_renderer_destroy(g_titleFont);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();

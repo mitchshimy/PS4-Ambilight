@@ -155,7 +155,6 @@ bool ini_table_read_from_file(ini_table_s* table, const char* file)
     ini_section_s* current_section = NULL;
     memset(buf, '\0', buffer_size);
 
-    bool first_eol = false;
     while(1) {
         c = fgetc(f);
         if (c == eof_hack(c))
@@ -188,10 +187,6 @@ bool ini_table_read_from_file(ini_table_s* table, const char* file)
             case '\n':
             // fallthrough
             case EOF:
-                if (first_eol) {
-                    continue;
-                    first_eol = true;
-                }
                 line++;
                 if (state == Value) {
                     if (current_section == NULL) {
@@ -249,26 +244,63 @@ bool ini_table_read_from_file(ini_table_s* table, const char* file)
     return true;
 }
 
+// NOT fopen/fprintf/fclose -- ini_table_read_from_file() above was
+// already rewritten off fopen for a documented reason (fopen from an
+// unusual thread context isn't reliably safe in this environment,
+// per that function's own comment). This write path never got the
+// same fix, silently reintroducing that exact crash risk for every
+// caller (settings_save(), register_plugin_in_goldhen()). Also fixes
+// a second, separate bug: the old version always returned true once
+// fopen succeeded, even if fprintf/fflush/fsync failed -- a disk-full
+// write would report success while leaving a truncated/corrupt file,
+// and the "Save FAILED" UI path built around this return value could
+// never actually fire for that case.
+//
+// Builds the full output in memory first, then writes it in one
+// sceKernelWrite call -- same O_TRUNC|O_CREAT flags and success check
+// (return value compared against the full requested length) already
+// used by http_download()/do_plugin_update() in main.c, so a failed
+// write is reported as failure, not silently accepted.
 bool ini_table_write_to_file(ini_table_s *table, const char *file) {
-    FILE *f = fopen(file, "w+");
-    if (f == NULL)
-        return false;
+    size_t cap = 4096, len = 0;
+    char *out = (char *)malloc(cap);
+    if (out == NULL) return false;
+    out[0] = '\0';
+
+    #define INI_APPEND(...) do { \
+        int need; \
+        for (;;) { \
+            need = snprintf(out + len, cap - len, __VA_ARGS__); \
+            if (need < 0) { free(out); return false; } \
+            if ((size_t)need < cap - len) break; \
+            cap = (cap + (size_t)need + 1) * 2; \
+            char *grown = (char *)realloc(out, cap); \
+            if (grown == NULL) { free(out); return false; } \
+            out = grown; \
+        } \
+        len += (size_t)need; \
+    } while (0)
+
     for (int i = 0; i < table->size; i++) {
         ini_section_s *section = &table->section[i];
-        fprintf(f, i > 0 ? "\n[%s]\n" : "[%s]\n", section->name);
+        INI_APPEND(i > 0 ? "\n[%s]\n" : "[%s]\n", section->name);
         for (int q = 0; q < section->size; q++) {
             ini_entry_s *entry = &section->entry[q];
             if (entry->key[0] == ';') {
-                fprintf(f, "%s\n", entry->key);
+                INI_APPEND("%s\n", entry->key);
             } else {
-                fprintf(f, "%s = %s\n", entry->key, entry->value);
+                INI_APPEND("%s = %s\n", entry->key, entry->value);
             }
         }
     }
-    if (fflush(f) == 0)
-        fsync(fileno(f));
-    fclose(f);
-    return true;
+    #undef INI_APPEND
+
+    int32_t fd = sceKernelOpen(file, 0x200 | 0x001 /* O_TRUNC|O_CREAT */, 0777);
+    if (fd < 0) { free(out); return false; }
+    bool ok = (len == 0) || (sceKernelWrite(fd, out, len) == (ssize_t)len);
+    sceKernelClose(fd);
+    free(out);
+    return ok;
 }
 
 void ini_table_create_entry(ini_table_s *table, const char *section_name, const char *key, const char *value) {

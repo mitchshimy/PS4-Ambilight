@@ -15,48 +15,92 @@ static const char *kDirectionNames[]   = { "clockwise", "counterclockwise" };
 static const char *kColorOrderNames[]  = { "RGB", "RBG", "GRB", "GBR", "BRG", "BGR" };
 
 #define OFF(field) offsetof(AmbientConfig, field)
+// For FIELD_STRING items only -- see settings.h's comment on MenuItem's
+// max field for why this reuses it instead of adding a new one.
+#define STRBUF(field) (int32_t)sizeof(((AmbientConfig *)0)->field)
 
+// Reordered (from the original ini-section order) and grouped for the
+// Set Up / Customisation screen split -- MENU_SCREEN_SETUP items all
+// come first, then MENU_SCREEN_CUSTOMIZE, and within each screen items
+// with the same `group` string are meant to sit contiguously so the
+// renderer can draw one card per run of matching groups. This is a
+// pure UI reorganization: every (section, key, type, min, max, step)
+// tuple below is byte-for-byte the same as before, just reordered and
+// with three new trailing fields per row (screen, group, groupDesc) --
+// nothing about what's read from or written to the real plugin's ini
+// changed.
 const MenuItem kMenuItems[] = {
-    // [network] -- wledHost handled separately (FIELD_STRING, needs the
-    // on-screen keyboard, not a +/- adjuster like everything else here)
-    { "WLED Host",         "network", "wled_host",                  FIELD_STRING, OFF(wledHost),        0,     0,   0, NULL, 0 },
-    { "WLED Port",         "network", "wled_port",                  FIELD_U16,    OFF(wledPort),        1, 65535,   1, NULL, 0 },
+    // =========================== Set Up ===========================
+    { "WLED Host",         "network", "wled_host",                  FIELD_STRING, OFF(wledHost),        0, STRBUF(wledHost), 0, NULL, 0,
+      MENU_SCREEN_SETUP, "WLED connection", "Where and how fast frames are sent to your WLED controller." },
+    { "WLED Port",         "network", "wled_port",                  FIELD_U16,    OFF(wledPort),        1, 65535,   1, NULL, 0,
+      MENU_SCREEN_SETUP, "WLED connection", NULL },
+    { "Update Rate (Hz)",  "timing",  "update_frequency_hz",        FIELD_U32,    OFF(updateFrequencyHz), 1,  240,   1, NULL, 0,
+      MENU_SCREEN_SETUP, "WLED connection", NULL },
 
-    // [layout]
-    { "LEDs: Top",         "layout",  "led_count_top",              FIELD_U32,    OFF(ledCountTop),     1,   500,   1, NULL, 0 },
-    { "LEDs: Right",       "layout",  "led_count_right",            FIELD_U32,    OFF(ledCountRight),   1,   500,   1, NULL, 0 },
-    { "LEDs: Bottom",      "layout",  "led_count_bottom",           FIELD_U32,    OFF(ledCountBottom),  1,   500,   1, NULL, 0 },
-    { "LEDs: Left",        "layout",  "led_count_left",             FIELD_U32,    OFF(ledCountLeft),    1,   500,   1, NULL, 0 },
-    { "Start Corner",      "layout",  "led_start_corner",           FIELD_ENUM,   OFF(startCorner),     0,     3,   1, kStartCornerNames, 4 },
-    { "Direction",         "layout",  "led_direction",              FIELD_ENUM,   OFF(direction),       0,     1,   1, kDirectionNames, 2 },
-    { "LED Offset",        "layout",  "led_offset",                 FIELD_I32,    OFF(ledOffset),   -1000,  1000,   1, NULL, 0 },
-    { "Margin: Top",       "layout",  "capture_margin_top",         FIELD_U32,    OFF(marginTop),       0,   500,   1, NULL, 0 },
-    { "Margin: Right",     "layout",  "capture_margin_right",       FIELD_U32,    OFF(marginRight),     0,   500,   1, NULL, 0 },
-    { "Margin: Bottom",    "layout",  "capture_margin_bottom",      FIELD_U32,    OFF(marginBottom),    0,   500,   1, NULL, 0 },
-    { "Margin: Left",      "layout",  "capture_margin_left",        FIELD_U32,    OFF(marginLeft),      0,   500,   1, NULL, 0 },
-    { "Scan Depth",        "layout",  "scan_depth",                 FIELD_U32,    OFF(scanDepth),       0,    10,   1, NULL, 0 },
+    { "LEDs: Top",         "layout",  "led_count_top",              FIELD_U32,    OFF(ledCountTop),     1,   500,   1, NULL, 0,
+      MENU_SCREEN_SETUP, "LED strip layout", "Physical LED count per edge, and how wire order maps to your screen." },
+    { "LEDs: Right",       "layout",  "led_count_right",            FIELD_U32,    OFF(ledCountRight),   1,   500,   1, NULL, 0,
+      MENU_SCREEN_SETUP, "LED strip layout", NULL },
+    { "LEDs: Bottom",      "layout",  "led_count_bottom",           FIELD_U32,    OFF(ledCountBottom),  1,   500,   1, NULL, 0,
+      MENU_SCREEN_SETUP, "LED strip layout", NULL },
+    { "LEDs: Left",        "layout",  "led_count_left",             FIELD_U32,    OFF(ledCountLeft),    1,   500,   1, NULL, 0,
+      MENU_SCREEN_SETUP, "LED strip layout", NULL },
+    { "Start Corner",      "layout",  "led_start_corner",           FIELD_ENUM,   OFF(startCorner),     0,     3,   1, kStartCornerNames, 4,
+      MENU_SCREEN_SETUP, "LED strip layout", NULL },
+    { "Direction",         "layout",  "led_direction",              FIELD_ENUM,   OFF(direction),       0,     1,   1, kDirectionNames, 2,
+      MENU_SCREEN_SETUP, "LED strip layout", NULL },
+    { "LED Offset",        "layout",  "led_offset",                 FIELD_I32,    OFF(ledOffset),   -1000,  1000,   1, NULL, 0,
+      MENU_SCREEN_SETUP, "LED strip layout", NULL },
 
-    // [color]
-    { "Brightness",        "color",   "brightness",                 FIELD_U32,    OFF(brightness),      0,   255,   5, NULL, 0 },
-    { "Gamma (preset)",    "color",   "gamma",                      FIELD_U32,    OFF(gammaLutIndex),   0,     7,   1, NULL, 0 }, // display maps 0-7 -> "1.0".."2.8", see ui.c
-    { "Saturation",        "color",   "saturation",                 FIELD_I32,    OFF(saturation),   -100,   300,   5, NULL, 0 },
-    { "Color Order",       "color",   "color_order",                FIELD_ENUM,   OFF(colorOrder),      0,     5,   1, kColorOrderNames, 6 },
-    { "Black Level",       "color",   "black_level",                FIELD_U32,    OFF(blackLevel),      0,   100,   1, NULL, 0 },
-    { "White Level",       "color",   "white_level",                FIELD_U32,    OFF(whiteLevel),      0,   100,   1, NULL, 0 },
-    { "Dark Threshold",    "color",   "dark_threshold",             FIELD_U32,    OFF(darkThreshold),   0,   255,   1, NULL, 0 },
-    { "Contrast",          "color",   "contrast",                   FIELD_I32,    OFF(contrast),     -100,   300,   5, NULL, 0 },
-    { "Brightness R",      "color",   "brightness_r",               FIELD_U32,    OFF(brightnessR),     0,   500,   5, NULL, 0 },
-    { "Brightness G",      "color",   "brightness_g",               FIELD_U32,    OFF(brightnessG),     0,   500,   5, NULL, 0 },
-    { "Brightness B",      "color",   "brightness_b",               FIELD_U32,    OFF(brightnessB),     0,   500,   5, NULL, 0 },
-    { "Gamma R",           "color",   "gamma_r",                    FIELD_U32,    OFF(gammaR),         10,   500,   5, NULL, 0 },
-    { "Gamma G",           "color",   "gamma_g",                    FIELD_U32,    OFF(gammaG),         10,   500,   5, NULL, 0 },
-    { "Gamma B",           "color",   "gamma_b",                    FIELD_U32,    OFF(gammaB),         10,   500,   5, NULL, 0 },
+    // ======================== Customisation ========================
+    { "Margin: Top",       "layout",  "capture_margin_top",         FIELD_U32,    OFF(marginTop),       0,   500,   1, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Screen capture", "How much of each edge is excluded from capture, and how many samples are taken per edge." },
+    { "Margin: Right",     "layout",  "capture_margin_right",       FIELD_U32,    OFF(marginRight),     0,   500,   1, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Screen capture", NULL },
+    { "Margin: Bottom",    "layout",  "capture_margin_bottom",      FIELD_U32,    OFF(marginBottom),    0,   500,   1, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Screen capture", NULL },
+    { "Margin: Left",      "layout",  "capture_margin_left",        FIELD_U32,    OFF(marginLeft),      0,   500,   1, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Screen capture", NULL },
+    { "Scan Depth",        "layout",  "scan_depth",                 FIELD_U32,    OFF(scanDepth),       0,    10,   1, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Screen capture", NULL },
 
-    // [timing]
-    { "Update Rate (Hz)",  "timing",  "update_frequency_hz",        FIELD_U32,    OFF(updateFrequencyHz), 1,  240,   1, NULL, 0 },
-    { "Smoothing",         "timing",  "smoothing_enabled",          FIELD_BOOL,   OFF(smoothingEnabled),  0,    1,   1, NULL, 0 },
-    { "Settling Time (ms)","timing",  "settling_time_ms",           FIELD_U32,    OFF(settlingTimeMs),    0, 5000,  50, NULL, 0 },
-    { "Reload Check (s)",  "timing",  "config_reload_check_seconds",FIELD_U32,    OFF(configReloadCheckSeconds), 0, 60, 1, NULL, 0 },
+    { "Brightness",        "color",   "brightness",                 FIELD_U32,    OFF(brightness),      0,   255,   5, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Colour", "Overall brightness, gamma, saturation, contrast, and level range." },
+    { "Gamma (preset)",    "color",   "gamma",                      FIELD_U32,    OFF(gammaLutIndex),   0,     7,   1, NULL, 0, // display maps 0-7 -> "1.0".."2.8", see format_item_value()
+      MENU_SCREEN_CUSTOMIZE, "Colour", NULL },
+    { "Saturation",        "color",   "saturation",                 FIELD_I32,    OFF(saturation),   -100,   300,   5, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Colour", NULL },
+    { "Color Order",       "color",   "color_order",                FIELD_ENUM,   OFF(colorOrder),      0,     5,   1, kColorOrderNames, 6,
+      MENU_SCREEN_CUSTOMIZE, "Colour", NULL },
+    { "Black Level",       "color",   "black_level",                FIELD_U32,    OFF(blackLevel),      0,   100,   1, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Colour", NULL },
+    { "White Level",       "color",   "white_level",                FIELD_U32,    OFF(whiteLevel),      0,   100,   1, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Colour", NULL },
+    { "Dark Threshold",    "color",   "dark_threshold",             FIELD_U32,    OFF(darkThreshold),   0,   255,   1, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Colour", NULL },
+    { "Contrast",          "color",   "contrast",                   FIELD_I32,    OFF(contrast),     -100,   300,   5, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Colour", NULL },
+
+    { "Brightness R",      "color",   "brightness_r",               FIELD_U32,    OFF(brightnessR),     0,   500,   5, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "RGB balance", "Per-channel brightness and gamma, for correcting a color cast." },
+    { "Brightness G",      "color",   "brightness_g",               FIELD_U32,    OFF(brightnessG),     0,   500,   5, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "RGB balance", NULL },
+    { "Brightness B",      "color",   "brightness_b",               FIELD_U32,    OFF(brightnessB),     0,   500,   5, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "RGB balance", NULL },
+    { "Gamma R",           "color",   "gamma_r",                    FIELD_U32,    OFF(gammaR),         10,   500,   5, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "RGB balance", NULL },
+    { "Gamma G",           "color",   "gamma_g",                    FIELD_U32,    OFF(gammaG),         10,   500,   5, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "RGB balance", NULL },
+    { "Gamma B",           "color",   "gamma_b",                    FIELD_U32,    OFF(gammaB),         10,   500,   5, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "RGB balance", NULL },
+
+    { "Smoothing",         "timing",  "smoothing_enabled",          FIELD_BOOL,   OFF(smoothingEnabled),  0,    1,   1, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Motion & timing", "Smoothing, settling time, and how often the plugin re-reads this file." },
+    { "Settling Time (ms)","timing",  "settling_time_ms",           FIELD_U32,    OFF(settlingTimeMs),    0, 5000,  50, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Motion & timing", NULL },
+    { "Reload Check (s)",  "timing",  "config_reload_check_seconds",FIELD_U32,    OFF(configReloadCheckSeconds), 0, 60, 1, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Motion & timing", NULL },
 };
 const int kMenuItemCount = sizeof(kMenuItems) / sizeof(kMenuItems[0]);
 
@@ -108,6 +152,29 @@ static ColorOrder parse_color_order(const char *s, ColorOrder fallback)
     return fallback;
 }
 
+// Clamps value into the [min,max] that kMenuItems declares for
+// (section,key) -- the exact same bounds settings_set_i32() already
+// enforces for every D-Pad-driven edit. settings_load() previously
+// re-implemented range checks by hand per field, and several fields
+// only got a partial check (e.g. LED counts/margins accepted any
+// value >= their lower bound with no upper cap at all, led_offset had
+// no bound check whatsoever) -- a hand-edited, corrupted, or future-
+// schema ini could load values the UI itself would never let you set.
+// Routing every numeric field through the schema's own min/max here
+// means there's exactly one place bounds are defined, and it can't
+// silently drift out of sync the way hand-copied literals could.
+static int32_t clamp_to_schema(const char *section, const char *key, int32_t value)
+{
+    for (int i = 0; i < kMenuItemCount; i++) {
+        if (strcmp(kMenuItems[i].section, section) == 0 && strcmp(kMenuItems[i].key, key) == 0) {
+            if (value < kMenuItems[i].min) value = kMenuItems[i].min;
+            if (value > kMenuItems[i].max) value = kMenuItems[i].max;
+            break;
+        }
+    }
+    return value;
+}
+
 bool settings_load(AmbientConfig *cfg, const char *path)
 {
     settings_set_defaults(cfg);
@@ -125,23 +192,23 @@ bool settings_load(AmbientConfig *cfg, const char *path)
         strncpy(cfg->wledHost, v, sizeof(cfg->wledHost) - 1);
         cfg->wledHost[sizeof(cfg->wledHost) - 1] = '\0';
     }
-    if (ini_table_get_entry_as_int(table, "network", "wled_port", &iv) && iv > 0 && iv <= 65535)
-        cfg->wledPort = (uint16_t)iv;
+    if (ini_table_get_entry_as_int(table, "network", "wled_port", &iv))
+        cfg->wledPort = (uint16_t)clamp_to_schema("network", "wled_port", iv);
 
-    if (ini_table_get_entry_as_int(table, "layout", "led_count_top", &iv) && iv > 0) cfg->ledCountTop = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "layout", "led_count_right", &iv) && iv > 0) cfg->ledCountRight = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "layout", "led_count_bottom", &iv) && iv > 0) cfg->ledCountBottom = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "layout", "led_count_left", &iv) && iv > 0) cfg->ledCountLeft = (uint32_t)iv;
+    if (ini_table_get_entry_as_int(table, "layout", "led_count_top", &iv)) cfg->ledCountTop = (uint32_t)clamp_to_schema("layout", "led_count_top", iv);
+    if (ini_table_get_entry_as_int(table, "layout", "led_count_right", &iv)) cfg->ledCountRight = (uint32_t)clamp_to_schema("layout", "led_count_right", iv);
+    if (ini_table_get_entry_as_int(table, "layout", "led_count_bottom", &iv)) cfg->ledCountBottom = (uint32_t)clamp_to_schema("layout", "led_count_bottom", iv);
+    if (ini_table_get_entry_as_int(table, "layout", "led_count_left", &iv)) cfg->ledCountLeft = (uint32_t)clamp_to_schema("layout", "led_count_left", iv);
     cfg->startCorner = parse_start_corner(ini_table_get_entry(table, "layout", "led_start_corner"), cfg->startCorner);
     cfg->direction = parse_direction(ini_table_get_entry(table, "layout", "led_direction"), cfg->direction);
-    if (ini_table_get_entry_as_int(table, "layout", "led_offset", &iv)) cfg->ledOffset = iv;
-    if (ini_table_get_entry_as_int(table, "layout", "capture_margin_top", &iv) && iv >= 0) cfg->marginTop = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "layout", "capture_margin_right", &iv) && iv >= 0) cfg->marginRight = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "layout", "capture_margin_bottom", &iv) && iv >= 0) cfg->marginBottom = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "layout", "capture_margin_left", &iv) && iv >= 0) cfg->marginLeft = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "layout", "scan_depth", &iv) && iv >= 0) cfg->scanDepth = (uint32_t)iv;
+    if (ini_table_get_entry_as_int(table, "layout", "led_offset", &iv)) cfg->ledOffset = clamp_to_schema("layout", "led_offset", iv);
+    if (ini_table_get_entry_as_int(table, "layout", "capture_margin_top", &iv)) cfg->marginTop = (uint32_t)clamp_to_schema("layout", "capture_margin_top", iv);
+    if (ini_table_get_entry_as_int(table, "layout", "capture_margin_right", &iv)) cfg->marginRight = (uint32_t)clamp_to_schema("layout", "capture_margin_right", iv);
+    if (ini_table_get_entry_as_int(table, "layout", "capture_margin_bottom", &iv)) cfg->marginBottom = (uint32_t)clamp_to_schema("layout", "capture_margin_bottom", iv);
+    if (ini_table_get_entry_as_int(table, "layout", "capture_margin_left", &iv)) cfg->marginLeft = (uint32_t)clamp_to_schema("layout", "capture_margin_left", iv);
+    if (ini_table_get_entry_as_int(table, "layout", "scan_depth", &iv)) cfg->scanDepth = (uint32_t)clamp_to_schema("layout", "scan_depth", iv);
 
-    if (ini_table_get_entry_as_int(table, "color", "brightness", &iv) && iv >= 0 && iv <= 255) cfg->brightness = (uint32_t)iv;
+    if (ini_table_get_entry_as_int(table, "color", "brightness", &iv)) cfg->brightness = (uint32_t)clamp_to_schema("color", "brightness", iv);
     // gamma preset is stored as a string ("1.0".."2.8") in the real ini,
     // not an index -- match that exactly rather than inventing our own
     // representation, so a file this app writes still loads correctly
@@ -150,23 +217,23 @@ bool settings_load(AmbientConfig *cfg, const char *path)
         static const char *kGammaStrings[8] = {"1.0","1.4","1.8","2.0","2.2","2.4","2.6","2.8"};
         for (int i = 0; i < 8; i++) if (!strcmp(v, kGammaStrings[i])) { cfg->gammaLutIndex = (uint32_t)i; break; }
     }
-    if (ini_table_get_entry_as_int(table, "color", "saturation", &iv) && iv >= -100 && iv <= 300) cfg->saturation = iv;
+    if (ini_table_get_entry_as_int(table, "color", "saturation", &iv)) cfg->saturation = clamp_to_schema("color", "saturation", iv);
     cfg->colorOrder = parse_color_order(ini_table_get_entry(table, "color", "color_order"), cfg->colorOrder);
-    if (ini_table_get_entry_as_int(table, "color", "black_level", &iv) && iv >= 0 && iv <= 100) cfg->blackLevel = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "color", "white_level", &iv) && iv >= 0 && iv <= 100) cfg->whiteLevel = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "color", "dark_threshold", &iv) && iv >= 0 && iv <= 255) cfg->darkThreshold = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "color", "contrast", &iv) && iv >= -100 && iv <= 300) cfg->contrast = iv;
-    if (ini_table_get_entry_as_int(table, "color", "brightness_r", &iv) && iv >= 0 && iv <= 500) cfg->brightnessR = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "color", "brightness_g", &iv) && iv >= 0 && iv <= 500) cfg->brightnessG = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "color", "brightness_b", &iv) && iv >= 0 && iv <= 500) cfg->brightnessB = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "color", "gamma_r", &iv) && iv >= 10 && iv <= 500) cfg->gammaR = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "color", "gamma_g", &iv) && iv >= 10 && iv <= 500) cfg->gammaG = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "color", "gamma_b", &iv) && iv >= 10 && iv <= 500) cfg->gammaB = (uint32_t)iv;
+    if (ini_table_get_entry_as_int(table, "color", "black_level", &iv)) cfg->blackLevel = (uint32_t)clamp_to_schema("color", "black_level", iv);
+    if (ini_table_get_entry_as_int(table, "color", "white_level", &iv)) cfg->whiteLevel = (uint32_t)clamp_to_schema("color", "white_level", iv);
+    if (ini_table_get_entry_as_int(table, "color", "dark_threshold", &iv)) cfg->darkThreshold = (uint32_t)clamp_to_schema("color", "dark_threshold", iv);
+    if (ini_table_get_entry_as_int(table, "color", "contrast", &iv)) cfg->contrast = clamp_to_schema("color", "contrast", iv);
+    if (ini_table_get_entry_as_int(table, "color", "brightness_r", &iv)) cfg->brightnessR = (uint32_t)clamp_to_schema("color", "brightness_r", iv);
+    if (ini_table_get_entry_as_int(table, "color", "brightness_g", &iv)) cfg->brightnessG = (uint32_t)clamp_to_schema("color", "brightness_g", iv);
+    if (ini_table_get_entry_as_int(table, "color", "brightness_b", &iv)) cfg->brightnessB = (uint32_t)clamp_to_schema("color", "brightness_b", iv);
+    if (ini_table_get_entry_as_int(table, "color", "gamma_r", &iv)) cfg->gammaR = (uint32_t)clamp_to_schema("color", "gamma_r", iv);
+    if (ini_table_get_entry_as_int(table, "color", "gamma_g", &iv)) cfg->gammaG = (uint32_t)clamp_to_schema("color", "gamma_g", iv);
+    if (ini_table_get_entry_as_int(table, "color", "gamma_b", &iv)) cfg->gammaB = (uint32_t)clamp_to_schema("color", "gamma_b", iv);
 
-    if (ini_table_get_entry_as_int(table, "timing", "update_frequency_hz", &iv) && iv > 0 && iv <= 240) cfg->updateFrequencyHz = (uint32_t)iv;
+    if (ini_table_get_entry_as_int(table, "timing", "update_frequency_hz", &iv)) cfg->updateFrequencyHz = (uint32_t)clamp_to_schema("timing", "update_frequency_hz", iv);
     if (ini_table_get_entry_as_bool(table, "timing", "smoothing_enabled", &bv)) cfg->smoothingEnabled = bv ? 1 : 0;
-    if (ini_table_get_entry_as_int(table, "timing", "settling_time_ms", &iv) && iv >= 0) cfg->settlingTimeMs = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "timing", "config_reload_check_seconds", &iv) && iv >= 0) cfg->configReloadCheckSeconds = (uint32_t)iv;
+    if (ini_table_get_entry_as_int(table, "timing", "settling_time_ms", &iv)) cfg->settlingTimeMs = (uint32_t)clamp_to_schema("timing", "settling_time_ms", iv);
+    if (ini_table_get_entry_as_int(table, "timing", "config_reload_check_seconds", &iv)) cfg->configReloadCheckSeconds = (uint32_t)clamp_to_schema("timing", "config_reload_check_seconds", iv);
 
     ini_table_destroy(table);
     return true;
@@ -177,22 +244,16 @@ bool settings_save(const AmbientConfig *cfg, const char *path)
     ini_table_s *table = ini_table_create();
     if (table == NULL) return false;
 
-    // MERGE FIX (found while reconciling this app into the main
-    // project tree, reapplied here because this v0-v9 upload branched
-    // from before the fix and never picked it up): this used to start
-    // from a blank table containing ONLY the fields this app knows
-    // about, then write that out -- silently destroying anything else
-    // already in the file. That's a real problem, not theoretical: it
-    // would delete a user's hand-added [dev] section (dev_ip/
-    // dev_logging -- ps4_ambient_light v2.2.5, confirmed working on
-    // real hardware) the first time they saved from this app, along
-    // with any future ini field the plugin gains that this app doesn't
-    // know about yet. Loading the existing file into the same table
-    // FIRST, then upserting just the known fields on top of it via the
-    // same ini_table_create_entry calls already below, preserves
-    // everything else untouched. A failed read here just means
-    // "nothing to preserve yet" (e.g. first save ever) -- not fatal,
-    // the known fields below still populate the table either way.
+    // MERGE FIX (reapplied -- this line of work still hasn't picked it
+    // up as of v16): this used to start from a blank table containing
+    // ONLY the fields this app knows about, then write that out --
+    // silently destroying anything else already in the file, including
+    // a hand-added [dev] section (dev_ip/dev_logging -- ps4_ambient_
+    // light v2.2.5, confirmed working on real hardware) or the newer
+    // relay_signal_enabled/relay_host/relay_port fields. Loading the
+    // existing file into the same table FIRST, then upserting just the
+    // known fields on top of it via the same ini_table_create_entry
+    // calls already below, preserves everything else untouched.
     ini_table_read_from_file(table, path);
 
     char buf[64];

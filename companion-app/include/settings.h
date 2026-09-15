@@ -18,15 +18,39 @@ typedef enum {
     FIELD_ENUM,    // startCorner / direction / colorOrder -- cycled via a string list
 } FieldType;
 
+// Which of the two settings screens (Set Up / Customisation) an item
+// belongs to -- see the comment above kMenuItems in settings.c for how
+// this and the group/groupDesc fields below are used to lay out cards.
+typedef enum {
+    MENU_SCREEN_SETUP,
+    MENU_SCREEN_CUSTOMIZE,
+} MenuScreen;
+
 typedef struct {
     const char *label;        // shown in the UI
     const char *section;      // ini [section]
     const char *key;          // ini key
     FieldType type;
     size_t offset;             // offsetof(AmbientConfig, field)
-    int32_t min, max, step;    // ignored for STRING/BOOL/ENUM
+    int32_t min, max, step;    // ignored for BOOL/ENUM. For STRING, max is
+                                // repurposed as the destination buffer's
+                                // size in bytes (e.g. sizeof(cfg.wledHost))
+                                // -- see settings.c's STRBUF() macro --
+                                // rather than adding a whole new struct
+                                // field just for the one string field
+                                // this schema currently has.
     const char **enumNames;    // FIELD_ENUM only -- display strings, index-matched to the enum's own values
     int enumCount;
+    MenuScreen screen;         // which settings screen shows this item
+    const char *group;         // card heading on this screen -- items are
+                                // expected to sit contiguously per group
+                                // (see kMenuItems' own ordering); a run of
+                                // items sharing the same group string is
+                                // one card
+    const char *groupDesc;     // one-line description shown once, under
+                                // the heading, on the first item of a new
+                                // group -- NULL on every other item in
+                                // that same group
 } MenuItem;
 
 // The full settings menu, data-driven so the UI doesn't need one

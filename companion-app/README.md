@@ -77,16 +77,14 @@ checked yet rather than implying it has.
   fully resolve it. **Confirmed fixed as of the v6 hardware run above
   — the debug `printf`s are still in place and harmless to leave, but
   this is no longer just the top suspect.**
-- LEDs only lighting "one part of the corner": this is the preview's
-  actual designed behavior, not a bug. `update_live_preview()` sends
-  exactly 5 RGB triplets at DDP pixel offset 0 — the swatches are a
-  quick correctness check of the color pipeline, not a full-strip
-  demo. Offset 0 always lands at the physical start of the strip
-  (wherever `startCorner` puts pixel index 0), so only that corner
-  lights up. If you want the preview to visibly span the whole strip
-  instead, that's a small, separate change (spread the 5 swatches
-  across `ledCountTop+Right+Bottom+Left` instead of packing them at
-  offset 0) — say the word and it can be added.
+- LEDs only lighting "one part of the corner": **fixed in v11, see
+  `CHANGELOG-v10-to-v11.md`.** This was the fixed-5-swatches-at-offset-0
+  behavior described in the note this replaced — `update_live_preview()`
+  now sends one color per *configured* LED (all of
+  `ledCountTop+Right+Bottom+Left`), in real physical wire order, via
+  the new `layout.c` (a C port of the Android app's
+  `LedLayoutGeometry.kt`). Not yet confirmed on real hardware — see the
+  changelog for exactly what has and hasn't been checked.
 
 **v6 update — real hardware run, everything tested so far works as
 intended.** Worth a quick look, not flagged as broken: the screenshot
@@ -153,4 +151,5 @@ and running on real hardware.
 - `source/color_pipeline.c` / `include/color_pipeline.h` — live preview math (verbatim from the plugin)
 - `source/ddp.c` / `include/ddp.h` — WLED UDP sender (verbatim from the plugin)
 - `source/config.c` / `include/config.h` — ini_table parser (verbatim from `plugin_loader`, same as the plugin itself uses)
+- `source/layout.c` / `include/layout.h` — full-strip LED layout geometry (physical wire order + on-screen position), a C port of the Android app's `LedLayoutGeometry.kt`; see `CHANGELOG-v10-to-v11.md`
 - `test_settings.c`, `test_pipeline.c` — the isolation tests referenced above; `gcc -Iinclude -o test_x test_x.c source/x.c source/config.c test_sce_stubs.c` to rerun
