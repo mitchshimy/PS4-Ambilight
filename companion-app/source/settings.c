@@ -178,20 +178,21 @@ bool settings_save(const AmbientConfig *cfg, const char *path)
     if (table == NULL) return false;
 
     // MERGE FIX (found while reconciling this app into the main
-    // project tree, not present in the original commit): this used to
-    // start from a blank table containing ONLY the 32 fields this app
-    // knows about, then write that out -- silently destroying anything
-    // else already in the file. That's a real problem, not
-    // theoretical: it would have deleted a user's hand-added [dev]
-    // section (dev_ip/dev_logging -- see the plugin's own v2.2.5) the
-    // very first time they saved from this app, along with any future
-    // ini field the plugin gains that this app doesn't know about yet.
-    // Loading the existing file into the same table FIRST, then
-    // upserting just the known fields on top of it via the same
-    // ini_table_create_entry calls already below, preserves everything
-    // else untouched. A failed read here just means "nothing to
-    // preserve yet" (e.g. first save ever) -- not fatal, the known
-    // fields below still populate the table either way.
+    // project tree, reapplied here because this v0-v9 upload branched
+    // from before the fix and never picked it up): this used to start
+    // from a blank table containing ONLY the fields this app knows
+    // about, then write that out -- silently destroying anything else
+    // already in the file. That's a real problem, not theoretical: it
+    // would delete a user's hand-added [dev] section (dev_ip/
+    // dev_logging -- ps4_ambient_light v2.2.5, confirmed working on
+    // real hardware) the first time they saved from this app, along
+    // with any future ini field the plugin gains that this app doesn't
+    // know about yet. Loading the existing file into the same table
+    // FIRST, then upserting just the known fields on top of it via the
+    // same ini_table_create_entry calls already below, preserves
+    // everything else untouched. A failed read here just means
+    // "nothing to preserve yet" (e.g. first save ever) -- not fatal,
+    // the known fields below still populate the table either way.
     ini_table_read_from_file(table, path);
 
     char buf[64];

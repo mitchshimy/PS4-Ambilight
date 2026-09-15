@@ -1,8 +1,10 @@
 #include <limits.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <orbis/libkernel.h>
 
 #include "plugin_common.h"
 #define _atoi atoi
