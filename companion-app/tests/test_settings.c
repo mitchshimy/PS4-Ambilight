@@ -7,7 +7,7 @@ int main(void) {
     AmbientConfig cfg1;
     settings_set_defaults(&cfg1);
     printf("Menu item count: %d\n", kMenuItemCount);
-    assert(kMenuItemCount == 35); // +3 for Relay Signal/Relay Host/Relay Port
+    assert(kMenuItemCount == 32); // relay signal fields are ini-only now, not exposed in kMenuItems -- see settings.c
 
     // save defaults to a temp file, reload, confirm round-trip
     assert(settings_save(&cfg1, "/tmp/test_ambient.ini"));

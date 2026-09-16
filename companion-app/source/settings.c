@@ -101,26 +101,6 @@ const MenuItem kMenuItems[] = {
       MENU_SCREEN_CUSTOMIZE, "Motion & timing", NULL },
     { "Reload Check (s)",  "timing",  "config_reload_check_seconds",FIELD_U32,    OFF(configReloadCheckSeconds), 0, 60, 1, NULL, 0,
       MENU_SCREEN_CUSTOMIZE, "Motion & timing", NULL },
-
-    // v17: matches the real plugin's own [network] relay_signal_enabled/
-    // relay_host/relay_port -- a personal integration with one specific
-    // wled-relay project (see that project's own ini comment, echoed
-    // here), not something every user of this app has. Its own card,
-    // on Customisation rather than Set Up, since -- like the plugin's
-    // own ini template -- it's advanced/optional, not needed to get
-    // basic ambient light working at all. Enabling it here also
-    // silences wled-relay's own effects for as long as this app is
-    // running at all (see relay_send_external_source() in main.c,
-    // hooked to app start/exit rather than any particular screen --
-    // this app has no idle/Home-only mode, update_live_preview() runs
-    // every frame regardless of g_screen).
-    { "Relay Signal",      "network", "relay_signal_enabled",       FIELD_BOOL,   OFF(relaySignalEnabled), 0,   1,   1, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "wled-relay signal (optional)",
-      "Only relevant if you also run the wled-relay project. When on, tells it to stop driving your strip while this app is running." },
-    { "Relay Host",        "network", "relay_host",                 FIELD_STRING, OFF(relayHost),       0, STRBUF(relayHost), 0, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "wled-relay signal (optional)", NULL },
-    { "Relay Port",        "network", "relay_port",                 FIELD_U16,    OFF(relayPort),       1, 65535,   1, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "wled-relay signal (optional)", NULL },
 };
 const int kMenuItemCount = sizeof(kMenuItems) / sizeof(kMenuItems[0]);
 
