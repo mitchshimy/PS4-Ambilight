@@ -908,12 +908,24 @@ static bool g_isBackgrounded = false;
 
 static void relay_send_external_source(bool active)
 {
-    // v2.3.1: OFF by default (see AmbientConfig.relaySignalEnabled) --
-    // gated here, in one place, rather than at each call site, so
-    // there's exactly one spot that can ever accidentally dial someone
-    // else's relay_host default.
-    if (!g_config.relaySignalEnabled) return;
-
+    // v2.6: BUGFIX -- this used to gate itself here on
+    // g_config.relaySignalEnabled, in one place, so no call site could
+    // accidentally dial someone else's relay_host default. That broke
+    // the one case that matters most: ambient_check_config_reload's
+    // own flip-handler (below) calls this exactly when
+    // relaySignalEnabled itself just transitioned -- including
+    // true->false. By the time that call happens, g_config.relaySignalEnabled
+    // is ALREADY false (that's what triggered the call), so this
+    // gate would silently swallow the "off" send the call exists to
+    // make, leaving wled-relay believing this plugin is still driving
+    // the strip until the separate gaming_mode-off backstop (that
+    // fork's own handoff v21) eventually corrects it as a side effect
+    // -- not by design. Found while adding this same signal to the
+    // companion app, reproduced directly in an isolated sandbox test
+    // before being traced back and fixed here too. The opt-in
+    // protection this gate existed for is now each call site's own
+    // responsibility instead -- see the comment at every call site
+    // below for why each one is safe for a user who never opted in.
     int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0) return;
 
@@ -2159,7 +2171,7 @@ static void applyColorProcessing(uint8_t r8, uint8_t g8, uint8_t b8, uint8_t *ou
 attr_public const char *g_pluginName = "ps4_ambient_light";
 attr_public const char *g_pluginDesc = "Live per-frame ambient light: detiles the real scanout buffer and streams zone colors to WLED";
 attr_public const char *g_pluginAuth = "(null)";
-attr_public uint32_t g_pluginVersion = 0x0000020E; // v2.4 -> v2.5: MERGED three more commits from the same external fork whose v2.3 relay feature was merged previously (this fork's own numbering: v2.3->v2.3.1->v2.4->v2.4.1; called v2.5 here purely to avoid colliding with this repo's own independent version sequence). Ported via `patch`, same as before: functional hunks applied cleanly across all three (line-offset only), just the version-comment line needed hand merging each time. What's new, in order: (1) v2.3.1 -- real-hardware testing of the v2.3 relay signal found the "off" datagram unreliable on both normal exit paths tested (PS button to home, full Close Application), so wled-relay's own gaming_mode_active "off" transition (tv_gate.py, that repo) is now the authoritative backstop rather than relying on plugin_unload alone; corrected relayHost's default from an unconfirmed guess (192.168.2.104) to the real address (192.168.2.115); and -- important -- added relaySignalEnabled ([network] relay_signal_enabled, default FALSE), gated once inside relay_send_external_source() itself, since this whole feature is one personal integration and must not dial anyone's relay_host by default. (2) v2.4 (theirs) -- real foreground/background detection via sceSystemServiceGetStatus, polled ~1x/sec from inside ambient_sample_thread's own loop: skips the capture/send pipeline entirely while backgrounded (fixes a real bug -- suspending via the PS button previously froze the strip on the last on-screen frame instead of stopping) and drives relay_send_external_source on each real transition (still fully gated by relaySignalEnabled). The real symbol is resolved by name (sys_dynlib_load_prx+dlsym, matching this file's own existing video-out/flip-hook pattern) rather than called through this SDK's own header declaration, which is an argument-less bare `void` stub -- an auto-generated placeholder, same class of problem already flagged for sceHttpSetRecvTimeOut -- with the function-pointer type/struct cross-checked against shadPS4's own independently-reverse-engineered source and given generous defensive padding past every known real field. (3) v2.4.1 -- bugfix: relay_send_external_source(true) was previously only ever called once, at the end of a successful plugin_load; live-editing relay_signal_enabled from false to true afterward (the common case, via this plugin's own live-reload mechanism) never actually sent "on" for the rest of that session even though the config value itself updated correctly. ambient_check_config_reload now compares relaySignalEnabled before/after each reload and fires the signal on real false<->true transitions. NONE of this chain (v2.3.1/v2.4/v2.4.1) is verified on real hardware by the fork that wrote it beyond what each commit's own message states (mostly Linux-sandbox logic tests of the throttling/transition/gating behavior), and NOT independently re-verified by this merge either -- carried forward at the same trust level it arrived at. See ps4-ambient-light-handoff-v21.md, -v22.md, -v23.md (from that fork) and this repo's own handoff for the merge itself.
+attr_public uint32_t g_pluginVersion = 0x0000020F; // v2.5 -> v2.6: BUGFIX -- relay_send_external_source() used to gate itself internally on g_config.relaySignalEnabled, in one place, so no call site could accidentally dial an unconfigured relay_host. That broke ambient_check_config_reload's own true->false flip-handler (from the merged v2.4.1): by the time that call fires, relaySignalEnabled is ALREADY false (that's what triggered the call), so the internal gate silently swallowed the "off" send it exists to make, leaving wled-relay believing this plugin was still driving the strip until the separate gaming_mode-off backstop (that fork's handoff v21) eventually corrected it as a side effect, not by design. Found while adding the identical signal to the standalone companion app, reproduced directly in an isolated sandbox test there, then traced back and confirmed present here too. Fix: the internal gate is gone; each of the other 3 call sites (plugin_load's initial "on", ambient_sample_thread's foreground/background transition, plugin_unload's final "off") now has its own explicit relaySignalEnabled check instead, since none of those three are themselves triggered by relaySignalEnabled changing the way the reload flip-handler is. Verified against all 4 real call sites in an isolated Linux-sandbox stub, including the exact previously-broken sequence (enabled -> driving -> live-disable) now producing the missing "off" correctly. NOT verified on real hardware. See this repo's own handoff for the full account.
 
 int32_t (*sceVideoOutRegisterBuffersPtr)(int32_t handle, int32_t startIndex,
                                           void *const *addresses, int32_t bufferNum,
@@ -2545,6 +2557,15 @@ static void ambient_check_config_reload(void)
     // Skipped while backgrounded -- matches ambient_sample_thread's own
     // condition for what "on" means, so this can't contradict whatever
     // that loop decides once it resumes.
+    // v2.6: the true->false direction described above didn't actually
+    // work until this version -- relay_send_external_source() used to
+    // gate itself on g_config.relaySignalEnabled internally, which by
+    // this point is already false (that's what triggered this call),
+    // so the "off" send this call exists to make was being silently
+    // swallowed. That internal gate is gone now (see that function's
+    // own comment) -- this call site's own "only fires on a real
+    // transition" condition is what makes it safe for a
+    // never-opted-in user, not a second gate inside the function.
     bool wasRelaySignalEnabled = g_config.relaySignalEnabled;
     ambient_load_config();  // re-reads the file; unset/removed keys keep their CURRENT g_config value, not the compiled default (see note below)
     if (g_config.relaySignalEnabled != wasRelaySignalEnabled && !g_isBackgrounded) {
@@ -2601,9 +2622,16 @@ void *ambient_sample_thread(void *args)
                         // true ("on") = foregrounded again, this plugin
                         // is driving the strip; false ("off") =
                         // backgrounded, hand control back to wled-relay.
-                        // No-ops entirely unless relaySignalEnabled is
-                        // set (see that function's own gate).
-                        relay_send_external_source(!nowBackgrounded);
+                        // v2.6: explicit guard here now that
+                        // relay_send_external_source() no longer gates
+                        // itself internally -- this transition
+                        // (foreground/background) is completely
+                        // independent of relaySignalEnabled, so without
+                        // this check a user who never opted in would
+                        // still get a real send on every suspend/resume.
+                        if (g_config.relaySignalEnabled) {
+                            relay_send_external_source(!nowBackgrounded);
+                        }
                     }
                 }
             }
@@ -2916,7 +2944,12 @@ int32_t attr_public plugin_load(int32_t argc, const char* argv[])
     // the strip, so telling the relay "on" from one of those paths
     // would be a lie it has no way to detect or recover from on its
     // own (nothing would ever send the matching "off").
-    relay_send_external_source(true);
+    // v2.6: explicit guard added now that relay_send_external_source()
+    // no longer gates itself internally -- a user who never opted in
+    // must not get a real send here.
+    if (g_config.relaySignalEnabled) {
+        relay_send_external_source(true);
+    }
 
     return 0;
 }
@@ -2929,7 +2962,21 @@ int32_t attr_public plugin_unload(int32_t argc, const char* argv[])
     // has no other way to notice this plugin is gone. Harmless if the
     // matching "on" was never sent (tv_state.external_source_active is
     // idempotent either way -- see tv_external_source.handle_payload).
-    relay_send_external_source(false);
+    // v2.6: explicit guard added now that relay_send_external_source()
+    // no longer gates itself internally. Checking the CURRENT value of
+    // relaySignalEnabled here is deliberately fine even if it differs
+    // from whatever it was when "on" was last sent: if true now,
+    // sending "off" is correct and harmless whether or not an "on"
+    // actually preceded it this session (idempotent on the relay
+    // side). If false now, either it was never enabled this session
+    // (no real "on" was ever sent, so none is owed back either), or it
+    // WAS enabled and got disabled via a live reload -- which already
+    // sent its own "off" at the moment it changed (see
+    // ambient_check_config_reload's flip-handler), making a second
+    // one here redundant, not missing.
+    if (g_config.relaySignalEnabled) {
+        relay_send_external_source(false);
+    }
 
     UNHOOK(sceVideoOutRegisterBuffersPtr);
     UNHOOK(sceGnmSubmitAndFlipCommandBuffersPtr);
