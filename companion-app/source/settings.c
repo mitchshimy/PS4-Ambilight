@@ -101,6 +101,26 @@ const MenuItem kMenuItems[] = {
       MENU_SCREEN_CUSTOMIZE, "Motion & timing", NULL },
     { "Reload Check (s)",  "timing",  "config_reload_check_seconds",FIELD_U32,    OFF(configReloadCheckSeconds), 0, 60, 1, NULL, 0,
       MENU_SCREEN_CUSTOMIZE, "Motion & timing", NULL },
+
+    // v17: matches the real plugin's own [network] relay_signal_enabled/
+    // relay_host/relay_port -- a personal integration with one specific
+    // wled-relay project (see that project's own ini comment, echoed
+    // here), not something every user of this app has. Its own card,
+    // on Customisation rather than Set Up, since -- like the plugin's
+    // own ini template -- it's advanced/optional, not needed to get
+    // basic ambient light working at all. Enabling it here also
+    // silences wled-relay's own effects for as long as this app is
+    // running at all (see relay_send_external_source() in main.c,
+    // hooked to app start/exit rather than any particular screen --
+    // this app has no idle/Home-only mode, update_live_preview() runs
+    // every frame regardless of g_screen).
+    { "Relay Signal",      "network", "relay_signal_enabled",       FIELD_BOOL,   OFF(relaySignalEnabled), 0,   1,   1, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "wled-relay signal (optional)",
+      "Only relevant if you also run the wled-relay project. When on, tells it to stop driving your strip while this app is running." },
+    { "Relay Host",        "network", "relay_host",                 FIELD_STRING, OFF(relayHost),       0, STRBUF(relayHost), 0, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "wled-relay signal (optional)", NULL },
+    { "Relay Port",        "network", "relay_port",                 FIELD_U16,    OFF(relayPort),       1, 65535,   1, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "wled-relay signal (optional)", NULL },
 };
 const int kMenuItemCount = sizeof(kMenuItems) / sizeof(kMenuItems[0]);
 
@@ -111,6 +131,13 @@ void settings_set_defaults(AmbientConfig *cfg)
     memset(cfg, 0, sizeof(*cfg));
     strncpy(cfg->wledHost, "192.168.2.110", sizeof(cfg->wledHost) - 1);
     cfg->wledPort = 4048;
+    // v17: matches ps4_ambient_light v2.6's own compiled defaults
+    // exactly -- relayHost is that project's own real address, moot
+    // for anyone else building this app since relaySignalEnabled
+    // defaults to false, same reasoning as the plugin's own default.
+    strncpy(cfg->relayHost, "192.168.2.115", sizeof(cfg->relayHost) - 1);
+    cfg->relayPort = 24689;
+    cfg->relaySignalEnabled = false;
     cfg->ledCountTop = 73; cfg->ledCountRight = 41; cfg->ledCountBottom = 73; cfg->ledCountLeft = 42;
     cfg->startCorner = CORNER_BOTTOM_LEFT;
     cfg->direction = DIR_CLOCKWISE;
@@ -195,6 +222,19 @@ bool settings_load(AmbientConfig *cfg, const char *path)
     if (ini_table_get_entry_as_int(table, "network", "wled_port", &iv))
         cfg->wledPort = (uint16_t)clamp_to_schema("network", "wled_port", iv);
 
+    // v17: matches ps4_ambient_light v2.6's own [network] relay_host/
+    // relay_port/relay_signal_enabled parsing exactly (same section,
+    // same keys, same fallback-to-current-value-on-missing-key
+    // behavior every other field here already has).
+    if ((v = ini_table_get_entry(table, "network", "relay_host")) != NULL) {
+        strncpy(cfg->relayHost, v, sizeof(cfg->relayHost) - 1);
+        cfg->relayHost[sizeof(cfg->relayHost) - 1] = '\0';
+    }
+    if (ini_table_get_entry_as_int(table, "network", "relay_port", &iv))
+        cfg->relayPort = (uint16_t)clamp_to_schema("network", "relay_port", iv);
+    if (ini_table_get_entry_as_bool(table, "network", "relay_signal_enabled", &bv))
+        cfg->relaySignalEnabled = bv;
+
     if (ini_table_get_entry_as_int(table, "layout", "led_count_top", &iv)) cfg->ledCountTop = (uint32_t)clamp_to_schema("layout", "led_count_top", iv);
     if (ini_table_get_entry_as_int(table, "layout", "led_count_right", &iv)) cfg->ledCountRight = (uint32_t)clamp_to_schema("layout", "led_count_right", iv);
     if (ini_table_get_entry_as_int(table, "layout", "led_count_bottom", &iv)) cfg->ledCountBottom = (uint32_t)clamp_to_schema("layout", "led_count_bottom", iv);
@@ -249,11 +289,15 @@ bool settings_save(const AmbientConfig *cfg, const char *path)
     // ONLY the fields this app knows about, then write that out --
     // silently destroying anything else already in the file, including
     // a hand-added [dev] section (dev_ip/dev_logging -- ps4_ambient_
-    // light v2.2.5, confirmed working on real hardware) or the newer
-    // relay_signal_enabled/relay_host/relay_port fields. Loading the
+    // light v2.2.5, confirmed working on real hardware). Loading the
     // existing file into the same table FIRST, then upserting just the
     // known fields on top of it via the same ini_table_create_entry
-    // calls already below, preserves everything else untouched.
+    // calls already below, preserves everything else untouched. (v17:
+    // relay_signal_enabled/relay_host/relay_port used to be an example
+    // of fields this merge-preserve behavior protected because this
+    // app didn't know about them yet -- it now does, see the explicit
+    // writes below, but a hand-added [dev] section or any other future
+    // unknown field still relies on this same merge behavior.)
     ini_table_read_from_file(table, path);
 
     char buf[64];
@@ -261,6 +305,13 @@ bool settings_save(const AmbientConfig *cfg, const char *path)
 
     ini_table_create_entry(table, "network", "wled_host", cfg->wledHost);
     SET_INT("network", "wled_port", cfg->wledPort);
+    // v17: see settings_load's matching read -- same section/keys the
+    // real plugin uses. Writing these explicitly (rather than relying
+    // purely on the merge-preserve behavior above) means editing them
+    // from this app's own UI actually takes effect on save.
+    ini_table_create_entry(table, "network", "relay_host", cfg->relayHost);
+    SET_INT("network", "relay_port", cfg->relayPort);
+    ini_table_create_entry(table, "network", "relay_signal_enabled", cfg->relaySignalEnabled ? "true" : "false");
 
     SET_INT("layout", "led_count_top", cfg->ledCountTop);
     SET_INT("layout", "led_count_right", cfg->ledCountRight);

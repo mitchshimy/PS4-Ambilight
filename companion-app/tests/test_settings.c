@@ -7,7 +7,7 @@ int main(void) {
     AmbientConfig cfg1;
     settings_set_defaults(&cfg1);
     printf("Menu item count: %d\n", kMenuItemCount);
-    assert(kMenuItemCount == 32);
+    assert(kMenuItemCount == 35); // +3 for Relay Signal/Relay Host/Relay Port
 
     // save defaults to a temp file, reload, confirm round-trip
     assert(settings_save(&cfg1, "/tmp/test_ambient.ini"));
@@ -19,6 +19,9 @@ int main(void) {
 
     assert(strcmp(cfg1.wledHost, cfg2.wledHost) == 0);
     assert(cfg1.wledPort == cfg2.wledPort);
+    assert(strcmp(cfg1.relayHost, cfg2.relayHost) == 0);
+    assert(cfg1.relayPort == cfg2.relayPort);
+    assert(cfg1.relaySignalEnabled == cfg2.relaySignalEnabled);
     assert(cfg1.ledCountTop == cfg2.ledCountTop);
     assert(cfg1.startCorner == cfg2.startCorner);
     assert(cfg1.gammaLutIndex == cfg2.gammaLutIndex);
@@ -36,6 +39,9 @@ int main(void) {
     cfg1.saturation = -50;
     cfg1.smoothingEnabled = 1;
     cfg1.ledOffset = -12;
+    strcpy(cfg1.relayHost, "10.0.0.99");
+    cfg1.relayPort = 9999;
+    cfg1.relaySignalEnabled = true;
     assert(settings_save(&cfg1, "/tmp/test_ambient2.ini"));
 
     AmbientConfig cfg3;
@@ -49,6 +55,9 @@ int main(void) {
     assert(cfg3.saturation == -50);
     assert(cfg3.smoothingEnabled == 1);
     assert(cfg3.ledOffset == -12);
+    assert(strcmp(cfg3.relayHost, "10.0.0.99") == 0);
+    assert(cfg3.relayPort == 9999);
+    assert(cfg3.relaySignalEnabled == true);
     printf("Round-trip with modified values: PASSED\n");
 
     // partial ini (only network section) -- everything else should be default
@@ -61,6 +70,9 @@ int main(void) {
     assert(cfg4.wledPort == 1234);
     assert(cfg4.ledCountTop == 73); // default, since layout section absent
     assert(cfg4.brightness == 255); // default
+    assert(strcmp(cfg4.relayHost, "192.168.2.115") == 0); // default, relay_host absent
+    assert(cfg4.relayPort == 24689); // default
+    assert(cfg4.relaySignalEnabled == false); // default
     printf("Partial ini falls back to defaults correctly: PASSED\n");
 
     // generic get/set via MenuItem offsets

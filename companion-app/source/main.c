@@ -24,6 +24,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 #include <SDL2/SDL.h>
 // SDL2_ttf was never actually linkable in this SDK snapshot (header
@@ -447,6 +450,58 @@ static void do_plugin_update(SDL_Renderer *renderer, TextRenderer *font)
 // app's LedLayoutGeometry.kt), and sends the whole thing, so the
 // preview and the real strip always show the same number of lit
 // pixels in the same order.
+// Tells wled-relay's tv_external_source.py whether THIS APP is
+// currently the one driving the WLED controller directly -- same
+// signal, same wire format (bare ASCII "on"/"off" over a plain UDP
+// datagram, no MQTT client needed) as ps4_ambient_light's own
+// relay_send_external_source() (main.c, v2.3+): this app's own
+// update_live_preview() sends real DDP frames to the exact same
+// physical WLED controller wled-relay's audio-reactive TV backlight
+// system also targets, and the two would fight over the same LEDs
+// while a user has this app open, just as they would during a real
+// game.
+//
+// Unlike the real plugin (which only drives the strip while a game is
+// actually running/foregrounded) this app has no idle mode --
+// update_live_preview() runs every frame regardless of g_screen, for
+// this app's entire runtime (see the main loop). So "driving" here is
+// simply "this app is running with the feature enabled" -- there's no
+// screen or mode to key off, just relaySignalEnabled itself. The
+// caller (main loop, below) tracks that directly.
+//
+// One-shot, own socket per call, same as the plugin's version -- this
+// only fires on a real relaySignalEnabled transition (see the caller),
+// nowhere near update_live_preview()'s own 30fps DDP send, so there's
+// no reason to hold a socket open for it.
+//
+// Deliberately has NO internal "if not enabled, return" gate -- same
+// reasoning as the real plugin's own v2.6 fix: the caller only invokes
+// this when relaySignalEnabled itself just changed, including
+// true->false, and an internal gate re-checking that same
+// already-changed flag would silently swallow the "off" send that
+// call exists to make. A user who never enables the setting can never
+// produce a transition, so this function is simply never called for
+// them at all -- opt-in protection falls out of the call site, not a
+// second gate here fighting with it.
+static void relay_send_external_source(bool active)
+{
+    int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0) return;
+
+    struct sockaddr_in destAddr;
+    memset(&destAddr, 0, sizeof(destAddr));
+    destAddr.sin_family = AF_INET;
+    destAddr.sin_port = htons(g_cfg.relayPort);
+    if (inet_pton(AF_INET, g_cfg.relayHost, &destAddr.sin_addr) != 1) {
+        close(sockfd);
+        return;
+    }
+
+    const char *payload = active ? "on" : "off";
+    sendto(sockfd, payload, strlen(payload), 0, (struct sockaddr*)&destAddr, sizeof(destAddr));
+    close(sockfd);
+}
+
 static void update_live_preview(void)
 {
     colorpipeline_rebuild_perchannel_gamma_luts(&g_cfg);
@@ -621,7 +676,14 @@ static void draw_icon_palette(SDL_Renderer *renderer, int x, int y, int size, SD
 static void format_item_value(const MenuItem *item, const AmbientConfig *cfg, char *out, size_t outSize)
 {
     if (item->type == FIELD_STRING) {
-        snprintf(out, outSize, "%s", cfg->wledHost); // only STRING field in this schema
+        // Was hardcoded to cfg->wledHost, the only STRING field that
+        // existed at the time. Now that relayHost is a second one
+        // (see settings.c's kMenuItems), read through the item's own
+        // offset instead -- same generic-by-offset approach
+        // settings_get_i32/settings_set_i32 already use for every
+        // other field type.
+        const char *base = (const char *)cfg + item->offset;
+        snprintf(out, outSize, "%s", base);
         return;
     }
     if (item->type == FIELD_BOOL) {
@@ -1182,7 +1244,11 @@ static void open_field_ime_dialog(int itemIndex)
     char placeholderAscii[80], titleAscii[80], currentAscii[64];
     if (item->type == FIELD_STRING) {
         snprintf(placeholderAscii, sizeof(placeholderAscii), "192.168.x.x");
-        snprintf(currentAscii, sizeof(currentAscii), "%s", g_cfg.wledHost);
+        // Was hardcoded to g_cfg.wledHost, the only STRING field at
+        // the time -- generalized now that relayHost is a second one,
+        // same reasoning as format_item_value() above.
+        const char *base = (const char *)&g_cfg + item->offset;
+        snprintf(currentAscii, sizeof(currentAscii), "%s", base);
     } else {
         snprintf(placeholderAscii, sizeof(placeholderAscii), "%d to %d", item->min, item->max);
         snprintf(currentAscii, sizeof(currentAscii), "%d", settings_get_i32(&g_cfg, item));
@@ -1467,6 +1533,14 @@ int main(void)
     memset(&prevPad, 0, sizeof(prevPad));
 
     bool running = true;
+    // Declared here (function scope), not as a `static` inside the
+    // loop below, specifically so the exit-cleanup code after the
+    // loop can still read its last value -- a block-scoped `static`
+    // inside `while (running) { ... }` would not be visible once that
+    // block's closing brace is passed, `static` only extends storage
+    // duration, not visibility. Tracks whether wled-relay was last
+    // told "on".
+    bool wasSignalOn = false;
     while (running) {
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
@@ -1514,6 +1588,19 @@ int main(void)
 
         if (g_imeDialogOpen) update_ime_dialog();
 
+        // This app has no idle mode -- update_live_preview() below
+        // runs every frame regardless of g_screen, so "driving" is
+        // simply g_cfg.relaySignalEnabled itself. Comparing against
+        // last frame's value and firing only on a real transition
+        // covers app startup (wasSignalOn starts false; if the loaded
+        // config already has it enabled, this fires "on" on the very
+        // first frame) and a live in-app toggle on Customisation,
+        // with the same one check.
+        if (g_cfg.relaySignalEnabled != wasSignalOn) {
+            relay_send_external_source(g_cfg.relaySignalEnabled);
+            wasSignalOn = g_cfg.relaySignalEnabled;
+        }
+
         update_live_preview();
 
         SDL_SetRenderDrawColor(renderer, COL_BG.r, COL_BG.g, COL_BG.b, 255);
@@ -1529,6 +1616,22 @@ int main(void)
         // setup comment above for why.
         SDL_UpdateWindowSurface(window);
         usleep(1000000 / 30); // 30fps UI refresh -- this app has no reason to run faster
+    }
+
+    // This app has no plugin_unload-style guaranteed teardown hook --
+    // it's a normal SDL app that just exits its own loop. If
+    // wled-relay was last told "on" (app closed with Relay Signal
+    // enabled), send one last "off" so it isn't left waiting on a flag
+    // this process can no longer touch. Matches wasSignalOn's own
+    // state from the loop above -- deliberately NOT re-derived from
+    // g_cfg.relaySignalEnabled here, since by this point the loop has
+    // already exited and that value is just whatever it happened to
+    // be on the final frame (though in practice, for this app, those
+    // two things can't actually disagree -- wasSignalOn IS
+    // g_cfg.relaySignalEnabled by construction, the moment they last
+    // differed).
+    if (wasSignalOn) {
+        relay_send_external_source(false);
     }
 
     text_renderer_destroy(font);
