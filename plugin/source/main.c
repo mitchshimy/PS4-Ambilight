@@ -1250,6 +1250,46 @@ static void unpackA8R8G8B8_to_rgb888(uint32_t px, uint8_t *r, uint8_t *g, uint8_
     *b = (uint8_t)(px & 0xFF);
 }
 
+// A8B8G8R8 / A8B8G8R8_SRGB (format 0x80002200) -- R and B swapped vs.
+// unpackA8R8G8B8_to_rgb888 above.
+//
+// This format was first identified purely by name, against fpPS4's
+// enum table, and the swap this function implies was tried, then
+// REVERTED, based on a real hardware report at the time ("red and
+// blue are wrong" on a busy in-game scene). That report was later
+// confirmed to have been given uncertainly, without HDR controlled
+// for as a variable, and without a real screenshot to check specific
+// pixels against -- just an impression from a scene lit mostly in
+// warm reds and oranges, where a channel swap is genuinely hard to
+// eyeball. This function reverses that revert, based on stronger
+// evidence gathered afterward: a real screenshot, sampled pixel-for-
+// pixel at 5 known coordinates, checked numerically (not by eye)
+// against a probe capture with HDR explicitly turned OFF. The swapped
+// decode matched the real screen within single-digit-to-teens RGB
+// units at all 5 points simultaneously; the no-swap version never
+// matched at any point, on any screen, across the whole investigation
+// (see detile_verify_probe's history/handoff for the full trail).
+//
+// The format ID itself was confirmed UNCHANGED (0x80002200) between
+// HDR on and off via a fresh registration event -- so this isn't a
+// case of the game switching formats. HDR was corrupting the actual
+// buffer content (a garbage-looking alpha byte, among other things),
+// not just which channel maps to which byte.
+//
+// CONFIRMED FOR HDR-OFF ONLY. This plugin has no way to detect the
+// console's HDR setting, and HDR-on behavior for this format is
+// still completely unverified -- it may need a different unpack
+// entirely (the same way 0x88740000's PQ curve needed its own
+// function above, not just a channel reorder). If colors look wrong
+// again on this format specifically, check HDR status before
+// assuming another channel-order bug.
+static void unpackA8B8G8R8_to_rgb888(uint32_t px, uint8_t *r, uint8_t *g, uint8_t *b)
+{
+    *b = (uint8_t)((px >> 16) & 0xFF);
+    *g = (uint8_t)((px >> 8)  & 0xFF);
+    *r = (uint8_t)(px & 0xFF);
+}
+
 // ------------------------------------------------------------------
 // HDR (A2R10G10B10_BT2020_PQ) decode -- ported from
 // decode_verification_dump.py's unpack_a2r10g10b10_bt2020_pq, verified
@@ -1780,6 +1820,10 @@ static PixelUnpackFn getUnpackFnForFormat(uint32_t format)
         return unpackA2R10G10B10_BT2020_PQ_to_rgb888;
     case 0x80000000: // A8R8G8B8_SRGB -- confirmed live format this session, §21/§22
         return unpackA8R8G8B8_to_rgb888;
+    case 0x80002200: // A8B8G8R8_SRGB -- HDR-OFF confirmed via real screenshot + fresh
+        // registration event (see unpackA8B8G8R8_to_rgb888's own comment for the
+        // full trail). HDR-on behavior for this format is unverified.
+        return unpackA8B8G8R8_to_rgb888;
     default:
         return NULL;
     }
@@ -2171,7 +2215,36 @@ static void applyColorProcessing(uint8_t r8, uint8_t g8, uint8_t b8, uint8_t *ou
 attr_public const char *g_pluginName = "ps4_ambient_light";
 attr_public const char *g_pluginDesc = "Live per-frame ambient light: detiles the real scanout buffer and streams zone colors to WLED";
 attr_public const char *g_pluginAuth = "(null)";
-attr_public uint32_t g_pluginVersion = 0x0000020F; // v2.5 -> v2.6: BUGFIX -- relay_send_external_source() used to gate itself internally on g_config.relaySignalEnabled, in one place, so no call site could accidentally dial an unconfigured relay_host. That broke ambient_check_config_reload's own true->false flip-handler (from the merged v2.4.1): by the time that call fires, relaySignalEnabled is ALREADY false (that's what triggered the call), so the internal gate silently swallowed the "off" send it exists to make, leaving wled-relay believing this plugin was still driving the strip until the separate gaming_mode-off backstop (that fork's handoff v21) eventually corrected it as a side effect, not by design. Found while adding the identical signal to the standalone companion app, reproduced directly in an isolated sandbox test there, then traced back and confirmed present here too. Fix: the internal gate is gone; each of the other 3 call sites (plugin_load's initial "on", ambient_sample_thread's foreground/background transition, plugin_unload's final "off") now has its own explicit relaySignalEnabled check instead, since none of those three are themselves triggered by relaySignalEnabled changing the way the reload flip-handler is. Verified against all 4 real call sites in an isolated Linux-sandbox stub, including the exact previously-broken sequence (enabled -> driving -> live-disable) now producing the missing "off" correctly. NOT verified on real hardware. See this repo's own handoff for the full account.
+attr_public uint32_t g_pluginVersion = 0x00000210; // v2.6 -> v2.7: added
+// real support for format 0x80002200 (A8B8G8R8_SRGB) -- this format was
+// identified by name several sessions ago (against fpPS4's enum table,
+// on a different title: HITMAN 3) but was NEVER actually wired into
+// getUnpackFnForFormat; a game reporting this format got NULL back,
+// same as any other unrecognized format, and this plugin correctly
+// sent nothing rather than guess (see g_haveValidFormat). Root-caused
+// via detile_verify_probe (a standalone diagnostic plugin, not this
+// one) across a long investigation: pad-conflict trigger issues, then
+// three addressing hypotheses (tiled math, naive linear math, wrong
+// swap-chain slot) that all decoded plausible-but-wrong colors against
+// a real screenshot, then a clean flip-rate and stable videoOutHandle
+// that ruled out "wrong render pass" -- until the user independently
+// tested turning HDR off, which is what actually fixed it. With HDR
+// off, the SAME format ID's buffer content decoded correctly with
+// simple tiled addressing, once R and B are swapped relative to this
+// file's existing unpackA8R8G8B8_to_rgb888. Confirmed two ways: a
+// probe capture checked pixel-for-pixel against a real screenshot at 5
+// known coordinates (single-digit-to-teens RGB error at all 5 at
+// once, the first hypothesis in the whole investigation to do that),
+// and then the user confirming colors look correct live, in this
+// plugin, on real hardware. CONFIRMED FOR HDR-OFF ONLY -- this plugin
+// cannot detect the console's HDR setting, and HDR-on behavior for
+// this format is unverified; if colors look wrong again on this
+// format specifically, check HDR status before assuming another
+// channel-order bug. See unpackA8B8G8R8_to_rgb888's own comment below,
+// and this repo's handoff for the full investigation trail (kept as a
+// separate document rather than squeezed into this file's existing
+// §-numbered handoff, whose numbering already collides across forks --
+// see the new handoff's own note on why).
 
 int32_t (*sceVideoOutRegisterBuffersPtr)(int32_t handle, int32_t startIndex,
                                           void *const *addresses, int32_t bufferNum,
