@@ -7,7 +7,7 @@ when detile_verify_probe.prx sends its verification dump.
 
 Packet format, v2.1 probe (11 bytes), one per (test point, param set):
     [0]     point index
-    [1]     paramset id (0=base, 1=neo)
+    [1]     paramset id (0=base, 1=neo, 2=linear -- v2.6 probe only)
     [2..3]  x, uint16 LE
     [4..5]  y, uint16 LE
     [6..9]  raw 4 bytes read from the tiled buffer at the computed offset
@@ -127,8 +127,24 @@ def unpack_a8r8g8b8(raw4: bytes):
 
 
 def unpack_a8b8g8r8(raw4: bytes):
-    """A8B8G8R8 / A8B8G8R8_SRGB -- channel order reversed relative to
-    A8R8G8B8: little-endian uint32 = 0xAABBGGRR."""
+    """A8B8G8R8 / A8B8G8R8_SRGB (format 0x80002200).
+
+    v3.1: NOW ACTUALLY SWAPS R and B vs. unpack_a8r8g8b8 -- reversing
+    the v2.7.1 revert. That revert was based on a real hardware report
+    ("red and blue are wrong") on a busy in-game scene, given
+    uncertainly and without HDR controlled for. Confirmed instead
+    against a real screenshot, sampled pixel-for-pixel at 5 known
+    coordinates, WITH HDR OFF: this swapped version matched the real
+    screen within single-digit-to-teens RGB units at all 5 points
+    simultaneously -- the no-swap version never matched at any point,
+    on any screen, across the whole investigation. Format ID itself
+    was confirmed unchanged (0x80002200) between HDR on and off via a
+    fresh registration event, so this isn't a different format --
+    HDR was corrupting the actual buffer content (garbage-looking
+    alpha byte, among other things), not just the color-channel
+    mapping. CONFIRMED FOR HDR-OFF ONLY. HDR-on behavior for this
+    format is still unverified and likely needs separate handling.
+    """
     px = struct.unpack("<I", raw4)[0]
     a8 = (px >> 24) & 0xFF
     b8 = (px >> 16) & 0xFF
@@ -291,21 +307,45 @@ def decode_registration_packet(data: bytes):
 
 def decode_pixel_packet_raw(data: bytes):
     """Parses everything except the color -- color is unpacked later,
-    once the active format for this dump is known."""
+    once the active format for this dump is known.
+
+    v2.9: raw payload length is no longer assumed to be exactly 4
+    bytes. Everything between the x/y header (bytes 2-5) and the final
+    displayBufferIndex byte is "raw" -- could be 4 bytes (the original
+    single-pixel dump) or more (v2.9's 16-byte context dump, added to
+    visually inspect surrounding memory instead of guessing another
+    whole-format hypothesis blind). RGB decoding still only ever uses
+    the first 4 bytes (raw4) -- a wider raw dump doesn't change what
+    counts as "one pixel" in a 32bpp format, it just shows more of
+    what comes after it.
+    """
     point_idx = data[0]
     paramset = data[1]
     x = struct.unpack("<H", data[2:4])[0]
     y = struct.unpack("<H", data[4:6])[0]
-    raw4 = data[6:10]
-    display_buffer_index = data[10] if len(data) >= 11 else None
+    if len(data) == 10:
+        # Legacy case this script's error message still allows for --
+        # no real packet from this probe has ever actually been this
+        # short (main.c always sends the trailing displayBufferIndex
+        # byte), but keep the old fixed-4-byte behavior here rather
+        # than let data[-1] silently eat a real raw byte.
+        raw = data[6:10]
+        display_buffer_index = None
+    else:
+        raw = data[6:-1]
+        display_buffer_index = data[-1]
+    raw4 = raw[:4]
     return {
         "kind": "pixel",
         "point_idx": point_idx,
-        "paramset": "base" if paramset == 0 else "neo" if paramset == 1 else f"?{paramset}",
+        "paramset": "base" if paramset == 0 else "neo" if paramset == 1
+                    else "linear" if paramset == 2 else f"?{paramset}",  # v2.6 probe: 2=naive linear addressing
         "x": x,
         "y": y,
         "raw4": raw4,
         "raw_hex": raw4.hex(),
+        "raw_full": raw,
+        "raw_full_hex": raw.hex(),
         "display_buffer_index": display_buffer_index,
     }
 
@@ -578,11 +618,11 @@ def main(payloads):
         print(" compare BOTH against the real screen, not just the new PQ column.)")
     print()
     if show_naive_compare:
-        print(f"{'pt':>2} {'x':>5} {'y':>5} {'set':>5} {'raw':>10} {'RGB888 (PQ)':>16} {'RGB888 (naive)':>16} {'bufIdx':>6}")
-        print("-" * 82)
+        print(f"{'pt':>2} {'x':>5} {'y':>5} {'set':>5} {'raw (first 4 = pixel)':<34} {'RGB888 (PQ)':>16} {'RGB888 (naive)':>16} {'bufIdx':>6}")
+        print("-" * 106)
     else:
-        print(f"{'pt':>2} {'x':>5} {'y':>5} {'set':>5} {'raw':>10} {'RGB888':>16} {'bufIdx':>6}")
-        print("-" * 58)
+        print(f"{'pt':>2} {'x':>5} {'y':>5} {'set':>5} {'raw (first 4 = pixel)':<34} {'RGB888':>16} {'bufIdx':>6}")
+        print("-" * 82)
     last_point = None
     for r in results:
         if last_point is not None and r["point_idx"] != last_point:
@@ -593,13 +633,29 @@ def main(payloads):
             rgb_str = str(rgb)
         else:
             rgb_str = "n/a"
+        raw_display = r.get("raw_full_hex", r["raw_hex"])
         if show_naive_compare:
             _, naive_rgb = unpack_a2r10g10b10(r["raw4"])
             print(f"{r['point_idx']:>2} {r['x']:>5} {r['y']:>5} {r['paramset']:>5} "
-                  f"{r['raw_hex']:>10} {rgb_str:>16} {str(naive_rgb):>16} {buf_str:>6}")
+                  f"{raw_display:<34} {rgb_str:>16} {str(naive_rgb):>16} {buf_str:>6}")
         else:
             print(f"{r['point_idx']:>2} {r['x']:>5} {r['y']:>5} {r['paramset']:>5} "
-                  f"{r['raw_hex']:>10} {rgb_str:>16} {buf_str:>6}")
+                  f"{raw_display:<34} {rgb_str:>16} {buf_str:>6}")
+        # v2.9: if more than 4 raw bytes came through, also show what
+        # each following 4-byte word would decode to as its own pixel
+        # -- if this really is contiguous 32bpp pixel data, these
+        # should look like a plausible, smoothly-varying continuation
+        # of whatever's actually next to that point on screen. If they
+        # look like noise or don't relate to nearby real colors at
+        # all, that's evidence against "this memory is 32bpp pixels"
+        # entirely, not just against the current offset formula.
+        if unpack_fn is not None and len(r.get("raw_full", b"")) > 4:
+            extra = r["raw_full"][4:]
+            words = [extra[i:i+4] for i in range(0, len(extra) - 3, 4)]
+            for wi, w in enumerate(words, start=1):
+                _, wrgb = unpack_fn(w)
+                label = f"  +{wi*4}B: {w.hex()}"
+                print(f"{'':>2} {'':>5} {'':>5} {'':>5} {label:<34} {str(wrgb):>16}")
         last_point = r["point_idx"]
 
     print()
@@ -613,13 +669,16 @@ def main(payloads):
         print("adjust -- the PQ EOTF and BT.2020->BT.709 matrix are fixed standards")
         print("and shouldn't need touching.")
 
-    # Sanity check for the v2.1 probe fix: every packet in one dump should
-    # share the same displayBufferIndex, since one combo press = one live
-    # frame = one buffer. If they differ, buffer selection is still off
-    # (or packets from two different presses got mixed together).
-    buf_indices = {r["display_buffer_index"] for r in results}
+    # Sanity check for the v2.1 probe fix: every REAL test point in one
+    # dump should share the same displayBufferIndex, since one capture
+    # = one live frame = one buffer. v2.7's dump_buffer_scan() rows
+    # (point_idx 254) are deliberately excluded -- they're tagged with
+    # their own slot index on purpose, always differing from each
+    # other and often from the live points, and that's not a bug.
+    real_points = [r for r in results if r["point_idx"] not in (253, 254)]
+    buf_indices = {r["display_buffer_index"] for r in real_points}
     buf_indices.discard(None)
-    if None in (r["display_buffer_index"] for r in results):
+    if None in (r["display_buffer_index"] for r in real_points):
         print()
         print("Note: some packets have no displayBufferIndex byte (10-byte,")
         print("pre-v2.1 probe format) -- can't run the buffer-consistency check.")
