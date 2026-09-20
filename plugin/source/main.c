@@ -1811,6 +1811,48 @@ static void unpackA2R10G10B10_BT2020_PQ_to_rgb888(uint32_t px, uint8_t *r, uint8
     *b = srgbEncodeLutLookup(b709);
 }
 
+// v2.8: live HDR-vs-SDR auto-detection for format 0x80002200
+// specifically -- this format ID is confirmed AMBIGUOUS on this title
+// (see unpackA8B8G8R8_to_rgb888's own comment): it means A8B8G8R8_SRGB
+// with HDR off, but the SAME registered format ID actually holds
+// A2R10G10B10_BT2020_PQ data when HDR is on, with no reliable signal
+// available from any hooked API to tell which is currently true --
+// hooking sceVideoOutAddBufferHdrPrivilege (the obvious direct signal)
+// was investigated and ruled out, since no real reference
+// implementation of it exists anywhere (not in this codebase's history,
+// not in fpPS4) to safely derive its call signature from, and a wrong
+// guess there risks corrupting a call into Sony's own code.
+//
+// Detected instead via decode-smoothness: real image content decodes
+// smoothly under the correct hypothesis and noisily under the wrong
+// one. Method validated twice, blind, against real captures in
+// decode_verification_dump.py before being ported here -- see that
+// script's own comment and this repo's handoff for the full trail.
+//
+// Kept deliberately cheap, per explicit instruction not to have this
+// plugin compete with the game for CPU: reuses zone coordinates
+// already computed for real LED sampling (no new coordinate math),
+// reads a small fixed subset (HDR2200_DETECT_SAMPLES) rather than
+// every configured zone, and only runs once every
+// HDR2200_DETECT_INTERVAL sampling passes -- not every pass. A
+// hysteresis streak (not a single-shot decision) guards against
+// flipping on one noisy/degenerate frame -- exactly the failure mode
+// that made this heuristic unreliable on near-black loading screens
+// during validation; HDR2200_NOISE_FLOOR skips a check entirely when
+// there isn't enough real signal to trust it either way.
+//
+// UNTESTED WITH HDR ACTUALLY ON. Nothing in this whole investigation
+// has run this decision live, watching real LED output, with HDR
+// engaged -- see this repo's handoff for exactly what has and hasn't
+// been verified before treating this as a finished fix.
+#define HDR2200_DETECT_SAMPLES   8   // zones sampled per check (capped, not all configured zones)
+#define HDR2200_DETECT_INTERVAL  60  // run the check every Nth sampling pass, not every pass
+#define HDR2200_STREAK_THRESHOLD 4   // consecutive agreeing checks needed before actually switching
+#define HDR2200_NOISE_FLOOR      24  // minimum total-variation (winning hypothesis) to trust a check -- below this the frame's too flat (e.g. a loading screen) to mean anything
+static volatile int     g_hdr2200IsHdr     = 0;  // current live decode choice for format 0x80002200 -- starts SDR, the only one actually confirmed live on real hardware so far
+static volatile int32_t g_hdr2200Streak    = 0;  // hysteresis counter: + toward HDR, - toward SDR
+static volatile int32_t g_hdr2200Countdown = 0;  // throttle: counts down to the next check
+
 static PixelUnpackFn getUnpackFnForFormat(uint32_t format)
 {
     switch (format) {
@@ -1820,14 +1862,19 @@ static PixelUnpackFn getUnpackFnForFormat(uint32_t format)
         return unpackA2R10G10B10_BT2020_PQ_to_rgb888;
     case 0x80000000: // A8R8G8B8_SRGB -- confirmed live format this session, §21/§22
         return unpackA8R8G8B8_to_rgb888;
-    case 0x80002200: // A8B8G8R8_SRGB -- HDR-OFF confirmed via real screenshot + fresh
-        // registration event (see unpackA8B8G8R8_to_rgb888's own comment for the
-        // full trail). HDR-on behavior for this format is unverified.
-        return unpackA8B8G8R8_to_rgb888;
+    case 0x80002200: // A8B8G8R8_SRGB (HDR off) or A2R10G10B10_BT2020_PQ (HDR on) --
+        // same registered format ID means two different real byte layouts
+        // on this title, decided live by detectHdr2200Format() (called
+        // just before this from the main sampling loop). See that
+        // function's own comment above g_hdr2200IsHdr for the full trail.
+        // UNTESTED WITH HDR ACTUALLY ON -- see this repo's handoff.
+        return g_hdr2200IsHdr ? unpackA2R10G10B10_BT2020_PQ_to_rgb888
+                               : unpackA8B8G8R8_to_rgb888;
     default:
         return NULL;
     }
 }
+
 
 // ============================================================
 // Zones: screen-edge points read as a small averaged neighborhood
@@ -1949,6 +1996,89 @@ static void buildZoneGeometry(void)
             g_zoneY[i] = tmpY[src];
         }
     }
+}
+
+// See the big comment above g_hdr2200IsHdr for the full rationale.
+// Cheap by construction: at most HDR2200_DETECT_SAMPLES extra 4-byte
+// reads (8, capped regardless of how many zones are configured), only
+// every HDR2200_DETECT_INTERVAL sampling passes, and only while the
+// active format is the ambiguous 0x80002200 -- for every other format
+// (i.e. every other title) this function is never called at all.
+static void detectHdr2200Format(uint64_t bufferAddr)
+{
+    if (g_hdr2200Countdown > 0) { g_hdr2200Countdown--; return; }
+    g_hdr2200Countdown = HDR2200_DETECT_INTERVAL;
+
+    uint32_t nSamples = g_numZones < HDR2200_DETECT_SAMPLES ? g_numZones : HDR2200_DETECT_SAMPLES;
+    if (nSamples < 2) return; // need at least 2 samples to compare anything
+
+    uint8_t sdrR[HDR2200_DETECT_SAMPLES], sdrG[HDR2200_DETECT_SAMPLES], sdrB[HDR2200_DETECT_SAMPLES];
+    uint8_t hdrR[HDR2200_DETECT_SAMPLES], hdrG[HDR2200_DETECT_SAMPLES], hdrB[HDR2200_DETECT_SAMPLES];
+
+    uint32_t got = 0;
+    for (uint32_t i = 0; i < nSamples; i++) {
+        uint64_t off = getTiledElementByteOffset(&kParamsBase, g_zoneX[i], g_zoneY[i]);
+        if (off + 4 > BASE_PADDED_BUFFER_BYTES) continue; // same safety check sampleZoneAverage uses
+        uint32_t px;
+        memcpy(&px, (const void*)(bufferAddr + off), 4);
+        unpackA8B8G8R8_to_rgb888(px, &sdrR[got], &sdrG[got], &sdrB[got]);
+        unpackA2R10G10B10_BT2020_PQ_to_rgb888(px, &hdrR[got], &hdrG[got], &hdrB[got]);
+        got++;
+    }
+    if (got < 2) return;
+
+    int32_t sdrTv = 0, hdrTv = 0;
+    for (uint32_t i = 1; i < got; i++) {
+        sdrTv += abs((int)sdrR[i] - (int)sdrR[i-1]) + abs((int)sdrG[i] - (int)sdrG[i-1]) + abs((int)sdrB[i] - (int)sdrB[i-1]);
+        hdrTv += abs((int)hdrR[i] - (int)hdrR[i-1]) + abs((int)hdrG[i] - (int)hdrG[i-1]) + abs((int)hdrB[i] - (int)hdrB[i-1]);
+    }
+
+    int32_t winnerTv = sdrTv < hdrTv ? sdrTv : hdrTv;
+    if (winnerTv < HDR2200_NOISE_FLOOR) return; // too flat/degenerate to trust -- e.g. a loading screen
+
+    if (hdrTv < sdrTv) {
+        g_hdr2200Streak = (g_hdr2200Streak > 0) ? (g_hdr2200Streak + 1) : 1;
+    } else {
+        g_hdr2200Streak = (g_hdr2200Streak < 0) ? (g_hdr2200Streak - 1) : -1;
+    }
+
+    if (g_hdr2200Streak >= HDR2200_STREAK_THRESHOLD) {
+        g_hdr2200IsHdr = 1;
+        g_hdr2200Streak = 0;
+    } else if (g_hdr2200Streak <= -HDR2200_STREAK_THRESHOLD) {
+        g_hdr2200IsHdr = 0;
+        g_hdr2200Streak = 0;
+    }
+
+#if (__FINAL__) == 0
+    // Diagnostic-only telemetry, same debug_send_raw/[dev]-ini idiom as
+    // the format-change packet above. This whole detection mechanism
+    // was validated offline (a Python replica of this exact algorithm,
+    // run against real captures, converged cleanly and plausibly), but
+    // live behavior didn't settle -- meaning something between "the
+    // algorithm is sound" and "the strip shows the right color" isn't
+    // visible from here. Reports every actual check (already throttled
+    // to once per HDR2200_DETECT_INTERVAL, so not spammy), not just on
+    // a decision change, so the live sdrTv/hdrTv/streak numbers can be
+    // compared directly against decode_verification_dump.py's own
+    // smoothness-heuristic output for the same real capture.
+    //   [0:4]  sdrTv        -- int32 LE
+    //   [4:8]  hdrTv        -- int32 LE
+    //   [8:12] streak       -- int32 LE (post-update, pre-reset)
+    //   [12:16] isHdr       -- uint32 LE, 0/1, current live decision
+    // 16-byte length is distinct from the existing 8-byte format-change
+    // packet, matching this project's own dispatch-by-length convention.
+    {
+        uint8_t hdrDiagPacket[16];
+        memcpy(hdrDiagPacket + 0,  &sdrTv,          4);
+        memcpy(hdrDiagPacket + 4,  &hdrTv,          4);
+        int32_t streakSnapshot = g_hdr2200Streak; // read the volatile once into a plain local -- memcpy's const void* param can't take a volatile pointer without discarding the qualifier (real warning, harmless but worth silencing cleanly)
+        memcpy(hdrDiagPacket + 8,  &streakSnapshot,  4);
+        uint32_t isHdrU32 = (uint32_t)g_hdr2200IsHdr;
+        memcpy(hdrDiagPacket + 12, &isHdrU32,       4);
+        debug_send_raw(hdrDiagPacket, sizeof(hdrDiagPacket));
+    }
+#endif
 }
 
 static void sampleZoneAverage(const TileParams *p, uint64_t bufferAddr, PixelUnpackFn unpack,
@@ -2215,7 +2345,56 @@ static void applyColorProcessing(uint8_t r8, uint8_t g8, uint8_t b8, uint8_t *ou
 attr_public const char *g_pluginName = "ps4_ambient_light";
 attr_public const char *g_pluginDesc = "Live per-frame ambient light: detiles the real scanout buffer and streams zone colors to WLED";
 attr_public const char *g_pluginAuth = "(null)";
-attr_public uint32_t g_pluginVersion = 0x00000210; // v2.6 -> v2.7: added
+attr_public uint32_t g_pluginVersion = 0x00000212; // v2.7.1 -> v2.7.2:
+// CONFIRMED, no longer diagnostic-only. The v2.7.1 dev-telemetry
+// (still present, still __FINAL__==0-gated -- see detectHdr2200Format's
+// own comment) showed the live detection working exactly as the
+// offline replica predicted: on the session that originally looked
+// broken, sdrTv/hdrTv/streak/isHdr streamed back showing a clean
+// accumulate-then-flip at the correct moment (streak 1->2->3, then
+// isHdr 0->1 with streak reset), then stayed locked on HDR with no
+// reversal. The earlier "doesn't settle" report turned out to be a
+// patience issue, not a bug: the flip took ~43s from boot (a black
+// loading screen produces no valid checks at all, then several more
+// seconds accumulating a real streak) -- watching for less than that
+// looks identical to "broken."
+//
+// Also tested the specific worry raised after that: would a dark
+// gameplay scene flip it back to SDR incorrectly? Captured a real
+// ~6.5-minute gameplay session (not menus) and decoded all 53
+// diagnostic packets -- exactly ONE flip in the whole session, the
+// correct initial SDR->HDR one. The HDR/SDR margin narrowed
+// substantially in darker/busier scenes (as low as ~2.3x apart,
+// versus 15-40x on simple menu content) but never came close to
+// reversing, let alone sustaining 4 consecutive reversed checks.
+// Not proof for every possible scene, but a real, varied session
+// with no failure is real evidence, not just theory.
+//
+// v2.7 -> v2.7.1 (mechanism unchanged, kept for the full trail): added
+// live HDR-vs-SDR auto-detection for format 0x80002200 specifically --
+// this format ID is confirmed AMBIGUOUS on this title (see
+// unpackA8B8G8R8_to_rgb888's own comment): it means A8B8G8R8_SRGB with
+// HDR off, but the SAME registered format ID actually holds
+// A2R10G10B10_BT2020_PQ data when HDR is on, with no reliable signal
+// available from any hooked API to tell which is currently true --
+// hooking sceVideoOutAddBufferHdrPrivilege (the obvious direct signal)
+// was investigated and ruled out, since no real reference
+// implementation of it exists anywhere (not in this codebase's history,
+// not in fpPS4) to safely derive its call signature from, and a wrong
+// guess there risks corrupting a call into Sony's own code. Detected
+// instead via decode-smoothness: real image content decodes smoothly
+// under the correct hypothesis and noisily under the wrong one. Method
+// validated offline first (a Python replica in
+// decode_verification_dump.py, run blind against real captures, twice)
+// before being ported here. Kept deliberately cheap, per explicit
+// instruction not to have this plugin compete with the game for CPU:
+// reuses zone coordinates already computed for real LED sampling, caps
+// samples at HDR2200_DETECT_SAMPLES, throttled to once every
+// HDR2200_DETECT_INTERVAL sampling passes, with a hysteresis streak
+// (HDR2200_STREAK_THRESHOLD) and a noise floor (HDR2200_NOISE_FLOOR)
+// so a single noisy or degenerate frame can't flip the live decision.
+//
+// v2.6 -> v2.7 (still true): added
 // real support for format 0x80002200 (A8B8G8R8_SRGB) -- this format was
 // identified by name several sessions ago (against fpPS4's enum table,
 // on a different title: HITMAN 3) but was NEVER actually wired into
@@ -2236,15 +2415,11 @@ attr_public uint32_t g_pluginVersion = 0x00000210; // v2.6 -> v2.7: added
 // known coordinates (single-digit-to-teens RGB error at all 5 at
 // once, the first hypothesis in the whole investigation to do that),
 // and then the user confirming colors look correct live, in this
-// plugin, on real hardware. CONFIRMED FOR HDR-OFF ONLY -- this plugin
-// cannot detect the console's HDR setting, and HDR-on behavior for
-// this format is unverified; if colors look wrong again on this
-// format specifically, check HDR status before assuming another
-// channel-order bug. See unpackA8B8G8R8_to_rgb888's own comment below,
-// and this repo's handoff for the full investigation trail (kept as a
-// separate document rather than squeezed into this file's existing
-// §-numbered handoff, whose numbering already collides across forks --
-// see the new handoff's own note on why).
+// plugin, on real hardware. See unpackA8B8G8R8_to_rgb888's own comment
+// below, and this repo's handoff for the full investigation trail
+// (kept as a separate document rather than squeezed into this file's
+// existing §-numbered handoff, whose numbering already collides across
+// forks -- see the handoff's own note on why).
 
 int32_t (*sceVideoOutRegisterBuffersPtr)(int32_t handle, int32_t startIndex,
                                           void *const *addresses, int32_t bufferNum,
@@ -2748,6 +2923,9 @@ void *ambient_sample_thread(void *args)
                                        ? g_bufferAddrs[displayBufferIndex] : 0;
 
         if (liveBufferAddr != 0 && g_haveValidFormat) {
+            if (g_activeFormat == 0x80002200) {
+                detectHdr2200Format(liveBufferAddr); // cheap, throttled -- see its own comment
+            }
             PixelUnpackFn unpack = getUnpackFnForFormat(g_activeFormat);
             if (unpack != NULL) { // re-check -- format could have gone unknown since the last read
                 uint8_t rgbTriplets[MAX_TOTAL_ZONES * 3];
