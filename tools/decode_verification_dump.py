@@ -282,6 +282,76 @@ FORMAT_TABLE = {
 DEFAULT_FALLBACK_FORMAT = 0x88000000  # A2R10G10B10_SRGB -- old script's hardcoded assumption
 
 
+# v3.2: runtime format auto-detection via decode smoothness, added after
+# a real, confirmed dead end trying to detect HDR state directly. The
+# obvious approach -- hook sceVideoOutAddBufferHdrPrivilege, the PS4
+# API a game presumably calls when HDR engages -- turned out to have
+# no real reference implementation anywhere: not in this repo's own
+# probe/plugin history, not in fpPS4 (checked its full, real
+# ps4_libscevideoout.pas -- the function isn't implemented there at
+# all, only present as a bare name-to-NID lookup entry with zero type
+# info). Guessing a signature for a hook GoldHEN's HOOK_CONTINUE would
+# need to forward calls through exactly right is a real crash risk
+# with no way to verify it beforehand, so that path was dropped.
+#
+# This sidesteps detection entirely: since both real formats seen on
+# this title are now independently confirmed correct decoders (SDR:
+# A8B8G8R8_SRGB with R/B swapped, confirmed against a real screenshot
+# and independently against fpPS4's own enum comment; HDR:
+# A2R10G10B10_BT2020_PQ, confirmed against a real screenshot at all 5
+# points), the two candidate decodes can just be tried against each
+# other and scored by which one looks more like real image content.
+#
+# The scoring signal: real photographic/rendered content is spatially
+# coherent -- neighboring pixels are usually close in value, even
+# across hard edges the change is bounded. Decoding the WRONG bit
+# layout effectively randomizes the bit pattern, which tends to
+# produce much larger, noisier swings between adjacent samples. Each
+# capture already includes 4 consecutive 32bpp words per test point
+# (RAW_DUMP_BYTES=16, from v2.9) -- exactly the adjacent-sample data
+# this needs, with no probe/firmware changes required at all.
+def _total_variation(rgb_list):
+    """Sum of per-channel absolute differences between consecutive
+    RGB triples -- lower means smoother/more coherent."""
+    total = 0
+    for a, b in zip(rgb_list, rgb_list[1:]):
+        total += sum(abs(x - y) for x, y in zip(a, b))
+    return total
+
+
+def detect_format_via_smoothness(pixel_results):
+    """Given decoded pixel-packet rows (each with a >4-byte raw_full),
+    scores SDR (A8B8G8R8_SRGB swapped) vs HDR (A2R10G10B10_BT2020_PQ)
+    by total variation across each point's 4 consecutive words, and
+    returns (winner_name, per_point_detail, sdr_total, hdr_total).
+    Only meaningful for points with the wider v2.9+ raw dump (16+
+    bytes) -- points with just the original 4-byte raw are skipped."""
+    by_point = {}
+    for r in pixel_results:
+        raw_full = r.get("raw_full", r.get("raw4", b""))
+        if len(raw_full) < 8:
+            continue  # need at least 2 words to compare anything
+        words = [raw_full[i:i+4] for i in range(0, len(raw_full) - 3, 4)]
+        key = (r["point_idx"], r["paramset"])
+        by_point[key] = words
+
+    detail = []
+    sdr_total = 0
+    hdr_total = 0
+    for key, words in by_point.items():
+        sdr_rgbs = [unpack_a8b8g8r8(w)[1] for w in words]
+        hdr_rgbs = [unpack_a2r10g10b10_bt2020_pq(w)[1] for w in words]
+        sdr_tv = _total_variation(sdr_rgbs)
+        hdr_tv = _total_variation(hdr_rgbs)
+        sdr_total += sdr_tv
+        hdr_total += hdr_tv
+        detail.append((key, sdr_tv, hdr_tv, "SDR" if sdr_tv < hdr_tv else "HDR"))
+
+    if not detail:
+        return None, [], 0, 0
+    winner = "SDR (A8B8G8R8_SRGB, swapped)" if sdr_total < hdr_total else "HDR (A2R10G10B10_BT2020_PQ)"
+    return winner, detail, sdr_total, hdr_total
+
 
 def decode_registration_packet(data: bytes):
     """v2.2 registration-dump packet (32 bytes): reports every
@@ -603,6 +673,33 @@ def main(payloads):
 
     if not results:
         return
+
+    # v3.2: format 0x80002200 is now a known special case for this title --
+    # confirmed to mean two DIFFERENT real byte layouts depending on HDR
+    # state (SDR: A8B8G8R8_SRGB swapped; HDR: A2R10G10B10_BT2020_PQ), with
+    # no reliable way to tell which from the registration event alone (see
+    # this script's own v3.2 comment above detect_format_via_smoothness for
+    # why a direct HDR-state hook was ruled out). When the registration-
+    # based pick lands on this format, run the smoothness heuristic and let
+    # it override the choice for the table below, rather than trusting the
+    # ambiguous format ID at face value.
+    if active_fmt == 0x80002200:
+        winner, detail, sdr_total, hdr_total = detect_format_via_smoothness(results)
+        if winner is not None:
+            print(f"Format 0x80002200 is ambiguous on this title (SDR or HDR-PQ, same ID) --")
+            print(f"running the smoothness heuristic across {len(detail)} point(s) to pick:")
+            for (pt_idx, paramset), sdr_tv, hdr_tv, pick in detail:
+                print(f"  pt{pt_idx:<3} {paramset:>7}: SDR total-variation={sdr_tv:<6} "
+                      f"HDR total-variation={hdr_tv:<6} -> {pick}")
+            print(f"  TOTALS: SDR={sdr_total}  HDR={hdr_total}  -> picking {winner}")
+            print(f"(Lower total variation wins -- smoother/more spatially coherent decode")
+            print(f" is taken as more likely to be the real bit layout. Not a certainty --")
+            print(f" sanity-check against a real screenshot when one's available.)")
+            print()
+            if winner.startswith("HDR"):
+                active_fmt = 0x88740000  # reuse the existing PQ unpack + naive-compare table
+                fmt_name, unpack_fn = FORMAT_TABLE[active_fmt]
+            # else: SDR already the current active_fmt/unpack_fn, nothing to change.
 
     # When the active format is the HDR PQ format, also show the OLD naive
     # truncation decode side by side -- this is what "colors weren't
