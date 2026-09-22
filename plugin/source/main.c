@@ -311,14 +311,18 @@ typedef struct {
 // build with no ini file present should look identical to before,
 // not silently change anything.
 static AmbientConfig g_config = {
-    .wledHost = "192.168.2.110",
+    // wledHost intentionally blank, not pre-filled with this project's
+    // own controller's IP -- a build anyone else uses shouldn't ship
+    // with someone else's network address. Blank just leaves DDP send
+    // targeting nothing until a real ini (or the companion app) sets
+    // wled_host; see AMBIENT_DEFAULT_INI below for the generated file.
+    .wledHost = "",
     .wledPort = 4048,
-    // v2.3: personal-setup default, corrected via real testing this
-    // session (was a wrong guess at 192.168.2.104 before). Moot for
-    // anyone else building this plugin -- relaySignalEnabled defaults
-    // to false below, so this address is never dialed unless a user
-    // explicitly opts in and sets their own relay_host in the ini.
-    .relayHost = "192.168.2.115",
+    // relayHost blank for the same reason as wledHost above -- also
+    // moot either way, since relaySignalEnabled defaults to false
+    // below, so this address is never dialed unless a user explicitly
+    // opts in AND sets their own relay_host in the ini.
+    .relayHost = "",
     .relayPort = 24689, // must match wled-relay's tv_external_source.EXTERNAL_SOURCE_PORT
     .relaySignalEnabled = false, // opt-in only -- see the field comment above
     .ledCountTop = 73, .ledCountRight = 41, .ledCountBottom = 73, .ledCountLeft = 42,
@@ -449,7 +453,7 @@ static void ambient_create_default_config(void)
     #define AMBIENT_DEFAULT_INI \
         "[network]\n" \
         "; The real WLED controller's IP -- NOT this PC's own IP.\n" \
-        "wled_host=192.168.2.110\n" \
+        "wled_host=\n" \
         "wled_port=4048\n" \
         "; Advanced/optional: only relevant if you're also running the\n" \
         "; wled-relay companion project and want this plugin to tell it\n" \
@@ -457,11 +461,9 @@ static void ambient_create_default_config(void)
         "; directly, so that project's own audio-reactive effects don't\n" \
         "; fight this plugin for the same strip during a real game. OFF\n" \
         "; by default -- most users don't run that project and don't\n" \
-        "; need this. relay_host/relay_port below are ignored unless you\n" \
-        "; set relay_signal_enabled=true.\n" \
-        "relay_signal_enabled=false\n" \
-        "relay_host=192.168.2.115\n" \
-        "relay_port=24689\n" \
+        "; need this. Not part of this default file at all -- add\n" \
+        "; relay_signal_enabled/relay_host/relay_port yourself, here in\n" \
+        "; [network], only if you're actually running wled-relay.\n" \
         "\n" \
         "[layout]\n" \
         "; Physical LED counts per screen edge. Defaults match this\n" \
