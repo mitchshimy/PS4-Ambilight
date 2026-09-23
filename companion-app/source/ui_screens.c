@@ -506,6 +506,11 @@ void ui_render_home_static(UiCanvas *c, const UiFonts *f, const AmbientConfig *c
                 title = "Update available";
                 desc = "A newer version of ps4_ambient_light.prx is ready.";
                 break;
+            case UI_INSTALL_DISABLED:
+                accent = COL_WARN;
+                title = "Plugin disabled";
+                desc = "ps4_ambient_light.prx is installed, but not active in plugins.ini.";
+                break;
             default:
                 accent = COL_OK;
                 title = "Plugin installed";
@@ -543,6 +548,7 @@ void ui_render_home_static(UiCanvas *c, const UiFonts *f, const AmbientConfig *c
         const char *label; UiIconId icon; UiColor fill = COL_AMBER;
         if (st->install == UI_INSTALL_NONE)        { label = "Install plugin"; icon = ICON_DOWNLOAD; }
         else if (st->install == UI_INSTALL_UPDATE) { label = "Update plugin";  icon = ICON_REFRESH; }
+        else if (st->install == UI_INSTALL_DISABLED) { label = "Enable plugin"; icon = ICON_REFRESH; }
         else if (st->testRunning)                  { label = "Stop test";      icon = ICON_STOP; fill = COL_CYAN; }
         else                                        { label = "Test strip";     icon = ICON_ACTIVITY; }
 

@@ -402,10 +402,71 @@ static bool http_download(const char *full_url, const char *local_dst)
 // (comments + our section + an unrelated section with its own real
 // entry), running it twice in a row (must not duplicate the line),
 // and a file that has no [default] section at all yet.
+static bool plugin_exists(void); // defined below; forward-declared for plugin_registration_state()
+
+// Read-only scan of GoldHEN's plugins.ini for an exact, active (i.e.
+// not commented-out) line matching PLUGIN_PRX_PATH -- same trimmed
+// exact-match rule ensure_plugin_registered_in_goldhen() uses to avoid
+// duplicate lines, factored out so the home screen's disabled-state
+// check (plugin_registration_state() below) can reuse it without
+// opening the file for write. A commented line (";path" or "#path",
+// after trim) does NOT match the bare path, so a commented entry and
+// a missing one both correctly read as "not registered" here -- the
+// caller doesn't need to tell those two cases apart any further than
+// that.
+static bool plugin_registered_in_goldhen_ini(void)
+{
+    const char *path = PLUGIN_PRX_PATH;
+    size_t pathLen = strlen(path);
+    bool found = false;
+
+    int32_t fd = sceKernelOpen(GOLDHEN_PLUGINS_INI, 0 /* O_RDONLY */, 0777);
+    if (fd < 0) return false;
+    long size = sceKernelLseek(fd, 0, SEEK_END);
+    sceKernelLseek(fd, 0, SEEK_SET);
+    if (size > 0) {
+        char *buf = (char *)malloc((size_t)size);
+        if (buf) {
+            long nread = sceKernelRead(fd, buf, (size_t)size);
+            long len = (nread > 0) ? nread : 0;
+            const char *p = buf, *end = buf + len;
+            while (p < end) {
+                const char *lineEnd = memchr(p, '\n', (size_t)(end - p));
+                if (!lineEnd) lineEnd = end;
+                const char *ls = p, *le = lineEnd;
+                while (ls < le && (*ls == ' ' || *ls == '\t' || *ls == '\r')) ls++;
+                while (le > ls && (le[-1] == ' ' || le[-1] == '\t' || le[-1] == '\r')) le--;
+                if ((size_t)(le - ls) == pathLen && memcmp(ls, path, pathLen) == 0) {
+                    found = true;
+                    break;
+                }
+                p = (lineEnd < end) ? lineEnd + 1 : end;
+            }
+            free(buf);
+        }
+    }
+    sceKernelClose(fd);
+    return found;
+}
+
+// Three-way install state for the home screen: not installed (no
+// .prx on disk at all), installed but disabled (.prx present, but
+// plugins.ini's entry for it is commented out or missing), or
+// installed and enabled. Doesn't distinguish "commented" from
+// "missing" any further -- see plugin_registered_in_goldhen_ini()'s
+// comment for why that's fine.
+static UiInstallState plugin_registration_state(void)
+{
+    if (!plugin_exists()) return UI_INSTALL_NONE;
+    return plugin_registered_in_goldhen_ini() ? UI_INSTALL_OK : UI_INSTALL_DISABLED;
+}
+
 static bool ensure_plugin_registered_in_goldhen(void)
 {
     const char *path = PLUGIN_PRX_PATH;
     size_t pathLen = strlen(path);
+
+    if (plugin_registered_in_goldhen_ini()) return true; // already there -- nothing to do
 
     char *buf = NULL;
     long len = 0;
@@ -420,25 +481,6 @@ static bool ensure_plugin_registered_in_goldhen(void)
             len = (nread > 0) ? nread : 0;
         }
         sceKernelClose(fd);
-    }
-
-    // Already registered? Check every line (trimmed) for an exact
-    // match, so this is safe to call on every install/update without
-    // ever accumulating duplicate lines.
-    if (buf) {
-        const char *p = buf, *end = buf + len;
-        while (p < end) {
-            const char *lineEnd = memchr(p, '\n', (size_t)(end - p));
-            if (!lineEnd) lineEnd = end;
-            const char *ls = p, *le = lineEnd;
-            while (ls < le && (*ls == ' ' || *ls == '\t' || *ls == '\r')) ls++;
-            while (le > ls && (le[-1] == ' ' || le[-1] == '\t' || le[-1] == '\r')) le--;
-            if ((size_t)(le - ls) == pathLen && memcmp(ls, path, pathLen) == 0) {
-                free(buf);
-                return true; // already there -- nothing to do
-            }
-            p = (lineEnd < end) ? lineEnd + 1 : end;
-        }
     }
 
     size_t cap = (size_t)len + 4096, outLen = 0;
@@ -593,6 +635,20 @@ static void do_plugin_update(void)
 
     g_state.install = UI_INSTALL_OK;
     set_status("Installed. Relaunch your game to load it.", false);
+}
+
+// Re-enables a .prx that's already on disk but whose plugins.ini entry
+// is commented out or missing (UI_INSTALL_DISABLED) -- just rewrites
+// the ini line locally via the same ensure_plugin_registered_in_goldhen()
+// used after a fresh install/update, no network download needed.
+static void do_plugin_enable(void)
+{
+    if (!ensure_plugin_registered_in_goldhen()) {
+        set_status("Couldn't update plugins.ini -- enable it manually.", true);
+        return;
+    }
+    g_state.install = UI_INSTALL_OK;
+    set_status("Plugin enabled. Relaunch your game to load it.", false);
 }
 
 // ---------------- live preview / test strip ----------------
@@ -919,7 +975,9 @@ static void handle_home_input(bool up, bool down, bool left, bool right, bool cr
 
     switch (g_state.homeFocus) {
         case HOME_FOCUS_CTA:
-            if (g_state.install != UI_INSTALL_OK) {
+            if (g_state.install == UI_INSTALL_DISABLED) {
+                do_plugin_enable();
+            } else if (g_state.install != UI_INSTALL_OK) {
                 do_plugin_update();
             } else if (g_state.testRunning) {
                 g_state.testRunning = false;
@@ -1121,12 +1179,14 @@ int main(void)
 
     memset(&g_state, 0, sizeof(g_state));
     g_state.screen = UI_SCREEN_HOME;
-    g_state.install = plugin_exists() ? UI_INSTALL_OK : UI_INSTALL_NONE;
+    g_state.install = plugin_registration_state();
     g_state.setupComplete = g_cfg.wledHost[0] != '\0' &&
         (g_cfg.ledCountTop + g_cfg.ledCountRight + g_cfg.ledCountBottom + g_cfg.ledCountLeft) > 0;
     g_state.homeFocus = HOME_FOCUS_CTA;
     g_state.focusField = 0;
-    set_status(g_state.install == UI_INSTALL_OK ? "Ready." : "Plugin not installed yet.", false);
+    set_status(g_state.install == UI_INSTALL_OK ? "Ready." :
+               g_state.install == UI_INSTALL_DISABLED ? "Plugin installed but disabled -- enable it below." :
+               "Plugin not installed yet.", false);
 
     OrbisPadData pad, prevPad;
     memset(&pad, 0, sizeof(pad));

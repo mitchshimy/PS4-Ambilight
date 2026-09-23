@@ -118,7 +118,10 @@ const int kMenuItemCount = sizeof(kMenuItems) / sizeof(kMenuItems[0]);
 void settings_set_defaults(AmbientConfig *cfg)
 {
     memset(cfg, 0, sizeof(*cfg));
-    strncpy(cfg->wledHost, "192.168.2.110", sizeof(cfg->wledHost) - 1);
+    // wledHost intentionally left blank (not pre-filled with a real
+    // address) -- matches ps4_ambient_light's own compiled default.
+    // Leaves the Setup screen's WLED Host field empty until a user
+    // fills in their own controller's IP.
     cfg->wledPort = 4048;
     cfg->ledCountTop = 73; cfg->ledCountRight = 41; cfg->ledCountBottom = 73; cfg->ledCountLeft = 42;
     cfg->startCorner = CORNER_BOTTOM_LEFT;

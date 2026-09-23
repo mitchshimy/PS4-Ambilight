@@ -23,6 +23,9 @@ typedef enum {
 typedef enum {
     UI_INSTALL_NONE,     // "Plugin not installed"
     UI_INSTALL_UPDATE,   // "Update available"
+    UI_INSTALL_DISABLED, // .prx is present, but its plugins.ini entry is
+                          // commented out or missing entirely -- reuses
+                          // the same CTA slot as Install/Update
     UI_INSTALL_OK        // "Plugin installed"
 } UiInstallState;
 
