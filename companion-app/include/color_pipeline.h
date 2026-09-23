@@ -2,21 +2,13 @@
 #define COLOR_PIPELINE_H
 
 #include <stdint.h>
-#include <stdbool.h>
 
 // AmbientConfig, StartCorner, LedDirection, ColorOrder below are
-// copied VERBATIM from ps4_ambient_light's own main.c -- originally
-// synced against v2.2, re-synced against v2.6 as of this app's v17
-// (added relayHost/relayPort/relaySignalEnabled -- see the struct's
-// own comment on those fields below; the real plugin's separate
-// devIp/devLoggingEnabled fields are NOT mirrored here since nothing
-// in this app reads or writes them -- settings_save's existing
-// merge-preserve behavior already protects a hand-added [dev] section
-// without this app needing to understand it, same as before this
-// sync). This must stay byte-for-byte in sync with the real plugin
-// struct -- the settings UI and ini reader/writer in this app depend
-// on field names matching exactly. Re-sync from the plugin's main.c
-// whenever it changes, don't hand-edit independently.
+// copied VERBATIM from ps4_ambient_light v2.2's main.c. This must stay
+// byte-for-byte in sync with the real plugin struct -- the settings
+// UI and ini reader/writer in this app depend on field names matching
+// exactly. Re-sync from the plugin's main.c whenever it changes,
+// don't hand-edit independently.
 
 typedef enum { CORNER_BOTTOM_LEFT, CORNER_BOTTOM_RIGHT, CORNER_TOP_LEFT, CORNER_TOP_RIGHT } StartCorner;
 typedef enum { DIR_CLOCKWISE, DIR_COUNTERCLOCKWISE } LedDirection;
@@ -26,16 +18,6 @@ typedef struct {
     // [network]
     char wledHost[64];
     uint16_t wledPort;
-    // v17: matches the real plugin's own [network] relayHost/relayPort
-    // -- a separate destination from the WLED controller above,
-    // wled-relay's own tv_external_source.py listener runs on its own
-    // host, not on the WLED device itself.
-    char relayHost[64];
-    uint16_t relayPort;
-    // Personal-setup integration with one specific wled-relay project,
-    // not something every user of this app has -- OFF by default in
-    // the real plugin, same here.
-    bool relaySignalEnabled;
     // [layout]
     uint32_t ledCountTop, ledCountRight, ledCountBottom, ledCountLeft;
     StartCorner startCorner;

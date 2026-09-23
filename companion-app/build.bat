@@ -19,11 +19,11 @@ Rem line now also adds an -I for the SDK's freetype2 include dir so
 Rem <ft2build.h> resolves.
 Rem ============================================================
 
-set PKG_TITLE="PS4 Ambient Light Companion"
+set PKG_TITLE="PS4 Ambilight"
 set PKG_VERSION="1.00"
 set PKG_ASSETS="assets"
-set PKG_TITLE_ID="BREW00091"
-set PKG_CONTENT_ID="IV0000-BREW00091_00-AMBIENTCOMPANION"
+set PKG_TITLE_ID="SHMY00091"
+set PKG_CONTENT_ID="IV0000-SHMY00091_00-PS4AMBILIGHT0000"
 
 Rem Base libraries copied verbatim from samples/SDL2/build.bat, minus
 Rem SDL2_image (this app has no images to load, only fonts + solid

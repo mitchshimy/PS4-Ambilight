@@ -19,88 +19,97 @@ static const char *kColorOrderNames[]  = { "RGB", "RBG", "GRB", "GBR", "BRG", "B
 // max field for why this reuses it instead of adding a new one.
 #define STRBUF(field) (int32_t)sizeof(((AmbientConfig *)0)->field)
 
-// Reordered (from the original ini-section order) and grouped for the
-// Set Up / Customisation screen split -- MENU_SCREEN_SETUP items all
-// come first, then MENU_SCREEN_CUSTOMIZE, and within each screen items
-// with the same `group` string are meant to sit contiguously so the
-// renderer can draw one card per run of matching groups. This is a
-// pure UI reorganization: every (section, key, type, min, max, step)
-// tuple below is byte-for-byte the same as before, just reordered and
-// with three new trailing fields per row (screen, group, groupDesc) --
-// nothing about what's read from or written to the real plugin's ini
-// changed.
+// Grouped and ordered to match the blueprint's own card layout
+// (setup.html / customisation.html), not the plugin's ini section
+// order -- MENU_SCREEN_SETUP items first, then MENU_SCREEN_CUSTOMIZE,
+// each screen's items one contiguous run so the UI can group by a run
+// of matching `group` strings into one card. `label` is now the exact
+// on-screen text (including unit/range suffixes), since ui_screens.c
+// builds every settings card directly from this table -- there is no
+// second, hand-written copy of these strings to keep in sync.
+//
+// This reshuffles TWO fields from where the plugin's own ini
+// sections would naturally put them, because the blueprint's cards
+// don't follow section boundaries:
+//  - color_order sits on Set Up's "LED strip layout" card (it's a
+//    pill next to Direction there), not on Customize's "Colour" card.
+//  - config_reload_check_seconds gets its own "Live reload" card on
+//    Set Up, not folded into Customize's "Motion and darkness".
+// Every (section, key, type, min, max, step) tuple is still exactly
+// what the real plugin reads -- only screen/group/label/order changed.
 const MenuItem kMenuItems[] = {
     // =========================== Set Up ===========================
-    { "WLED Host",         "network", "wled_host",                  FIELD_STRING, OFF(wledHost),        0, STRBUF(wledHost), 0, NULL, 0,
-      MENU_SCREEN_SETUP, "WLED connection", "Where and how fast frames are sent to your WLED controller." },
-    { "WLED Port",         "network", "wled_port",                  FIELD_U16,    OFF(wledPort),        1, 65535,   1, NULL, 0,
+    { "WLED IPv4",         "network", "wled_host",                  FIELD_STRING, OFF(wledHost),        0, STRBUF(wledHost), 0, NULL, 0,
+      MENU_SCREEN_SETUP, "WLED connection", "New setup starts with local-network discovery. Manual IPv4 entry remains available, and DDP uses UDP port 4048 by default." },
+    { "UDP port",          "network", "wled_port",                  FIELD_U16,    OFF(wledPort),        1, 65535,   1, NULL, 0,
       MENU_SCREEN_SETUP, "WLED connection", NULL },
-    { "Update Rate (Hz)",  "timing",  "update_frequency_hz",        FIELD_U32,    OFF(updateFrequencyHz), 1,  240,   1, NULL, 0,
+    { "Output FPS",        "timing",  "update_frequency_hz",        FIELD_U32,    OFF(updateFrequencyHz), 1,  240,   1, NULL, 0,
       MENU_SCREEN_SETUP, "WLED connection", NULL },
 
-    { "LEDs: Top",         "layout",  "led_count_top",              FIELD_U32,    OFF(ledCountTop),     1,   500,   1, NULL, 0,
-      MENU_SCREEN_SETUP, "LED strip layout", "Physical LED count per edge, and how wire order maps to your screen." },
-    { "LEDs: Right",       "layout",  "led_count_right",            FIELD_U32,    OFF(ledCountRight),   1,   500,   1, NULL, 0,
+    { "Left LEDs",         "layout",  "led_count_left",             FIELD_U32,    OFF(ledCountLeft),    1,   500,   1, NULL, 0,
+      MENU_SCREEN_SETUP, "LED strip layout", "Enter the physical LED count on each edge, then match the strip start and direction. If the strip starts between corners, a positive offset moves colours toward higher LED numbers and a negative offset moves them lower." },
+    { "Top LEDs",          "layout",  "led_count_top",              FIELD_U32,    OFF(ledCountTop),     1,   500,   1, NULL, 0,
       MENU_SCREEN_SETUP, "LED strip layout", NULL },
-    { "LEDs: Bottom",      "layout",  "led_count_bottom",           FIELD_U32,    OFF(ledCountBottom),  1,   500,   1, NULL, 0,
+    { "Right LEDs",        "layout",  "led_count_right",            FIELD_U32,    OFF(ledCountRight),   1,   500,   1, NULL, 0,
       MENU_SCREEN_SETUP, "LED strip layout", NULL },
-    { "LEDs: Left",        "layout",  "led_count_left",             FIELD_U32,    OFF(ledCountLeft),    1,   500,   1, NULL, 0,
+    { "Bottom LEDs",       "layout",  "led_count_bottom",           FIELD_U32,    OFF(ledCountBottom),  1,   500,   1, NULL, 0,
       MENU_SCREEN_SETUP, "LED strip layout", NULL },
-    { "Start Corner",      "layout",  "led_start_corner",           FIELD_ENUM,   OFF(startCorner),     0,     3,   1, kStartCornerNames, 4,
+    { "LED offset",        "layout",  "led_offset",                 FIELD_I32,    OFF(ledOffset),   -1000,  1000,   1, NULL, 0,
+      MENU_SCREEN_SETUP, "LED strip layout", NULL },
+    { "Start corner",      "layout",  "led_start_corner",           FIELD_ENUM,   OFF(startCorner),     0,     3,   1, kStartCornerNames, 4,
       MENU_SCREEN_SETUP, "LED strip layout", NULL },
     { "Direction",         "layout",  "led_direction",              FIELD_ENUM,   OFF(direction),       0,     1,   1, kDirectionNames, 2,
       MENU_SCREEN_SETUP, "LED strip layout", NULL },
-    { "LED Offset",        "layout",  "led_offset",                 FIELD_I32,    OFF(ledOffset),   -1000,  1000,   1, NULL, 0,
+    { "Colour order",      "color",   "color_order",                FIELD_ENUM,   OFF(colorOrder),      0,     5,   1, kColorOrderNames, 6,
       MENU_SCREEN_SETUP, "LED strip layout", NULL },
 
-    // ======================== Customisation ========================
-    { "Margin: Top",       "layout",  "capture_margin_top",         FIELD_U32,    OFF(marginTop),       0,   500,   1, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "Screen capture", "How much of each edge is excluded from capture, and how many samples are taken per edge." },
-    { "Margin: Right",     "layout",  "capture_margin_right",       FIELD_U32,    OFF(marginRight),     0,   500,   1, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "Screen capture", NULL },
-    { "Margin: Bottom",    "layout",  "capture_margin_bottom",      FIELD_U32,    OFF(marginBottom),    0,   500,   1, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "Screen capture", NULL },
-    { "Margin: Left",      "layout",  "capture_margin_left",        FIELD_U32,    OFF(marginLeft),      0,   500,   1, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "Screen capture", NULL },
-    { "Scan Depth",        "layout",  "scan_depth",                 FIELD_U32,    OFF(scanDepth),       0,    10,   1, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "Screen capture", NULL },
+    { "Reload check (seconds)", "timing", "config_reload_check_seconds", FIELD_U32, OFF(configReloadCheckSeconds), 0, 60, 1, NULL, 0,
+      MENU_SCREEN_SETUP, "Live reload", "How often the plugin checks this file for changes while it's running, so updates apply without closing the game. Set to 0 to only read the file once, at load." },
 
-    { "Brightness",        "color",   "brightness",                 FIELD_U32,    OFF(brightness),      0,   255,   5, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "Colour", "Overall brightness, gamma, saturation, contrast, and level range." },
-    { "Gamma (preset)",    "color",   "gamma",                      FIELD_U32,    OFF(gammaLutIndex),   0,     7,   1, NULL, 0, // display maps 0-7 -> "1.0".."2.8", see format_item_value()
+    // ======================== Customize ========================
+    { "Edge depth",        "layout",  "scan_depth",                 FIELD_U32,    OFF(scanDepth),       0,    10,   1, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Screen sampling", "Each edge zone averages a square block of pixels around its sample point. Raise the capture margins if overscan or black bars are being sampled instead of real picture content." },
+    { "Capture margin top",    "layout", "capture_margin_top",      FIELD_U32,    OFF(marginTop),       0,   500,   1, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Screen sampling", NULL },
+    { "Capture margin right", "layout", "capture_margin_right",     FIELD_U32,    OFF(marginRight),     0,   500,   1, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Screen sampling", NULL },
+    { "Capture margin bottom","layout", "capture_margin_bottom",    FIELD_U32,    OFF(marginBottom),    0,   500,   1, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Screen sampling", NULL },
+    { "Capture margin left",  "layout", "capture_margin_left",      FIELD_U32,    OFF(marginLeft),      0,   500,   1, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Screen sampling", NULL },
+
+    { "Brightness (0\xE2\x80\x93""255)",        "color", "brightness",  FIELD_U32,  OFF(brightness),      0,   255,   5, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Colour", "Shape overall brightness, colour intensity, gamma response and the black/white levels used for LED output." },
+    { "Saturation (\xE2\x88\x92""100\xE2\x80\x93""300)", "color", "saturation", FIELD_I32, OFF(saturation), -100, 300, 5, NULL, 0,
       MENU_SCREEN_CUSTOMIZE, "Colour", NULL },
-    { "Saturation",        "color",   "saturation",                 FIELD_I32,    OFF(saturation),   -100,   300,   5, NULL, 0,
+    { "Gamma",              "color",   "gamma",                     FIELD_U32,    OFF(gammaLutIndex),   0,     7,   1, NULL, 0, // display maps 0-7 -> "1.0".."2.8", see format_item_value()
       MENU_SCREEN_CUSTOMIZE, "Colour", NULL },
-    { "Color Order",       "color",   "color_order",                FIELD_ENUM,   OFF(colorOrder),      0,     5,   1, kColorOrderNames, 6,
+    { "Black level %",      "color",   "black_level",               FIELD_U32,    OFF(blackLevel),      0,   100,   1, NULL, 0,
       MENU_SCREEN_CUSTOMIZE, "Colour", NULL },
-    { "Black Level",       "color",   "black_level",                FIELD_U32,    OFF(blackLevel),      0,   100,   1, NULL, 0,
+    { "White level %",      "color",   "white_level",               FIELD_U32,    OFF(whiteLevel),      0,   100,   1, NULL, 0,
       MENU_SCREEN_CUSTOMIZE, "Colour", NULL },
-    { "White Level",       "color",   "white_level",                FIELD_U32,    OFF(whiteLevel),      0,   100,   1, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "Colour", NULL },
-    { "Dark Threshold",    "color",   "dark_threshold",             FIELD_U32,    OFF(darkThreshold),   0,   255,   1, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "Colour", NULL },
-    { "Contrast",          "color",   "contrast",                   FIELD_I32,    OFF(contrast),     -100,   300,   5, NULL, 0,
+    { "Contrast (\xE2\x88\x92""100\xE2\x80\x93""300)",   "color", "contrast", FIELD_I32, OFF(contrast), -100, 300, 5, NULL, 0,
       MENU_SCREEN_CUSTOMIZE, "Colour", NULL },
 
-    { "Brightness R",      "color",   "brightness_r",               FIELD_U32,    OFF(brightnessR),     0,   500,   5, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "RGB balance", "Per-channel brightness and gamma, for correcting a color cast." },
-    { "Brightness G",      "color",   "brightness_g",               FIELD_U32,    OFF(brightnessG),     0,   500,   5, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "RGB balance", NULL },
-    { "Brightness B",      "color",   "brightness_b",               FIELD_U32,    OFF(brightnessB),     0,   500,   5, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "RGB balance", NULL },
-    { "Gamma R",           "color",   "gamma_r",                    FIELD_U32,    OFF(gammaR),         10,   500,   5, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "RGB balance", NULL },
-    { "Gamma G",           "color",   "gamma_g",                    FIELD_U32,    OFF(gammaG),         10,   500,   5, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "RGB balance", NULL },
-    { "Gamma B",           "color",   "gamma_b",                    FIELD_U32,    OFF(gammaB),         10,   500,   5, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "RGB balance", NULL },
+    { "Smoothing",          "timing",  "smoothing_enabled",         FIELD_BOOL,   OFF(smoothingEnabled),  0,    1,   1, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Motion and darkness", "Control transition smoothing and how the strip reacts to very dark scenes." },
+    { "Settling time (ms)", "timing",  "settling_time_ms",          FIELD_U32,    OFF(settlingTimeMs),    0, 5000,  50, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Motion and darkness", NULL },
+    { "Black threshold (0\xE2\x80\x93""255)", "color", "dark_threshold", FIELD_U32, OFF(darkThreshold), 0, 255, 1, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Motion and darkness", NULL },
 
-    { "Smoothing",         "timing",  "smoothing_enabled",          FIELD_BOOL,   OFF(smoothingEnabled),  0,    1,   1, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "Motion & timing", "Smoothing, settling time, and how often the plugin re-reads this file." },
-    { "Settling Time (ms)","timing",  "settling_time_ms",           FIELD_U32,    OFF(settlingTimeMs),    0, 5000,  50, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "Motion & timing", NULL },
-    { "Reload Check (s)",  "timing",  "config_reload_check_seconds",FIELD_U32,    OFF(configReloadCheckSeconds), 0, 60, 1, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "Motion & timing", NULL },
+    { "Red balance %",      "color",   "brightness_r",              FIELD_U32,    OFF(brightnessR),     0,   500,   5, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "RGB balance", "Calibrate per-channel brightness and gamma to match your television and wall colour." },
+    { "Green balance %",    "color",   "brightness_g",              FIELD_U32,    OFF(brightnessG),     0,   500,   5, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "RGB balance", NULL },
+    { "Blue balance %",     "color",   "brightness_b",              FIELD_U32,    OFF(brightnessB),     0,   500,   5, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "RGB balance", NULL },
+    { "Gamma R",            "color",   "gamma_r",                   FIELD_U32,    OFF(gammaR),         10,   500,   5, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "RGB balance", NULL },
+    { "Gamma G",            "color",   "gamma_g",                   FIELD_U32,    OFF(gammaG),         10,   500,   5, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "RGB balance", NULL },
+    { "Gamma B",            "color",   "gamma_b",                   FIELD_U32,    OFF(gammaB),         10,   500,   5, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "RGB balance", NULL },
 };
 const int kMenuItemCount = sizeof(kMenuItems) / sizeof(kMenuItems[0]);
 
@@ -111,13 +120,6 @@ void settings_set_defaults(AmbientConfig *cfg)
     memset(cfg, 0, sizeof(*cfg));
     strncpy(cfg->wledHost, "192.168.2.110", sizeof(cfg->wledHost) - 1);
     cfg->wledPort = 4048;
-    // v17: matches ps4_ambient_light v2.6's own compiled defaults
-    // exactly -- relayHost is that project's own real address, moot
-    // for anyone else building this app since relaySignalEnabled
-    // defaults to false, same reasoning as the plugin's own default.
-    strncpy(cfg->relayHost, "192.168.2.115", sizeof(cfg->relayHost) - 1);
-    cfg->relayPort = 24689;
-    cfg->relaySignalEnabled = false;
     cfg->ledCountTop = 73; cfg->ledCountRight = 41; cfg->ledCountBottom = 73; cfg->ledCountLeft = 42;
     cfg->startCorner = CORNER_BOTTOM_LEFT;
     cfg->direction = DIR_CLOCKWISE;
@@ -202,19 +204,6 @@ bool settings_load(AmbientConfig *cfg, const char *path)
     if (ini_table_get_entry_as_int(table, "network", "wled_port", &iv))
         cfg->wledPort = (uint16_t)clamp_to_schema("network", "wled_port", iv);
 
-    // v17: matches ps4_ambient_light v2.6's own [network] relay_host/
-    // relay_port/relay_signal_enabled parsing exactly (same section,
-    // same keys, same fallback-to-current-value-on-missing-key
-    // behavior every other field here already has).
-    if ((v = ini_table_get_entry(table, "network", "relay_host")) != NULL) {
-        strncpy(cfg->relayHost, v, sizeof(cfg->relayHost) - 1);
-        cfg->relayHost[sizeof(cfg->relayHost) - 1] = '\0';
-    }
-    if (ini_table_get_entry_as_int(table, "network", "relay_port", &iv))
-        cfg->relayPort = (uint16_t)clamp_to_schema("network", "relay_port", iv);
-    if (ini_table_get_entry_as_bool(table, "network", "relay_signal_enabled", &bv))
-        cfg->relaySignalEnabled = bv;
-
     if (ini_table_get_entry_as_int(table, "layout", "led_count_top", &iv)) cfg->ledCountTop = (uint32_t)clamp_to_schema("layout", "led_count_top", iv);
     if (ini_table_get_entry_as_int(table, "layout", "led_count_right", &iv)) cfg->ledCountRight = (uint32_t)clamp_to_schema("layout", "led_count_right", iv);
     if (ini_table_get_entry_as_int(table, "layout", "led_count_bottom", &iv)) cfg->ledCountBottom = (uint32_t)clamp_to_schema("layout", "led_count_bottom", iv);
@@ -269,15 +258,11 @@ bool settings_save(const AmbientConfig *cfg, const char *path)
     // ONLY the fields this app knows about, then write that out --
     // silently destroying anything else already in the file, including
     // a hand-added [dev] section (dev_ip/dev_logging -- ps4_ambient_
-    // light v2.2.5, confirmed working on real hardware). Loading the
+    // light v2.2.5, confirmed working on real hardware) or the newer
+    // relay_signal_enabled/relay_host/relay_port fields. Loading the
     // existing file into the same table FIRST, then upserting just the
     // known fields on top of it via the same ini_table_create_entry
-    // calls already below, preserves everything else untouched. (v17:
-    // relay_signal_enabled/relay_host/relay_port used to be an example
-    // of fields this merge-preserve behavior protected because this
-    // app didn't know about them yet -- it now does, see the explicit
-    // writes below, but a hand-added [dev] section or any other future
-    // unknown field still relies on this same merge behavior.)
+    // calls already below, preserves everything else untouched.
     ini_table_read_from_file(table, path);
 
     char buf[64];
@@ -285,13 +270,6 @@ bool settings_save(const AmbientConfig *cfg, const char *path)
 
     ini_table_create_entry(table, "network", "wled_host", cfg->wledHost);
     SET_INT("network", "wled_port", cfg->wledPort);
-    // v17: see settings_load's matching read -- same section/keys the
-    // real plugin uses. Writing these explicitly (rather than relying
-    // purely on the merge-preserve behavior above) means editing them
-    // from this app's own UI actually takes effect on save.
-    ini_table_create_entry(table, "network", "relay_host", cfg->relayHost);
-    SET_INT("network", "relay_port", cfg->relayPort);
-    ini_table_create_entry(table, "network", "relay_signal_enabled", cfg->relaySignalEnabled ? "true" : "false");
 
     SET_INT("layout", "led_count_top", cfg->ledCountTop);
     SET_INT("layout", "led_count_right", cfg->ledCountRight);
