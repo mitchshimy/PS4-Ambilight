@@ -143,6 +143,13 @@ void settings_set_defaults(AmbientConfig *cfg)
     cfg->smoothingEnabled = 0;
     cfg->settlingTimeMs = 200;
     cfg->configReloadCheckSeconds = 2;
+    // relayHost intentionally left blank (memset above) and
+    // relaySignalEnabled defaults off, same reasoning as wledHost
+    // above -- this app shouldn't ship pointed at this project's own
+    // relay setup. relayPort's default matches ps4_ambient_light's
+    // own compiled default (24689) since, unlike a host address,
+    // there's nothing personal about a port number.
+    cfg->relayPort = 24689;
 }
 
 static StartCorner parse_start_corner(const char *s, StartCorner fallback)
@@ -207,6 +214,19 @@ bool settings_load(AmbientConfig *cfg, const char *path)
     if (ini_table_get_entry_as_int(table, "network", "wled_port", &iv))
         cfg->wledPort = (uint16_t)clamp_to_schema("network", "wled_port", iv);
 
+    // Reintroduced (was lost between v17 and v18 -- see color_pipeline.h's
+    // struct comment). Deliberately NOT in kMenuItems, so no
+    // clamp_to_schema() call here -- there's no schema entry for these
+    // three to look up, same as v17 had it.
+    if ((v = ini_table_get_entry(table, "network", "relay_host")) != NULL) {
+        strncpy(cfg->relayHost, v, sizeof(cfg->relayHost) - 1);
+        cfg->relayHost[sizeof(cfg->relayHost) - 1] = '\0';
+    }
+    if (ini_table_get_entry_as_int(table, "network", "relay_port", &iv))
+        cfg->relayPort = (uint16_t)iv;
+    if (ini_table_get_entry_as_bool(table, "network", "relay_signal_enabled", &bv))
+        cfg->relaySignalEnabled = bv ? 1 : 0;
+
     if (ini_table_get_entry_as_int(table, "layout", "led_count_top", &iv)) cfg->ledCountTop = (uint32_t)clamp_to_schema("layout", "led_count_top", iv);
     if (ini_table_get_entry_as_int(table, "layout", "led_count_right", &iv)) cfg->ledCountRight = (uint32_t)clamp_to_schema("layout", "led_count_right", iv);
     if (ini_table_get_entry_as_int(table, "layout", "led_count_bottom", &iv)) cfg->ledCountBottom = (uint32_t)clamp_to_schema("layout", "led_count_bottom", iv);
@@ -261,11 +281,15 @@ bool settings_save(const AmbientConfig *cfg, const char *path)
     // ONLY the fields this app knows about, then write that out --
     // silently destroying anything else already in the file, including
     // a hand-added [dev] section (dev_ip/dev_logging -- ps4_ambient_
-    // light v2.2.5, confirmed working on real hardware) or the newer
-    // relay_signal_enabled/relay_host/relay_port fields. Loading the
+    // light v2.2.5, confirmed working on real hardware). Loading the
     // existing file into the same table FIRST, then upserting just the
     // known fields on top of it via the same ini_table_create_entry
     // calls already below, preserves everything else untouched.
+    // (relay_host/relay_port/relay_signal_enabled were the other
+    // example here until this app reintroduced them as fields it
+    // actively manages below -- this merge behavior now matters for
+    // them only insofar as it protects [dev] or any other section this
+    // app still doesn't know about.)
     ini_table_read_from_file(table, path);
 
     char buf[64];
@@ -273,6 +297,10 @@ bool settings_save(const AmbientConfig *cfg, const char *path)
 
     ini_table_create_entry(table, "network", "wled_host", cfg->wledHost);
     SET_INT("network", "wled_port", cfg->wledPort);
+    // Reintroduced -- see settings_load's matching comment above.
+    ini_table_create_entry(table, "network", "relay_host", cfg->relayHost);
+    SET_INT("network", "relay_port", cfg->relayPort);
+    ini_table_create_entry(table, "network", "relay_signal_enabled", cfg->relaySignalEnabled ? "true" : "false");
 
     SET_INT("layout", "led_count_top", cfg->ledCountTop);
     SET_INT("layout", "led_count_right", cfg->ledCountRight);

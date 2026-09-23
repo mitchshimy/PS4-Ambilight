@@ -56,6 +56,7 @@
 #include "settings.h"
 #include "color_pipeline.h"
 #include "ddp.h"
+#include "relay_signal.h"
 #include "layout.h"
 #include "ui_canvas.h"
 #include "ui_theme.h"
@@ -1256,6 +1257,28 @@ int main(void)
 
         if (g_imeDialogOpen) update_ime_dialog();
 
+        // wled-relay hand-off signal: this app has no idle/Home-only
+        // mode for this purpose -- "driving the strip" here just means
+        // "this app is running with Relay Signal enabled", independent
+        // of which screen is up or whether Test Strip is running. Fire
+        // only on a real transition (comparing against last frame's
+        // value), same as v17 had it -- covers app startup (already-
+        // enabled config fires "on" on the very first frame, since the
+        // sentinel below starts false), a live toggle, and nothing
+        // else. No internal opt-in gate inside
+        // relay_send_external_source() itself on purpose: the call
+        // site only ever fires on a real transition, so a user who
+        // never enables it can never produce one, and a gate that
+        // re-checked the same flag that just changed would silently
+        // swallow the "off" send on a true->false transition -- the
+        // exact bug this avoids by construction, same as the real
+        // plugin's own fix.
+        static bool s_relayWasActive = false;
+        if (g_cfg.relaySignalEnabled != s_relayWasActive) {
+            relay_send_external_source(g_cfg.relayHost, g_cfg.relayPort, g_cfg.relaySignalEnabled != 0);
+            s_relayWasActive = g_cfg.relaySignalEnabled != 0;
+        }
+
         // Set up/Customization always keep the live preview running,
         // since their own LED edge frame is always on screen there.
         // Home only runs it -- and therefore only actually sends
@@ -1307,6 +1330,12 @@ int main(void)
     }
 
     if (g_imeDialogOpen) sceImeDialogTerm();
+    // Defensive final "off" if the signal was last left on -- this app
+    // has no plugin_unload-style guaranteed teardown hook the way the
+    // real plugin does, so this is the closest equivalent (same as v17).
+    if (g_cfg.relaySignalEnabled) {
+        relay_send_external_source(g_cfg.relayHost, g_cfg.relayPort, false);
+    }
     ui_fonts_destroy(&fonts);
     free(g_homeStaticCache);
     SDL_FreeSurface(canvasSurface);

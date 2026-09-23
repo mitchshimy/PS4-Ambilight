@@ -18,6 +18,16 @@ typedef struct {
     // [network]
     char wledHost[64];
     uint16_t wledPort;
+    // wled-relay hand-off signal (ps4_ambient_light's own v2.3+ feature,
+    // ported to this app at v17, then lost when v18's UI rebuild
+    // apparently started from a pre-v17 baseline -- reintroduced here,
+    // same field layout/position as v17 had it). Deliberately NOT
+    // exposed in kMenuItems/the settings UI -- see settings.c's
+    // settings_load/settings_save for why, and main.c for where the
+    // signal itself actually fires.
+    char relayHost[64];
+    uint16_t relayPort;
+    int relaySignalEnabled;
     // [layout]
     uint32_t ledCountTop, ledCountRight, ledCountBottom, ledCountLeft;
     StartCorner startCorner;
