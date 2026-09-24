@@ -11,7 +11,7 @@ endif
 
 TYPE         := $(BUILD_TYPE)
 FINAL        := $(DEBUG_FLAGS)
-BUILD_FOLDER := $(shell pwd)/../../bin/plugins
+BUILD_FOLDER := $(shell pwd)/../bin/plugins
 OUTPUT_PRX   := $(shell basename $(CURDIR))
 TARGET       := $(BUILD_FOLDER)/prx$(TYPE)/$(OUTPUT_PRX)
 TARGET_ELF   := $(BUILD_FOLDER)/elf$(TYPE)/$(OUTPUT_PRX)
@@ -29,7 +29,7 @@ GH_SDK        := $(GOLDHEN_SDK)
 PROJDIR       := ../$(shell basename $(CURDIR))/source
 INTDIR        := ../$(shell basename $(CURDIR))/build
 INCLUDEDIR    := ../$(shell basename $(CURDIR))/include
-COMMON_DIR    := ../../common
+COMMON_DIR    := ../common
 
 # Define objects to build
 CFILES      := $(wildcard $(PROJDIR)/*.c)
