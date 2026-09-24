@@ -82,7 +82,7 @@
 #define GOLDHEN_PLUGINS_INI "/data/GoldHEN/plugins.ini"
 #define PLUGIN_PRX_PATH GOLDHEN_PLUGINS_DIR "/ps4_ambient_light.prx"
 
-#define PLUGIN_UPDATE_URL "http://192.168.2.117:8000/ps4_ambient_light.prx"
+#define PLUGIN_UPDATE_URL "https://github.com/mitchshimy/PS4-Ambilight/releases/latest/download/ps4_ambient_light.prx"
 
 // ---------------- global state ----------------
 

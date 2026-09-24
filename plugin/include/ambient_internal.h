@@ -87,7 +87,7 @@ typedef struct {
     // read) means debug_send_raw() sends nothing at all, full stop --
     // see its own comment for why this check lives there and not
     // scattered across each call site.
-    char devIp[16];          // dotted-quad only, e.g. "192.168.2.117"; empty = disabled regardless of devLoggingEnabled
+    char devIp[16];          // dotted-quad only, e.g. "192.168.1.100"; empty = disabled regardless of devLoggingEnabled
     bool devLoggingEnabled;  // both this AND a non-empty devIp are required -- neither alone is enough
     // [timing]
     uint32_t updateFrequencyHz;

@@ -39,17 +39,16 @@ self-updating the plugin binary from your GitHub repo.
 
 ## Known limitations
 
-1. `PLUGIN_UPDATE_URL` in `main.c` is a placeholder -- replace
-   `YOUR_USERNAME/YOUR_REPO` with your actual repo before building.
-2. A few IME-dialog details are implemented from the SDK header alone,
+1. A few IME-dialog details are implemented from the SDK header alone,
    without a matching sample to confirm against: passing `NULL` for
    `sceImeDialogInit`'s second (`OrbisImeSettingsExtended*`) argument,
    `posx`/`posy`'s exact units (assumed screen pixels, centered at
    960,540 for this app's 1920x1080 window), and
    `supportedLanguages=0` as "default/unrestricted."
-3. The plugin self-update path (Triangle: Update Plugin) has the
-   HTTP/SSL/Net calls checked against SDK samples and builds
-   successfully, but hasn't been exercised end-to-end.
+2. The plugin self-update path (Triangle: Update Plugin, now pointing
+   at this repo's GitHub releases) has the HTTP/SSL/Net calls checked
+   against SDK samples and builds successfully, but hasn't been
+   exercised end-to-end.
 
 ## Building
 

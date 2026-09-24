@@ -65,7 +65,7 @@ static int wled_ensure_socket(void)
 // hot path -- unlike wled_send_rgb_zones above there's no reason to hold
 // a persistent socket open for this) rather than routing through the
 // production WLED path.
-#define DEBUG_IP "192.168.2.117"   // v2.2.5: NO LONGER USED as a send target -- kept only as
+#define DEBUG_IP "192.168.1.100"   // v2.2.5: NO LONGER USED as a send target -- kept only as
                                     // a comment/reference of what this used to be hardcoded to
                                     // (handoff §2). debug_send_raw now requires g_config.devIp
                                     // to be set via an explicit [dev] section in the ini; see
