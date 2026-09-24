@@ -22,12 +22,11 @@
 // SDL's role stays deliberately small: create the window, hand over
 // its surface, and present it. All drawing goes through UiCanvas.
 //
-// NOT verified by this session: this file has not been compiled with
-// the real OpenOrbis toolchain or run on a PS4 -- same standing
-// disclaimer as every previous pass. Two interaction choices below are
-// new conventions this session introduced (not carried over from
-// prior art) and are flagged where they're implemented: L1/R1 as a
-// quick +-step nudge on the focused field, and Cross as the single
+// NOT YET VERIFIED: this file has not been compiled with the real
+// OpenOrbis toolchain or run on a PS4. Two interaction choices below
+// are new conventions introduced here (not carried over from prior
+// art) and are flagged where they're implemented: L1/R1 as a quick
+// +-step nudge on the focused field, and Cross as the single
 // "activate this field" button for every field type. Both are
 // plausible, standard console-UI choices, but neither was exercised
 // by the version of this app that was actually run on hardware.
@@ -1162,7 +1161,7 @@ int main(void)
     // string field. Linking -lSceImeDialog resolves the symbol at
     // link time; the real system .sprx module still has to be loaded
     // into the running process at runtime before calls into it work --
-    // the same class of bug this session's own putty.log fix (the
+    // the same class of bug the earlier putty.log fix (the
     // __ORBIS__ guard that silently dropped the FreeType sysmodule
     // load) turned out to be. ORBIS_SYSMODULE_IME_DIALOG loads via the
     // plain sceSysmoduleLoadModule (not the _Internal variant --
