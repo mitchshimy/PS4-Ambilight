@@ -32,8 +32,8 @@ stale format assumption. Distinguished from the 11-byte pixel packets
 purely by length -- just paste both kinds into the same PAYLOADS list.
 
 ps4_ambient_light.prx v1.2 also emits a 24-byte telemetry packet type,
-one per ~1s window of ambient_sample_thread's own loop time (handoff
-§30 step 2): min/max/avg microseconds, sample count, and how many
+one per ~1s window of ambient_sample_thread's own loop time:
+min/max/avg microseconds, sample count, and how many
 iterations in that window exceeded the ~30Hz budget. Also distinguished
 purely by length -- paste these into PAYLOADS alongside everything else.
 
@@ -74,7 +74,7 @@ USAGE:
 
     Compare the printed RGB against what's actually showing at that
     screen coordinate on your test screen. Whichever paramset matches
-    is the correct one -- and confirms/refutes Neo mode per handoff §7.
+    is the correct one -- and confirms/refutes Neo mode.
 
     All packets from one dump should share the SAME displayBufferIndex
     (one press = one frame = one live buffer) -- the script warns if
@@ -103,7 +103,7 @@ PAYLOADS = [
 
 def unpack_a2r10g10b10(raw4: bytes):
     """A2R10G10B10 / A2R10G10B10_SRGB / A2R10G10B10_BT2020_PQ.
-    Bit layout per handoff §7 (red-prig/fpPS4 comment): MSB first, blue at
+    Bit layout (per the red-prig/fpPS4 reference comment): MSB first, blue at
     LSB -- bits 31-30 alpha, 29-20 red, 19-10 green, 9-0 blue. Simple
     10-bit -> 8-bit truncation, no gamma/PQ decode -- fine for a first
     correctness check, note this if display-accurate color is needed."""
@@ -176,7 +176,7 @@ def unpack_a8b8g8r8(raw4: bytes):
 # highlights depends on what THIS console/title is actually doing with
 # the format, which nothing here has measured yet -- tune these against
 # a real capture + known on-screen color, the exact same empirical method
-# that settled base vs Neo in §21/§22. main() also prints the OLD naive
+# that settled base vs Neo. main() also prints the OLD naive
 # truncation next to this decode when this format is active, so you can
 # compare both against the screen the same way base vs Neo were compared.
 PQ_REFERENCE_WHITE_NITS = 203.0  # ITU-R BT.2408 HDR reference white -- a reasonable starting point, not measured
@@ -421,7 +421,7 @@ def decode_pixel_packet_raw(data: bytes):
 
 
 def decode_timing_packet(data: bytes):
-    """v1.2 ps4_ambient_light telemetry packet (24 bytes, handoff §30
+    """v1.2 ps4_ambient_light telemetry packet (24 bytes,
     step 2): per-window min/max/avg loop time (microseconds) for
     ambient_sample_thread's own buffer-resolve + sampling + UDP-send
     work, plus how many of that window's iterations ran past
@@ -603,7 +603,7 @@ def main(payloads):
 
     if timing_events:
         print(f"{len(timing_events)} ambient_sample_thread timing window(s) captured "
-              f"(handoff \u00a730 step 2):")
+              f":")
         print(f"{'win#':>5} {'min_us':>8} {'avg_us':>8} {'max_us':>8} "
               f"{'n':>4} {'over_budget':>11}")
         print("-" * 50)
@@ -706,7 +706,7 @@ def main(payloads):
     # accurate" was actually looking at before this fix, and printing both
     # lets you visually confirm the PQ decode is the one that now matches
     # the real screen, the same empirical comparison method that settled
-    # base vs Neo in §21/§22.
+    # base vs Neo.
     show_naive_compare = (active_fmt == 0x88740000)
 
     print(f"Decoding pixel packets as: {fmt_name}")

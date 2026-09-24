@@ -18,7 +18,7 @@
  * All tiling parameters below were derived by hand-evaluating the exact
  * same functions GPCS4 uses (computeSurfaceTileMode, computeSurfaceMacroTileMode,
  * Tiler2d::init) against these inputs -- not guessed, not from general GCN
- * knowledge. See ps4-ambient-light-handoff-v2.md section 8-9 and the
+ * knowledge. See the project's tiling-math notes and the
  * follow-up derivation for the full trail.
  *
  * NOT YET CONFIRMED: whether the console is actually running in Neo
@@ -296,7 +296,7 @@ void detileSurface_1920x1080_A2R10G10B10(const TileParams *p,
 
 /*
  * Detile a single pixel -- useful for the empirical-verification step
- * (§10.5 of the handoff): pull a small chunk of real tiled bytes via
+ * (via the ground-truth capture flow): pull a small chunk of real tiled bytes via
  * wled_send_raw, and check a handful of known pixel locations by hand
  * before committing to a full-frame detile in the hook.
  */
@@ -325,7 +325,7 @@ void unpackA2R10G10B10_to_rgb888(uint32_t px, uint8_t *r, uint8_t *g, uint8_t *b
 
 /* Unpack A8R8G8B8 (MSB-first: A,R,G,B; little-endian uint32 = 0xAARRGGBB)
  * into 8-bit RGB. No shifting math needed, just byte extraction -- this
- * is the format the real capture confirmed (see handoff §21/§22): the
+ * is the format the real capture confirmed: the
  * A2R10G10B10 function above was the wrong assumption for this title/
  * buffer, not a wrong formula. Applying 10-bit math to 8-bit-per-channel
  * data is exactly what produced the "everything pinned near max"
@@ -340,7 +340,7 @@ void unpackA8R8G8B8_to_rgb888(uint32_t px, uint8_t *r, uint8_t *g, uint8_t *b)
 /* Runtime format dispatch -- takes the raw format value straight off a
  * live sceVideoOutRegisterBuffers capture (attribute->format) rather
  * than assuming one at compile time. This is the fix for the actual
- * root cause found this session: a format assumption baked in once,
+ * root cause: a format assumption baked in once,
  * never re-checked against what the title is really doing. Add a case
  * here (plus the matching unpack function) for any new format a
  * registration-event capture turns up -- do not fall back to guessing
@@ -354,7 +354,7 @@ PixelUnpackFn getUnpackFnForFormat(uint32_t format)
     case 0x88060000: /* A2R10G10B10 */
     case 0x88740000: /* A2R10G10B10_BT2020_PQ */
         return unpackA2R10G10B10_to_rgb888;
-    case 0x80000000: /* A8R8G8B8_SRGB -- confirmed live format, §21/§22 */
+    case 0x80000000: /* A8R8G8B8_SRGB -- confirmed live format */
         return unpackA8R8G8B8_to_rgb888;
     default:
         return NULL; /* unknown format -- caller must NOT guess */
