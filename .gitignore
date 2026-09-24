@@ -1,0 +1,10 @@
+bin/
+*.o
+*.elf
+*.oelf
+*.prx
+*.pkg
+eboot.bin
+pkg.gp4
+x64/
+common/git_ver.h
