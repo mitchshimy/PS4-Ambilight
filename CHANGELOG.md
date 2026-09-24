@@ -77,6 +77,9 @@ companion app) are documented here, newest first.
   being correct.
 
 ### Unreleased / maintenance
+- Removed the wled-relay explanation comment from the default ini,
+  matching the companion app's relay-field fix -- relay settings are
+  opt-in-by-hand only and don't need documenting in the shipped file.
 - `dark_threshold` default changed from 0 to 10, to match the
   companion app's default.
 - Personal WLED/relay IPs blanked out of the shipped default ini.
@@ -91,6 +94,23 @@ The companion app is a standalone PS4 homebrew UI (not a GoldHEN
 plugin) for editing the plugin's ini config on-console, with a live
 color preview and a plugin self-updater.
 
+- Fixed a crash on close: the app previously fell off the end of
+  `main()` after `SDL_Quit()`, which isn't a valid way to end a
+  process launched via the PS4's `LoadExec` and reliably crashed with
+  a `SIGSYS` inside `libkernel.sprx`. Now exits via
+  `sceSystemServiceLoadExec("exit", NULL)`, the same pattern used by
+  Apollo Save Tool and ItemzFlow.
+- Fixed unsaved settings being lost on close -- the app now flushes
+  the in-memory config to disk before shutdown, not just on an
+  explicit Save press.
+- Fixed the Home screen's "Test Strip" card showing a stale
+  "not set up yet" state after Setup -> Save, until the app was
+  fully closed and reopened.
+- Fixed `relay_host`/`relay_port`/`relay_signal_enabled` being
+  written into the ini on every save even when never set -- these
+  are opt-in, hand-edited-only fields with no settings-UI row; a
+  fresh install's ini now stays clean unless you add them yourself.
+- Updated the app icon.
 - Initial version: settings editor, live color preview (mirroring
   the plugin's own gamma/brightness pipeline), and a plugin
   self-update path over HTTP.
