@@ -51,7 +51,9 @@ AmbientConfig g_config = {
     .colorOrder = ORDER_RGB,
     .blackLevel = 0,     // no-op -- matches "no black_level existed before v2.1" exactly
     .whiteLevel = 100,   // no-op
-    .darkThreshold = 0,  // disabled -- matches "no dark_threshold existed before v2.1" exactly
+    .darkThreshold = 10, // v2.1's original "0 = disabled, matches pre-v2.1 behavior" default
+                         // changed on explicit request -- kept in sync with the companion
+                         // app's own settings_set_defaults(), which now also defaults to 10
     .contrast = 0,       // no-op -- new in v2.2, matches "didn't exist before" like the rest of this block
     .brightnessR = 100, .brightnessG = 100, .brightnessB = 100, // no-op (100 = unchanged, Android convention)
     .gammaR = 100, .gammaG = 100, .gammaB = 100,                 // no-op (100 = unchanged, Android convention)
@@ -145,7 +147,7 @@ static void ambient_create_default_config(void)
         "; near-black color. Has built-in hysteresis (must rise 10 above\n" \
         "; this value again before turning back on) so it won't flicker\n" \
         "; on scenes hovering right at the threshold. 0 = disabled.\n" \
-        "dark_threshold=0\n" \
+        "dark_threshold=10\n" \
         "; --- Below this line: ported from the Android version's own\n" \
         "; per-channel color engine. NOTE THE DIFFERENT CONVENTION: these\n" \
         "; use Android's \"100 = unchanged\" percent scale, NOT this file's\n" \
