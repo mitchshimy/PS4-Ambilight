@@ -135,7 +135,7 @@ void settings_set_defaults(AmbientConfig *cfg)
     cfg->colorOrder = ORDER_RGB;
     cfg->blackLevel = 0;
     cfg->whiteLevel = 100;
-    cfg->darkThreshold = 0;
+    cfg->darkThreshold = 10;
     cfg->contrast = 0;
     cfg->brightnessR = 100; cfg->brightnessG = 100; cfg->brightnessB = 100;
     cfg->gammaR = 100; cfg->gammaG = 100; cfg->gammaB = 100;
