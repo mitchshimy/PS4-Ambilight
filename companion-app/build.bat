@@ -44,7 +44,17 @@ Rem here, including these two, has to already exist in your own
 Rem E:\OpenOrbis\lib\ from whatever stub-generation process produced
 Rem the others. If SceCommonDialog/SceImeDialog aren't there yet,
 Rem generate/add them the same way the rest were.
-set libraries=-lc -lkernel -lc++ -lSceUserService -lSceVideoOut -lSceAudioOut -lScePad -lSceSysmodule -lSceFreeType -lSDL2 -lSceNet -lSceSsl -lSceHttp -lSceCommonDialog -lSceImeDialog
+Rem
+Rem SceSystemService (orbis/SystemService.h -> sceSystemServiceLoadExec):
+Rem added for the clean-exit fix -- main() now hands control back to
+Rem the XMB via sceSystemServiceLoadExec("exit", NULL) instead of just
+Rem falling off the end of main(), matching how apollo-ps4 and
+Rem ItemzFlow both close (see main.c's own comment at the call site).
+Rem The library was already present at runtime without this --
+Rem libSceSystemService.sprx shows up in this app's own putty.log
+Rem crash dump as an already-loaded dynamic library -- so this is only
+Rem adding the link-time symbol, not a new runtime dependency.
+set libraries=-lc -lkernel -lc++ -lSceUserService -lSceVideoOut -lSceAudioOut -lScePad -lSceSysmodule -lSceFreeType -lSDL2 -lSceNet -lSceSsl -lSceHttp -lSceCommonDialog -lSceImeDialog -lSceSystemService
 
 set intdir=%1
 set targetname=%~2

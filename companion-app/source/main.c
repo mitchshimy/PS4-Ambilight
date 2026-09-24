@@ -51,6 +51,7 @@
 #include <orbis/Net.h>
 #include <orbis/ImeDialog.h>
 #include <orbis/CommonDialog.h>
+#include <orbis/SystemService.h>
 
 #include "settings.h"
 #include "color_pipeline.h"
@@ -1023,6 +1024,20 @@ static void do_save(void)
         g_state.statusIsSaved = true;
         g_state.statusIsError = false;
         g_saveConfirmUntilMs = SDL_GetTicks() + SAVE_CONFIRM_DURATION_MS;
+
+        // BUG FIX: setupComplete was only ever computed once, at
+        // startup from whatever settings_load() found on disk (see
+        // main()'s own copy of this same expression). Saving new
+        // values here updated g_cfg and the file on disk, but never
+        // this cached flag -- so Home's Test Strip kept reading the
+        // stale "not set up yet" state after a fresh Setup+Save,
+        // until the app was closed and reopened and main() recomputed
+        // it from scratch. Recomputing it here, right after a
+        // successful save, means Test Strip reflects reality
+        // immediately -- same formula as main()'s startup copy, kept
+        // in sync with it on purpose.
+        g_state.setupComplete = g_cfg.wledHost[0] != '\0' &&
+            (g_cfg.ledCountTop + g_cfg.ledCountRight + g_cfg.ledCountBottom + g_cfg.ledCountLeft) > 0;
     } else {
         set_status("Save FAILED -- check the config path is writable.", true);
     }
@@ -1328,6 +1343,18 @@ int main(void)
         usleep(1000000 / 30);
     }
 
+    // BUG FIX: closing the app (Options button or SDL_QUIT) previously
+    // went straight to teardown, so any in-memory g_cfg edits that
+    // hadn't gone through an explicit Setup/Customization Save press
+    // were lost -- silently, since the crash on close (see below) made
+    // it hard to even notice there'd been a chance to save at all.
+    // Flushing here guarantees whatever's currently in g_cfg is on
+    // disk before the process goes away, the same call do_save() makes
+    // from the Save button, just without that function's UI feedback
+    // (status line / "Saved!" confirmation) since the app is already
+    // on its way out.
+    settings_save(&g_cfg, AMBIENT_CONFIG_PATH);
+
     if (g_imeDialogOpen) sceImeDialogTerm();
     // Defensive final "off" if the signal was last left on -- this app
     // has no plugin_unload-style guaranteed teardown hook the way the
@@ -1341,5 +1368,35 @@ int main(void)
     ui_canvas_destroy(canvas);
     SDL_DestroyWindow(window);
     SDL_Quit();
+
+    // BUG FIX (the crash-on-close from a real-hardware putty.log
+    // capture): this used to end with a plain `return 0`, letting the
+    // process fall off the end of main() and back into libkernel's own
+    // process-exit path. On PS4 homebrew that's not a sanctioned way
+    // to end a "big app" launched via the system's own LoadExec --
+    // checked this against how two other real, shipped homebrew apps
+    // close, since neither crashes on exit:
+    //   - Apollo Save Tool (bucanero/apollo-ps4, source/main.c):
+    //     registers a terminate() via atexit() whose whole job is
+    //     `sceSystemServiceLoadExec("exit", NULL)`, to hand control
+    //     back to the XMB properly instead of just returning.
+    //   - ItemzFlow (LightningMods/Itemzflow, source/sig_handler.cpp,
+    //     Exit_Success()): same call, `sceSystemServiceLoadExec("exit", 0)`,
+    //     as the last thing it does before the process goes away, on
+    //     both the normal-exit and crash-recovery paths.
+    // Matched this app's own putty.log crash signature too: signal 12
+    // (SIGSYS, "bad syscall") on the eboot.bin main thread, general-
+    // purpose registers zeroed, rip sitting inside libkernel.sprx --
+    // consistent with returning out of main() into a kernel trampoline
+    // that isn't a valid re-entry point for this process, rather than
+    // any crash in this app's own settings/save code (which is why it
+    // reproduced on every close, saved settings or not).
+    sceSystemServiceLoadExec("exit", NULL);
+
+    // Not expected to be reached -- LoadExec("exit", ...) hands control
+    // back to the system and doesn't return here on a real console.
+    // Kept only so this still compiles/links as a normal C `main` and
+    // behaves sanely (e.g. under a host-side syntax check) if it ever
+    // somehow does return.
     return 0;
 }
