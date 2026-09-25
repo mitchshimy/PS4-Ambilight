@@ -29,6 +29,10 @@ jobs:
       - name: Setup variables
         run: |
           sudo apt install -y llvm lld
+          # The 'llvm' package on ubuntu-latest only installs versioned
+          # binaries (llvm-ar-NN), not an unversioned 'llvm-ar' -- and the
+          # GoldHEN SDK's Makefile calls the unversioned name.
+          sudo ln -sf "$(command -v llvm-ar || ls /usr/bin/llvm-ar-* | sort -V | tail -1)" /usr/local/bin/llvm-ar
           echo "OO_PS4_TOOLCHAIN=$GITHUB_WORKSPACE/OpenOrbis/PS4Toolchain" >> $GITHUB_ENV
 
       - name: Download OpenOrbis Toolchain
@@ -37,6 +41,12 @@ jobs:
       - name: Export path to SDK
         working-directory: SDK
         run: echo "GOLDHEN_SDK=$(pwd)" >> $GITHUB_ENV
+
+      - name: Build GoldHEN SDK
+        # Produces SDK/build/crtprx.o and SDK/libGoldHEN_Hook.a, which the
+        # plugin links against. Not prebuilt in the SDK repo.
+        working-directory: SDK
+        run: make
 
       - name: Build (Release)
         working-directory: plugin

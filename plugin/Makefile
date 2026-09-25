@@ -63,9 +63,23 @@ ifeq ($(UNAME_S),Darwin)
         CDIR    := macos
 endif
 
+# Native Windows (MSYS2/Git Bash/etc). $(OS) is set to "Windows_NT" by the
+# Windows environment itself, unlike uname -s (which reports MSYS_NT-...,
+# MINGW64_NT-..., or similar depending on shell) -- checking $(OS) instead
+# is shell-independent. Requires clang/clang++/ld.lld from an LLVM for
+# Windows install (https://github.com/llvm/llvm-project/releases) on PATH.
+ifeq ($(OS),Windows_NT)
+        CC      := clang
+        CCX     := clang++
+        LD      := ld.lld
+        CDIR    := windows
+        EXE_EXT := .exe
+endif
+
 $(TARGET): $(INTDIR) $(OBJS)
+	@mkdir -p $(dir $(TARGET)) $(dir $(TARGET_ELF))
 	$(LD) $(GH_SDK)/build/crtprx.o $(INTDIR)/*.o -o $(TARGET_ELF).elf $(LDFLAGS)
-	$(TOOLCHAIN)/bin/$(CDIR)/create-fself -in=$(TARGET_ELF).elf -out=$(TARGET_ELF).oelf --lib=$(TARGET).prx --paid 0x3800000000000011
+	$(TOOLCHAIN)/bin/$(CDIR)/create-fself$(EXE_EXT) -in=$(TARGET_ELF).elf -out=$(TARGET_ELF).oelf --lib=$(TARGET).prx --paid 0x3800000000000011
 
 $(TARGETSTUB): $(INTDIR) $(STUBOBJS)
 	$(CC) $(INTDIR)/*.o.stub -o $(TARGETSTUB) -target x86_64-pc-linux-gnu -shared -fuse-ld=lld -ffreestanding -nostdlib -fno-builtin -L$(TOOLCHAIN)/lib $(LIBS)
