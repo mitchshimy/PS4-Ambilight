@@ -167,4 +167,14 @@ color preview and a plugin self-updater.
   `PkgTool.Core`'s `pkg_build` subcommand needs `libssl1.1`, which
   `ubuntu-latest` (24.04) no longer ships, so it aborted with "No
   usable version of libssl was found" on the first real run.
+- First real compile of `ui_icons.c` (this CI job is the first time
+  the companion app has ever actually been build-tested) turned up a
+  real bug, not a CI issue: `CUR`, the "currentColor" sentinel used
+  84 times across the file's icon tables, was a `static const
+  UiColor` object. Clang hard-errors reading a named const object's
+  value into another file-scope initializer ("initializer element is
+  not a compile-time constant") -- GCC's default GNU-extension mode
+  had been silently tolerating this locally. Changed `CUR` to a
+  compound-literal macro, matching the file's own `CHAN_RED`/
+  `CHAN_GREEN`/`CHAN_BLUE` pattern, which doesn't have this problem.
 

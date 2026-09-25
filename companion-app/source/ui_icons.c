@@ -51,7 +51,17 @@ typedef struct {
     bool roundCap;        // stroke-linecap="round"
 } IconDef;
 
-static const UiColor CUR = { 0, 0, 0, 0 };
+// CUR ("currentColor") and CHAN_* are compound-literal macros, not
+// static const objects: a static const UiColor CUR = {...} object
+// compiles under GCC's default GNU-extension leniency, but Clang
+// (which this project's toolchain uses, and which does not extend
+// that particular allowance) hard-errors on it with "initializer
+// element is not a compile-time constant" the moment CUR's *value* is
+// read into another static Shape[] initializer below -- reading a
+// named object's value isn't a constant expression in standard C. A
+// compound literal built entirely from constant scalars doesn't have
+// that problem, since there's no named object being read.
+#define CUR ((UiColor){ 0, 0, 0, 0 })
 #define CHAN_RED   ((UiColor){ 0xff, 0x6b, 0x5b, 255 })
 #define CHAN_GREEN ((UiColor){ 0x5f, 0xdc, 0x94, 255 })
 #define CHAN_BLUE  ((UiColor){ 0x5b, 0x9d, 0xff, 255 })
