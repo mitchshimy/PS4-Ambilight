@@ -31,6 +31,18 @@ jobs:
           repository: GoldHEN/GoldHEN_Plugins_SDK
           path: SDK
 
+      # Upstream's 64-bit detour path has real bugs (wrong instruction
+      # size, wrong jump-write variant, and a non-executable malloc'd
+      # trampoline that either crashes or gets silently blocked under
+      # DEP/W^X) -- see patches/goldhen-sdk-detour64-fix.patch's own
+      # header for the full breakdown of each hunk. Applying this is
+      # what makes the SDK checkout above match what was actually
+      # tested crash-free on hardware; without it, this job would
+      # silently build against upstream's broken version every time.
+      - name: Patch GoldHEN SDK
+        working-directory: SDK
+        run: patch -p1 < ../patches/goldhen-sdk-detour64-fix.patch
+
       - name: Setup variables
         run: |
           sudo apt install -y llvm lld

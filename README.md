@@ -32,14 +32,28 @@ PS4-Ambilight/
 
 Requires the standard GoldHEN plugin toolchain:
 - [OpenOrbis PS4 Toolchain](https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain) (`OO_PS4_TOOLCHAIN`)
-- [GoldHEN SDK](https://github.com/GoldHEN/GoldHEN_SDK) (`GOLDHEN_SDK`) -- headers + `libGoldHEN_Hook.a`
+- [GoldHEN SDK](https://github.com/GoldHEN/GoldHEN_Plugins_SDK) (`GOLDHEN_SDK`) -- headers + `libGoldHEN_Hook.a`,
+  **with [`patches/goldhen-sdk-detour64-fix.patch`](patches/goldhen-sdk-detour64-fix.patch) applied** (see below)
+  -- without it, hooking crashes or silently no-ops on real hardware.
+
+```
+git clone https://github.com/GoldHEN/GoldHEN_Plugins_SDK.git
+cd GoldHEN_Plugins_SDK
+patch -p1 < /path/to/PS4-Ambilight/patches/goldhen-sdk-detour64-fix.patch
+make
+```
+
+Then point `GOLDHEN_SDK` at that directory and build the plugin as usual:
 
 ```
 cd plugin
 make
 ```
 
-Output lands in `bin/plugins/` (created next to this repo root).
+Output lands in `bin/plugins/` (created next to this repo root). CI applies this same patch to a
+fresh SDK checkout before every build (see `.github/workflows/CI.yml`), so a tagged release is
+always built against the patched SDK -- a local build only gets those same fixes if you patch your
+own `GOLDHEN_SDK` copy too.
 
 ## Building the companion app
 

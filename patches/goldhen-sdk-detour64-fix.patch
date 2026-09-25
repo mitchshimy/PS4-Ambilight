@@ -1,0 +1,98 @@
+Fixes three real bugs in GoldHEN/GoldHEN_Plugins_SDK's 64-bit detour
+path (source/Detour.c), plus silences klog's direct printf call.
+Applies cleanly with `patch -p1` from the root of a fresh checkout of
+that repo (this is exactly what CI.yml does before building).
+
+Traced this from a real crash on hardware -- the trampoline and
+instruction-size bugs below turned out to be the actual root cause,
+not optimization level (see the plugin/Makefile git history around
+the -O2 revert for that side of the investigation).
+
+What each hunk fixes, and why it matters:
+
+  include/Utilities.h
+    klog printf -> klog(...) no-op
+      klog is called from inside hook code, close enough to a raw
+      kernel-level hook that calling into libc's printf from there is
+      a real crash/hang risk (unsafe context, subsystems not
+      necessarily initialized yet). Made it a no-op instead of trying
+      to make printf itself safe there.
+
+  source/Detour.c
+    1) Detour_GetInstructionSize() was called with
+       sizeof(This->JumpInstructions32) on the code path that installs
+       a 64-bit jump -- measuring/reading the wrong number of bytes
+       for what it's about to overwrite. Fixed to
+       sizeof(This->JumpInstructions64).
+
+    2) This->TrampolinePtr was allocated with malloc() -- ordinary
+       heap memory, not executable under DEP/W^X. Jumping the CPU
+       into a malloc'd buffer either crashes outright or is silently
+       blocked depending on the target's protections. Replaced with
+       sceKernelMmap(..., VM_PROT_ALL, MAP_ANON|MAP_PRIVATE, ...) to
+       get real executable memory, with the error check adjusted to
+       cover the mmap return value too, not just a NULL pointer.
+
+    3) Detour_WriteJump32() was called even on the path that had just
+       allocated a 64-bit-sized trampoline -- writes the wrong jump
+       encoding into it. Fixed to Detour_WriteJump64().
+
+    Also added the matching sceKernelMunmap(TrampolinePtr, ...) in the
+    cleanup path, which upstream never had -- it only ever freed
+    StubPtr, leaking the trampoline mapping every time a hook was
+    removed.
+
+--- a/include/Utilities.h
++++ b/include/Utilities.h
+@@ -35,7 +35,7 @@
+ #define HA_MANYARGS  HA arg1, HA arg2, HA arg3, HA arg4, HA arg5, HA arg6, HA arg7, HA arg8, HA arg9, HA arg10, HA arg11, HA arg12
+ #define MANYARGS arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12
+ 
+-#define klog printf
++#define klog(...) ((void)0)
+ 
+ // if you need to define the hook in some header file, this only externs it.
+ #define HOOK_EXTERN(name) \
+--- a/source/Detour.c
++++ b/source/Detour.c
+@@ -144,7 +144,7 @@
+         return NULL;
+     }
+ 
+-    size_t InstructionSize = Detour_GetInstructionSize(This, FunctionPtr, sizeof(This->JumpInstructions32));
++    size_t InstructionSize = Detour_GetInstructionSize(This, FunctionPtr, sizeof(This->JumpInstructions64));
+ 
+ #if (DEBUG) == 1
+     klog("[Detour] %s: - InstructionSize: %zu\n", __FUNCTION__, InstructionSize);
+@@ -166,11 +166,11 @@
+         return Detour_DetourFunction64(This, (uint64_t)(TrampolineOffest + FunctionPtr + 5), HookPtr);
+     }
+ 
+-    This->TrampolinePtr = malloc(sizeof(This->JumpInstructions64));
++    int trampolineRes = sceKernelMmap(0, sizeof(This->JumpInstructions64), VM_PROT_ALL, 0x1000 | 0x2, -1, 0, &This->TrampolinePtr);
+ 
+-    if (This->TrampolinePtr == 0) {
++    if (trampolineRes < 0 || This->TrampolinePtr == 0) {
+ #if (DEBUG) == 1
+-        klog("[Detour] %s: malloc failed.\n", __FUNCTION__);
++        klog("[Detour] %s: TrampolinePtr mmap failed.\n", __FUNCTION__);
+ #endif
+         return 0;
+     }
+@@ -201,7 +201,7 @@
+ 
+     // Write jump from function to hook.
+     memset((void *) FunctionPtr, 0x90, InstructionSize);
+-    Detour_WriteJump32(This, (void *) FunctionPtr, (uint64_t) This->TrampolinePtr);
++    Detour_WriteJump64(This, (void *) FunctionPtr, (uint64_t) This->TrampolinePtr);
+ 
+ #if (DEBUG) == 1
+     klog("[Detour] %s: Detour Written Successfully! (FunctionPtr: %p - HookPtr: %p - HookPtrTrampoline: %p - StubPtr: %p - StubSize: %zu)\n", __FUNCTION__, This->FunctionPtr, This->HookPtr, This->TrampolinePtr, This->StubPtr, This->StubSize);
+@@ -259,4 +259,7 @@
+ 
+     // Clean up
+     sceKernelMunmap(This->StubPtr, This->StubSize);
++    if (This->TrampolinePtr) {
++        sceKernelMunmap(This->TrampolinePtr, sizeof(This->JumpInstructions64));
++    }
+ }
