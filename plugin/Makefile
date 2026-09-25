@@ -21,7 +21,13 @@ TARGETSTUB   := $(OUTPUT_PRX).so
 LIBS := -lSceLibcInternal -lGoldHEN_Hook -lkernel -lSceSysmodule
 
 EXTRAFLAGS := $(DEBUG_FLAGS) $(LOG_TYPE) -fcolor-diagnostics -Wall
-O_FLAG     ?= -O2
+# O_FLAG intentionally left undefined by default (matches how this plugin
+# was actually built and confirmed crash-free on real hardware) --
+# override explicitly on the command line if you want one, e.g.
+# `make O_FLAG=-O2`, but be aware this plugin's raw kernel hooks and
+# volatile-shared state between the hook and the worker thread have not
+# been verified crash-free at any optimization level above the compiler
+# default.
 
 # You likely won't need to touch anything below this point.
 # Root vars
