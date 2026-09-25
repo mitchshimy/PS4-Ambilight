@@ -410,6 +410,9 @@ static bool http_download(const char *full_url, const char *local_dst, uint8_t o
     sceHttpSetConnectTimeOut(tpl, 10 * 1000 * 1000);  // 10s
     sceHttpSetResolveTimeOut(tpl, 10 * 1000 * 1000);  // 10s
     sceHttpSetSendTimeOut(tpl, 10 * 1000 * 1000);     // 10s
+    sceHttpSetRecvTimeOut(tpl, 10 * 1000 * 1000);     // 10s -- was missing; a connection that
+                                                       // opens then stalls mid-response had no
+                                                       // bound at all without this
 
     bool ok = false;
     int req = -1;
@@ -485,6 +488,7 @@ static bool http_download_text(const char *full_url, char *outBuf, size_t outBuf
     sceHttpSetConnectTimeOut(tpl, 10 * 1000 * 1000);
     sceHttpSetResolveTimeOut(tpl, 10 * 1000 * 1000);
     sceHttpSetSendTimeOut(tpl, 10 * 1000 * 1000);
+    sceHttpSetRecvTimeOut(tpl, 10 * 1000 * 1000);  // was missing -- see http_download()'s copy of this
 
     bool ok = false;
     int req = -1;
@@ -807,6 +811,83 @@ static bool check_for_plugin_update(void)
     if (!http_download_text(shaAssetUrl, remoteHex, sizeof(remoteHex), "application/octet-stream")) return false;
 
     return !sha256_hex_matches(installedHex, remoteHex);
+}
+
+// ---------------- background update check ----------------
+//
+// check_for_plugin_update() above does two sequential blocking HTTPS
+// round trips to GitHub. Running it inline on the main thread at
+// startup -- as this used to do -- held the whole UI hostage behind
+// the network on every single launch, which is what actually produced
+// the "app feels slow to open" latency: even on a fast connection
+// that's a DNS+TLS+request/response pair twice in a row before the
+// home screen becomes interactive, and on a bad connection it's the
+// full 10s connect/resolve/send timeout, more than once.
+//
+// Fixed by kicking the check off on its own SDL thread right after
+// the home screen is up, and polling a plain atomic flag once a frame
+// (poll_background_update_check(), called from the main loop below)
+// instead of blocking anything. SDL_atomic_t is used rather than a
+// plain bool specifically so the main thread's read and the
+// background thread's write can't tear -- g_state itself is still
+// only ever touched from the main thread, in the polling function.
+//
+// Deliberately defined after check_for_plugin_update() rather than
+// forward-declared -- this file has no function forward declarations
+// anywhere else and relies entirely on top-to-bottom definition
+// order, so this follows that same convention instead of introducing
+// a new one.
+static SDL_atomic_t g_updateCheckDone;      // 0 = not finished yet, 1 = finished
+static SDL_atomic_t g_updateCheckAvailable; // valid only once g_updateCheckDone == 1
+static bool g_updateCheckStarted = false;
+
+static int update_check_thread_fn(void *unused)
+{
+    (void)unused;
+    bool available = check_for_plugin_update();
+    SDL_AtomicSet(&g_updateCheckAvailable, available ? 1 : 0);
+    SDL_AtomicSet(&g_updateCheckDone, 1); // set last -- this publishes the result above
+    return 0;
+}
+
+// Fires the check off in the background. Safe to call even when
+// g_state.install isn't UI_INSTALL_OK -- callers still gate on that
+// the same way the old inline call did, this just doesn't block them
+// while it runs.
+static void start_background_update_check(void)
+{
+    SDL_AtomicSet(&g_updateCheckDone, 0);
+    SDL_Thread *t = SDL_CreateThread(update_check_thread_fn, "plugin_update_check", NULL);
+    if (t) {
+        SDL_DetachThread(t); // fire-and-forget: poll_background_update_check() reads the result via atomics
+        g_updateCheckStarted = true;
+    }
+    // If thread creation itself failed, g_updateCheckStarted stays
+    // false and poll_background_update_check() below just never finds
+    // anything to report -- same "fail quiet" behavior
+    // check_for_plugin_update() already documents for network/GitHub
+    // failures.
+}
+
+// Called once a frame from the main loop. Cheap when nothing's ready
+// yet (one atomic read), and only ever touches g_state/set_status
+// from the main thread once the background thread has finished.
+static void poll_background_update_check(void)
+{
+    if (!g_updateCheckStarted) return;
+    if (!SDL_AtomicGet(&g_updateCheckDone)) return;
+
+    g_updateCheckStarted = false;
+    if (SDL_AtomicGet(&g_updateCheckAvailable)) {
+        g_state.install = UI_INSTALL_UPDATE;
+        set_status("Update available -- press the button below to update.", false);
+    } else if (!g_state.statusIsError) {
+        // Only overwrite a still-neutral "Checking for updates..." --
+        // if something else already changed the status line in the
+        // meantime (a save, an error, the user starting an install),
+        // leave it alone rather than stomping on it late.
+        set_status("Ready.", false);
+    }
 }
 
 static bool ensure_plugin_registered_in_goldhen(void)
@@ -1673,16 +1754,22 @@ int main(void)
     // check_for_plugin_update()'s comment for why a failure here
     // (no network, GitHub unreachable, ...) is silent rather than
     // surfaced as an error: this runs unprompted on every launch.
+    //
+    // Runs on a background thread (start_background_update_check(),
+    // polled every frame by poll_background_update_check() in the
+    // main loop below) rather than inline here -- this used to block
+    // the whole app behind two sequential GitHub round trips before
+    // the home screen ever became interactive, which was the actual
+    // source of "the app feels slow to open". Now the home screen
+    // renders and takes input immediately; the status line just
+    // updates in place once the check comes back.
     if (g_state.install == UI_INSTALL_OK) {
         set_status("Checking for updates...", false);
-        render_and_present();   // one frame of feedback before the blocking I/O below
-        if (check_for_plugin_update()) g_state.install = UI_INSTALL_UPDATE;
+        start_background_update_check();
+    } else {
+        set_status(g_state.install == UI_INSTALL_DISABLED ? "Plugin installed but disabled -- enable it below." :
+                   "Plugin not installed yet.", false);
     }
-
-    set_status(g_state.install == UI_INSTALL_OK ? "Ready." :
-               g_state.install == UI_INSTALL_UPDATE ? "Update available -- press the button below to update." :
-               g_state.install == UI_INSTALL_DISABLED ? "Plugin installed but disabled -- enable it below." :
-               "Plugin not installed yet.", false);
 
     OrbisPadData pad, prevPad;
     memset(&pad, 0, sizeof(pad));
@@ -1752,6 +1839,8 @@ int main(void)
                     handle_settings_input(up, down, left, right, crossUp, circle, l1, r1);
             }
         }
+
+        poll_background_update_check();
 
         if (g_imeDialogOpen) update_ime_dialog();
 
