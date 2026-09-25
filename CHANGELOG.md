@@ -163,4 +163,8 @@ color preview and a plugin self-updater.
   app builds and is the only job that touches
   `softprops/action-gh-release`, so the two builds run in parallel
   without a chance of racing each other to create the same release.
+- `build_pkg` pinned to `ubuntu-22.04` instead of `ubuntu-latest`:
+  `PkgTool.Core`'s `pkg_build` subcommand needs `libssl1.1`, which
+  `ubuntu-latest` (24.04) no longer ships, so it aborted with "No
+  usable version of libssl was found" on the first real run.
 

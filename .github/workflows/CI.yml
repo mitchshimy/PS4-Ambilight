@@ -83,7 +83,15 @@ jobs:
           if-no-files-found: error
 
   build_pkg:
-    runs-on: ubuntu-latest
+    # PkgTool.Core's pkg_build subcommand (unlike sfo_new/sfo_setentry,
+    # which don't touch OpenSSL) needs libssl1.1 to sign/hash the
+    # package, and ubuntu-latest is Ubuntu 24.04, which dropped
+    # libssl1.1 from its repos entirely -- only libssl3 is available,
+    # so PkgTool.Core aborts with "No usable version of libssl was
+    # found" (confirmed on a real run). ubuntu-22.04 still ships
+    # libssl1.1 by default, so pin here rather than hand-installing a
+    # legacy .deb alongside libssl3.
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout
         uses: actions/checkout@main
