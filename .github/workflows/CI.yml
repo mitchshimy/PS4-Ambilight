@@ -16,6 +16,11 @@ concurrency:
 jobs:
   build_prx:
     runs-on: ubuntu-latest
+    # softprops/action-gh-release needs this to create the release and
+    # upload assets with the default GITHUB_TOKEN -- the repo-level
+    # default token permissions are read-only otherwise.
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@main
@@ -69,3 +74,25 @@ jobs:
           name: ps4_ambient_light-prx_debug
           path: bin/plugins/prx_debug/*.prx
           if-no-files-found: error
+
+      # Only the Release .prx is ever fetched by anything at runtime --
+      # companion-app/source/main.c's PLUGIN_UPDATE_URL points at
+      # ".../releases/latest/download/ps4_ambient_light.prx", which
+      # only resolves once an actual GitHub Release exists with an
+      # asset of exactly that name attached. This job produces both
+      # that asset and its checksum sidecar (PLUGIN_CHECKSUM_URL,
+      # "<same name>.sha256") from the SAME build, so they can never
+      # drift out of sync with each other -- do_plugin_update() in
+      # main.c refuses to install if they don't match.
+      - name: Compute checksum
+        if: startsWith(github.ref, 'refs/tags/')
+        working-directory: bin/plugins/prx_final
+        run: sha256sum ps4_ambient_light.prx > ps4_ambient_light.prx.sha256
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            bin/plugins/prx_final/ps4_ambient_light.prx
+            bin/plugins/prx_final/ps4_ambient_light.prx.sha256
