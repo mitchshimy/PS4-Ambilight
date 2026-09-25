@@ -27,9 +27,9 @@ self-updating the plugin binary from your GitHub repo.
   rows (32 items across 4 sections); `g_scrollOffset` tracks the
   selection via `settings_last_visible_index()`, with a
   "-- showing X-Y of N --" indicator when the list is cut off.
-- LED output goes through `layout.c`, a C port of the Android app's
-  `LedLayoutGeometry.kt`, sending one color per configured LED in
-  real physical wire order (not a fixed sample-swatch layout).
+- LED output goes through `layout.c`, converting the configured strip
+  layout into one color per configured LED in real physical wire
+  order (not a fixed sample-swatch layout).
 - The Help screen stays deliberately minimal (five short cards --
   see `ui_screens.c`'s own comment above `help_cards_init()`), since
   there's no room here for the level of detail this repo's own
@@ -87,7 +87,7 @@ build.bat <intermediate_dir> ps4_ambient_light_companion <output_dir>
 - `source/color_pipeline.c` / `include/color_pipeline.h` -- live preview math (mirrors the plugin)
 - `source/ddp.c` / `include/ddp.h` -- WLED UDP sender (mirrors the plugin)
 - `source/config.c` / `include/config.h` -- ini_table parser (shared with the plugin)
-- `source/layout.c` / `include/layout.h` -- full-strip LED layout geometry (physical wire order + on-screen position), a C port of the Android app's `LedLayoutGeometry.kt`
+- `source/layout.c` / `include/layout.h` -- full-strip LED layout geometry (physical wire order + on-screen position)
 - `source/help_qr.c` / `include/help_qr.h` -- builds and caches the Help screen's QR bitmap (points at this repo's README `## Help` section)
 - `source/qrcodegen.c` / `include/qrcodegen.h` -- vendored, unmodified: [Project Nayuki's QR Code generator library](https://github.com/nayuki/QR-Code-generator) (C edition, MIT license)
 - `tests/test_settings.c`, `tests/test_pipeline.c` -- isolation tests; `gcc -Iinclude -o test_x test_x.c source/x.c source/config.c tests/test_sce_stubs.c` to rerun

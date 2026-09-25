@@ -18,15 +18,13 @@ companion app) are documented here, newest first.
   `true -> false` "off" send, so the light could get stuck on.
 
 ### v2.5
-- Merged in the remaining relay-feature-fork commits (v2.3.1, v2.4,
+- Merged in the remaining feature-fork commits (v2.3.1, v2.4,
   v2.4.1).
 
 ### v2.4
-- Merged in the WLED-relay hand-off signal from a fork based on the
-  old v2.2 line. Lets this plugin tell a separate `wled-relay`
-  companion project when it's actively driving the shared WLED
-  controller, so the two don't fight over the same LED strip during
-  a game.
+- Merged in an advanced, opt-in networking signal from a fork based
+  on the old v2.2 line, for a niche multi-source setup most installs
+  don't need.
 
 ### v2.2.5
 - Replaced the hardcoded debug IP with an opt-in `[dev]` ini section.
@@ -45,9 +43,9 @@ companion app) are documented here, newest first.
   (~1x/sec), and pixel-format-on-change logging to the debug IP.
 
 ### v2.2
-- Ported the Android companion app's `ColorProcessor` into the
-  plugin: contrast, per-channel gamma/brightness, and a pipeline-
-  ordering fix.
+- Ported an existing reference color-processing implementation into
+  the plugin: contrast, per-channel gamma/brightness, and a
+  pipeline-ordering fix.
 
 ### v2.1.1 - v2.1.5
 - Fixed an `fopen` crash, added real-hardware reload diagnostics,
@@ -77,12 +75,13 @@ companion app) are documented here, newest first.
   being correct.
 
 ### Unreleased / maintenance
-- Removed the wled-relay explanation comment from the default ini,
-  matching the companion app's relay-field fix -- relay settings are
-  opt-in-by-hand only and don't need documenting in the shipped file.
+- Removed an advanced opt-in networking comment from the default
+  ini, matching the companion app's matching fix -- those settings
+  are hand-edited-only and don't need documenting in the shipped
+  file.
 - `dark_threshold` default changed from 0 to 10, to match the
   companion app's default.
-- Personal WLED/relay IPs blanked out of the shipped default ini.
+- Personal WLED IPs blanked out of the shipped default ini.
 - `main.c` (3,240 lines) split into 9 modules (`gamma`, `settings`,
   `network`, `tiling`, `pixel_formats`, `zones`, `color_processing`,
   `hooks`, `sample_thread`) plus a shared internal header, for
@@ -124,25 +123,25 @@ color preview and a plugin self-updater.
 - Fixed the Home screen's "Test Strip" card showing a stale
   "not set up yet" state after Setup -> Save, until the app was
   fully closed and reopened.
-- Fixed `relay_host`/`relay_port`/`relay_signal_enabled` being
-  written into the ini on every save even when never set -- these
-  are opt-in, hand-edited-only fields with no settings-UI row; a
-  fresh install's ini now stays clean unless you add them yourself.
+- Fixed three advanced, hand-edited-only ini keys being written on
+  every save even when never set -- there's no settings-UI row for
+  them; a fresh install's ini now stays clean unless you add them
+  yourself.
 - Updated the app icon.
 - Initial version: settings editor, live color preview (mirroring
   the plugin's own gamma/brightness pipeline), and a plugin
   self-update path over HTTP.
-- Brought in the WLED-relay hand-off signal to match the plugin,
-  then later removed the dedicated UI card for it -- it's ini-only
-  now, matching how the plugin itself exposes it.
+- Brought in an advanced opt-in networking signal to match the
+  plugin, then later removed the dedicated UI card for it -- it's
+  ini-only now, matching how the plugin itself exposes it.
 - `dark_threshold` default changed from 0 to 10, matching the plugin.
-- Added disabled-plugin detection and blanked default WLED/relay IPs
-  out of shipped defaults.
+- Added disabled-plugin detection and blanked default WLED IPs out
+  of shipped defaults.
 - Settings-UI, layout-editor, and color-pipeline updates across
   several point releases (v15-v24): scrollable settings list once
-  content exceeds one screen, a full-strip LED layout geometry port
-  from the Android app (`layout.c`), and assorted merge/reconciliation
-  fixes between parallel lines of work.
+  content exceeds one screen, a full-strip LED layout geometry
+  rewrite (`layout.c`), and assorted merge/reconciliation fixes
+  between parallel lines of work.
 - Text rendering switched to FreeType directly (`text_render.c`),
   since SDL2_ttf wasn't a compiled lib in the target SDK snapshot.
 - Controller navigation fixed on real hardware by removing
