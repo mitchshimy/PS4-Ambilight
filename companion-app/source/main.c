@@ -138,6 +138,16 @@
 #define PLUGIN_CHECKSUM_ASSET_NAME PLUGIN_ASSET_NAME ".sha256"
 #define PLUGIN_CHECKSUM_URL PLUGIN_UPDATE_URL ".sha256"
 
+// Local sidecar recording the checksum of whatever build is currently
+// installed at PLUGIN_PRX_PATH -- written by do_plugin_update() right
+// after a successful install (see write_installed_checksum() below).
+// Lets a startup update check (check_for_plugin_update()) compare
+// against the latest release's checksum without re-hashing the whole
+// .prx on every launch; only falls back to that if this file is
+// missing (e.g. the .prx was placed there by hand, or predates this
+// feature).
+#define PLUGIN_INSTALLED_CHECKSUM_PATH PLUGIN_PRX_PATH ".sha256"
+
 // ---------------- global state ----------------
 
 static AmbientConfig g_cfg;
@@ -711,6 +721,94 @@ static UiInstallState plugin_registration_state(void)
     return plugin_registered_in_goldhen_ini() ? UI_INSTALL_OK : UI_INSTALL_DISABLED;
 }
 
+// Hashes an on-disk file with the same buffered-read pattern used
+// throughout this file (sceKernelOpen/Read/Close, not fopen -- see
+// the note on http_download() above for why). Fallback path for
+// check_for_plugin_update() when PLUGIN_INSTALLED_CHECKSUM_PATH isn't
+// there to short-circuit it.
+static bool sha256_hex_of_file(const char *path, char *outHex, size_t outHexSize)
+{
+    if (outHexSize < SHA256_HEX_SIZE) return false;
+    int32_t fd = sceKernelOpen(path, 0 /* O_RDONLY */, 0777);
+    if (fd < 0) return false;
+
+    Sha256Ctx ctx;
+    sha256_init(&ctx);
+    uint8_t buf[64 * 1024];
+    bool ok = true;
+    for (;;) {
+        long n = sceKernelRead(fd, buf, sizeof(buf));
+        if (n < 0) { ok = false; break; }
+        if (n == 0) break;
+        sha256_update(&ctx, buf, (size_t)n);
+    }
+    sceKernelClose(fd);
+    if (!ok) return false;
+
+    uint8_t digest[SHA256_DIGEST_SIZE];
+    sha256_final(&ctx, digest);
+    sha256_to_hex(digest, outHex);
+    return true;
+}
+
+// Reads the plain 64-hex-char PLUGIN_INSTALLED_CHECKSUM_PATH sidecar
+// (no sha256sum-style " filename" suffix -- write_installed_checksum()
+// below never writes one) into outHex.
+static bool read_installed_checksum(char *outHex, size_t outHexSize)
+{
+    if (outHexSize < SHA256_HEX_SIZE) return false;
+    int32_t fd = sceKernelOpen(PLUGIN_INSTALLED_CHECKSUM_PATH, 0 /* O_RDONLY */, 0777);
+    if (fd < 0) return false;
+    long n = sceKernelRead(fd, outHex, outHexSize - 1);
+    sceKernelClose(fd);
+    if (n < 64) return false; // too short to be a real digest
+    outHex[n] = '\0';
+    return true;
+}
+
+// Writes actualHex -- the plain, already-verified digest computed in
+// do_plugin_update() -- to PLUGIN_INSTALLED_CHECKSUM_PATH. Best-
+// effort: a failed write just means the next update check falls back
+// to sha256_hex_of_file() on the .prx itself, so this doesn't affect
+// the install's own success/failure and callers don't check its
+// return value.
+static void write_installed_checksum(const char *actualHex)
+{
+    int32_t fd = sceKernelOpen(PLUGIN_INSTALLED_CHECKSUM_PATH, 0x200 | 0x001 /* O_TRUNC|O_CREAT */, 0777);
+    if (fd < 0) return;
+    sceKernelWrite(fd, actualHex, strlen(actualHex));
+    sceKernelClose(fd);
+}
+
+// Compares what's currently installed against the checksum published
+// for the latest release, reusing the exact same asset-resolution
+// path do_plugin_update() uses to fetch it. Only meaningful once
+// plugin_registration_state() has already returned UI_INSTALL_OK --
+// NONE/DISABLED take priority in the UI over this, so callers should
+// only invoke this when the plugin is both present and registered.
+//
+// Best-effort/fail-quiet: any network or I/O failure here (no
+// connection, GitHub unreachable, asset renamed, ...) just means "no
+// update reported this session" rather than an error shown to the
+// user -- this runs unprompted on every launch, and a routine offline
+// PS4 shouldn't see a scary status message for it.
+static bool check_for_plugin_update(void)
+{
+    char installedHex[SHA256_HEX_SIZE];
+    if (!read_installed_checksum(installedHex, sizeof(installedHex)) &&
+        !sha256_hex_of_file(PLUGIN_PRX_PATH, installedHex, sizeof(installedHex))) {
+        return false;
+    }
+
+    char shaAssetUrl[256];
+    if (!github_resolve_asset_api_url(PLUGIN_CHECKSUM_ASSET_NAME, shaAssetUrl, sizeof(shaAssetUrl))) return false;
+
+    char remoteHex[512]; // checksum sidecar is tiny; generous vs. a bare 65
+    if (!http_download_text(shaAssetUrl, remoteHex, sizeof(remoteHex), "application/octet-stream")) return false;
+
+    return !sha256_hex_matches(installedHex, remoteHex);
+}
+
 static bool ensure_plugin_registered_in_goldhen(void)
 {
     const char *path = PLUGIN_PRX_PATH;
@@ -934,6 +1032,10 @@ static void do_plugin_update(void)
         set_status("Plugin installed, but plugins.ini update failed -- add it manually.", true);
         return;
     }
+
+    // Best-effort -- see write_installed_checksum()'s comment. A
+    // failed write here doesn't affect the install itself.
+    write_installed_checksum(actualHex);
 
     g_state.install = UI_INSTALL_OK;
     set_status("Installed. Relaunch your game to load it.", false);
@@ -1563,7 +1665,22 @@ int main(void)
         (g_cfg.ledCountTop + g_cfg.ledCountRight + g_cfg.ledCountBottom + g_cfg.ledCountLeft) > 0;
     g_state.homeFocus = HOME_FOCUS_CTA;
     g_state.focusField = 0;
+
+    // One-time, best-effort update check against the latest GitHub
+    // release, only when there's an installed build to compare in the
+    // first place -- NONE/DISABLED already have their own CTA and
+    // take priority over "is there something newer". See
+    // check_for_plugin_update()'s comment for why a failure here
+    // (no network, GitHub unreachable, ...) is silent rather than
+    // surfaced as an error: this runs unprompted on every launch.
+    if (g_state.install == UI_INSTALL_OK) {
+        set_status("Checking for updates...", false);
+        render_and_present();   // one frame of feedback before the blocking I/O below
+        if (check_for_plugin_update()) g_state.install = UI_INSTALL_UPDATE;
+    }
+
     set_status(g_state.install == UI_INSTALL_OK ? "Ready." :
+               g_state.install == UI_INSTALL_UPDATE ? "Update available -- press the button below to update." :
                g_state.install == UI_INSTALL_DISABLED ? "Plugin installed but disabled -- enable it below." :
                "Plugin not installed yet.", false);
 
