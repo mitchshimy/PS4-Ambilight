@@ -85,7 +85,34 @@
 #define GOLDHEN_PLUGINS_INI "/data/GoldHEN/plugins.ini"
 #define PLUGIN_PRX_PATH GOLDHEN_PLUGINS_DIR "/ps4_ambient_light.prx"
 
-#define PLUGIN_UPDATE_URL "https://github.com/mitchshimy/PS4-Ambilight/releases/latest/download/ps4_ambient_light.prx"
+// BUG FIX (this file's own install log, 0x80431073 == SCE_HTTP_ERROR_
+// TOO_LARGE_RESPONSE_HEADER): a "/releases/latest/download/..." link
+// is served by github.com's web app, and the redirect response it
+// sends back carries that app's full header set (a several-KB
+// content-security-policy header alone, plus strict-transport-
+// security, vary, x-github-request-id, ...). sceHttp has a small
+// fixed header-parsing buffer and rejects that response outright,
+// before sceHttpSetAutoRedirect(tpl, 1) below ever gets a chance to
+// act on the redirect -- which is why this always worked in a browser
+// (no such fixed buffer) and always failed here. api.github.com is a
+// plain JSON API, not the web app, and doesn't send those headers, so
+// the fix is the standard two-hop pattern instead of hitting
+// github.com directly: (1) look up the release's asset list here,
+// (2) GET the resolved asset's own small api.github.com URL with
+// Accept: application/octet-stream, which 302s (small headers) to a
+// signed, short-lived objects.githubusercontent.com URL that
+// sceHttpSetAutoRedirect follows the rest of the way. See
+// github_resolve_asset_api_url() / do_plugin_update() below.
+#define GITHUB_REPO_OWNER "mitchshimy"
+#define GITHUB_REPO_NAME  "PS4-Ambilight"
+#define GITHUB_RELEASES_LATEST_API_URL \
+    "https://api.github.com/repos/" GITHUB_REPO_OWNER "/" GITHUB_REPO_NAME "/releases/latest"
+
+// Plain human-facing URL, used only in log/status text (e.g. "open
+// this in a browser to check") -- never fetched directly anymore.
+#define PLUGIN_UPDATE_URL "https://github.com/" GITHUB_REPO_OWNER "/" GITHUB_REPO_NAME "/releases/latest/download/ps4_ambient_light.prx"
+
+#define PLUGIN_ASSET_NAME "ps4_ambient_light.prx"
 
 // Companion checksum asset -- must be uploaded to the SAME GitHub
 // release as the .prx above, named by appending ".sha256" to the prx
@@ -108,6 +135,7 @@
 // lighter-weight step that at least catches corruption and
 // accidental/incidental tampering, and is worth doing regardless of
 // whether signing is added later.
+#define PLUGIN_CHECKSUM_ASSET_NAME PLUGIN_ASSET_NAME ".sha256"
 #define PLUGIN_CHECKSUM_URL PLUGIN_UPDATE_URL ".sha256"
 
 // ---------------- global state ----------------
@@ -347,7 +375,8 @@ static bool http_init(void)
 // SHA-256 of exactly the bytes written to local_dst, computed
 // incrementally as each chunk arrives -- no separate re-read of the
 // file afterwards.
-static bool http_download(const char *full_url, const char *local_dst, uint8_t outDigest[SHA256_DIGEST_SIZE])
+static bool http_download(const char *full_url, const char *local_dst, uint8_t outDigest[SHA256_DIGEST_SIZE],
+                           const char *acceptHeader)
 {
     if (!http_init()) return false;
 
@@ -355,29 +384,40 @@ static bool http_download(const char *full_url, const char *local_dst, uint8_t o
     if (tpl < 0) return false;
     sceHttpsSetSslCallback(tpl, skip_ssl_callback, NULL);
 
-    // PLUGIN_UPDATE_URL is a GitHub "/releases/latest/download/..."
-    // link, which GitHub serves as a 302 to a signed, short-lived
-    // objects.githubusercontent.com URL -- the actual asset never
-    // lives at the github.com URL itself. Without this, sceHttp
-    // returns that 302 as-is, statusCode != 200 below, and the
-    // download fails every time even though the same URL opens fine
-    // in a browser (which follows the redirect transparently).
+    // Follows the small-header 302 from an api.github.com asset URL
+    // (or, previously, straight from github.com's web app -- see the
+    // BUG FIX comment on GITHUB_RELEASES_LATEST_API_URL near the top
+    // of this file for why that direct route no longer works) on to
+    // the signed objects.githubusercontent.com URL the asset actually
+    // lives at.
     sceHttpSetAutoRedirect(tpl, 1);
 
-    // Bounds how long a hung/unreachable PLUGIN_UPDATE_URL can freeze
-    // the app. Confirmed real 2-arg signatures; NOT confirmed against
-    // a working call site in this SDK (no sample calls these), so
-    // treat as a real, compilable improvement over no timeout at all,
-    // not a confirmed-correct one.
+    // Bounds how long a hung/unreachable host can freeze the app.
+    // Confirmed real 2-arg signatures; NOT confirmed against a
+    // working call site in this SDK (no sample calls these), so treat
+    // as a real, compilable improvement over no timeout at all, not a
+    // confirmed-correct one.
     sceHttpSetConnectTimeOut(tpl, 10 * 1000 * 1000);  // 10s
     sceHttpSetResolveTimeOut(tpl, 10 * 1000 * 1000);  // 10s
     sceHttpSetSendTimeOut(tpl, 10 * 1000 * 1000);     // 10s
 
     bool ok = false;
+    int req = -1;
     int conn = sceHttpCreateConnectionWithURL(tpl, full_url, 1);
     if (conn >= 0) {
-        int req = sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_GET, full_url, 0);
+        req = sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_GET, full_url, 0);
         if (req >= 0) {
+            // NOT YET VERIFIED (same status as sceHttpSetConnectTimeOut
+            // et al. above): sceHttpAddRequestHeader's signature is
+            // taken from the usual OpenOrbis/orbis-sdk shape
+            // (id, name, value, mode) with mode=1 meaning "overwrite
+            // any existing value for this header" -- not exercised
+            // against a real call site in this SDK snapshot. This is
+            // what asks the GitHub asset API for the raw asset (a
+            // small-header 302 to objects.githubusercontent.com)
+            // instead of its default JSON metadata body.
+            if (acceptHeader) sceHttpAddRequestHeader(req, "Accept", acceptHeader, 1);
+
             if (sceHttpSendRequest(req, NULL, 0) >= 0) {
                 int32_t statusCode = 0;
                 sceHttpGetStatusCode(req, &statusCode);
@@ -405,8 +445,8 @@ static bool http_download(const char *full_url, const char *local_dst, uint8_t o
                 }
             }
         }
-        if (req >= 0) sceHttpDeleteRequest(req);
     }
+    if (req >= 0) sceHttpDeleteRequest(req);
     if (conn >= 0) sceHttpDeleteConnection(conn);
     sceHttpDeleteTemplate(tpl);
     return ok;
@@ -423,25 +463,29 @@ static bool http_download(const char *full_url, const char *local_dst, uint8_t o
 // certainly means the URL served something else (an HTML error page,
 // a redirect-to-login, etc.), which must not be silently truncated
 // and treated as a hash.
-static bool http_download_text(const char *full_url, char *outBuf, size_t outBufSize)
+static bool http_download_text(const char *full_url, char *outBuf, size_t outBufSize, const char *acceptHeader)
 {
     if (!http_init() || outBufSize == 0) return false;
 
     int tpl = sceHttpCreateTemplate(g_libhttpCtxId, "Mozilla/5.0 (PLAYSTATION 4; 1.00)", ORBIS_HTTP_VERSION_1_1, 1);
     if (tpl < 0) return false;
     sceHttpsSetSslCallback(tpl, skip_ssl_callback, NULL);
-    // Same redirect fix as http_download() above -- PLUGIN_CHECKSUM_URL
-    // is PLUGIN_UPDATE_URL + ".sha256", so it 302s the same way.
+    // Same redirect fix as http_download() above.
     sceHttpSetAutoRedirect(tpl, 1);
     sceHttpSetConnectTimeOut(tpl, 10 * 1000 * 1000);
     sceHttpSetResolveTimeOut(tpl, 10 * 1000 * 1000);
     sceHttpSetSendTimeOut(tpl, 10 * 1000 * 1000);
 
     bool ok = false;
+    int req = -1;
     int conn = sceHttpCreateConnectionWithURL(tpl, full_url, 1);
     if (conn >= 0) {
-        int req = sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_GET, full_url, 0);
+        req = sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_GET, full_url, 0);
         if (req >= 0) {
+            // See the matching sceHttpAddRequestHeader comment in
+            // http_download() above.
+            if (acceptHeader) sceHttpAddRequestHeader(req, "Accept", acceptHeader, 1);
+
             if (sceHttpSendRequest(req, NULL, 0) >= 0) {
                 int32_t statusCode = 0;
                 sceHttpGetStatusCode(req, &statusCode);
@@ -468,10 +512,111 @@ static bool http_download_text(const char *full_url, char *outBuf, size_t outBuf
                 }
             }
         }
-        if (req >= 0) sceHttpDeleteRequest(req);
     }
+    if (req >= 0) sceHttpDeleteRequest(req);
     if (conn >= 0) sceHttpDeleteConnection(conn);
     sceHttpDeleteTemplate(tpl);
+    return ok;
+}
+
+// Hand-rolled scan for one field, NOT a general JSON parser -- there's
+// no JSON library linked into this app, and GitHub's release-asset
+// response shape (each asset object listing "url" as its first field,
+// well before "name") is stable enough that this is a reasonable,
+// low-risk way to pull one string out of it rather than pulling in a
+// dependency for one lookup. It only has to survive being handed
+// GitHub's own JSON, not arbitrary/hostile input.
+//
+// Finds the asset object in releaseJson whose "name" field equals
+// assetName exactly (not e.g. a prefix match against
+// "ps4_ambient_light.prx.sha256" when looking for
+// "ps4_ambient_light.prx"), and copies that object's "url" field
+// (the asset's own small api.github.com URL -- NOT
+// "browser_download_url", which just redirects through github.com's
+// web app again, the exact thing this whole fix avoids) into outUrl.
+static bool github_json_find_asset_url(const char *releaseJson, const char *assetName,
+                                        char *outUrl, size_t outUrlSize)
+{
+    char needle[160];
+    int nlen = snprintf(needle, sizeof(needle), "\"name\":\"%s\"", assetName);
+    if (nlen <= 0 || (size_t)nlen >= sizeof(needle)) return false;
+
+    const char *namePos = NULL;
+    // GitHub's JSON isn't guaranteed to omit the space after ':' --
+    // try both the compact and the spaced form at each candidate spot.
+    char needleSpaced[160];
+    snprintf(needleSpaced, sizeof(needleSpaced), "\"name\": \"%s\"", assetName);
+
+    // needle/needleSpaced both end in the closing '"' right after
+    // assetName, so a match against either already rules out matching
+    // "ps4_ambient_light.prx" as a prefix inside
+    // "ps4_ambient_light.prx.sha256" -- no separate boundary check
+    // needed.
+    const char *m1 = strstr(releaseJson, needle);
+    const char *m2 = strstr(releaseJson, needleSpaced);
+    namePos = m1 && (!m2 || m1 < m2) ? m1 : m2;
+    if (!namePos) return false;
+
+    // The asset object's "url" field comes before "name" in GitHub's
+    // schema, so walk backward from namePos to this asset's opening
+    // '{' (the nearest unmatched '{' scanning left), then search
+    // forward from there (not from the start of the whole response)
+    // so we can't accidentally grab a different asset's "url".
+    const char *objStart = namePos;
+    int depth = 0;
+    while (objStart > releaseJson) {
+        objStart--;
+        if (*objStart == '}') depth++;
+        else if (*objStart == '{') {
+            if (depth == 0) break;
+            depth--;
+        }
+    }
+    if (*objStart != '{') return false;
+
+    const char *urlKey = strstr(objStart, "\"url\":\"");
+    size_t urlKeyLen = 7;
+    if (!urlKey || urlKey > namePos) {
+        urlKey = strstr(objStart, "\"url\": \"");
+        urlKeyLen = 8;
+        if (!urlKey || urlKey > namePos) return false;
+    }
+    const char *valueStart = urlKey + urlKeyLen;
+    const char *valueEnd = strchr(valueStart, '"');
+    if (!valueEnd) return false;
+    size_t valueLen = (size_t)(valueEnd - valueStart);
+    if (valueLen == 0 || valueLen >= outUrlSize) return false;
+    memcpy(outUrl, valueStart, valueLen);
+    outUrl[valueLen] = '\0';
+    return true;
+}
+
+// First hop of the api.github.com fix described on
+// GITHUB_RELEASES_LATEST_API_URL near the top of this file: fetches
+// the latest release's metadata and resolves assetName to that
+// asset's own small api.github.com URL, ready to be GETted with
+// Accept: application/octet-stream by http_download()/
+// http_download_text() to reach the real bytes.
+static bool github_resolve_asset_api_url(const char *assetName, char *outUrl, size_t outUrlSize)
+{
+    // Release JSON is dominated by the (markdown) release-notes body
+    // and can run to several KB -- generous vs. the couple-dozen-byte
+    // checksum sidecar http_download_text() is more typically used
+    // for. Heap-allocated: too large to comfortably put on this
+    // thread's stack.
+    const size_t kReleaseJsonBufSize = 64 * 1024;
+    char *releaseJson = (char *)malloc(kReleaseJsonBufSize);
+    if (!releaseJson) return false;
+
+    bool ok = http_download_text(GITHUB_RELEASES_LATEST_API_URL, releaseJson, kReleaseJsonBufSize,
+                                  "application/vnd.github+json");
+    if (!ok) {
+        free(releaseJson);
+        return false;
+    }
+
+    ok = github_json_find_asset_url(releaseJson, assetName, outUrl, outUrlSize);
+    free(releaseJson);
     return ok;
 }
 
@@ -695,13 +840,37 @@ static bool plugin_exists(void)
 // already installed.
 static void do_plugin_update(void)
 {
-    set_status("Downloading plugin...", false);
+    set_status("Looking up latest release...", false);
     render_and_present();   // one frame of feedback before the blocking I/O below
 
+    // First hop: resolve both assets' own small api.github.com URLs
+    // from the release metadata, up front, before downloading
+    // anything -- so a stale/renamed asset fails fast with a clear
+    // status message instead of after the (much larger) .prx download.
+    // See the BUG FIX comment on GITHUB_RELEASES_LATEST_API_URL near
+    // the top of this file for why this replaces a direct GET of
+    // PLUGIN_UPDATE_URL.
+    char prxAssetUrl[256];
+    if (!github_resolve_asset_api_url(PLUGIN_ASSET_NAME, prxAssetUrl, sizeof(prxAssetUrl))) {
+        set_status("Update failed: couldn't find " PLUGIN_ASSET_NAME " in the latest release.", true);
+        return;
+    }
+    char shaAssetUrl[256];
+    if (!github_resolve_asset_api_url(PLUGIN_CHECKSUM_ASSET_NAME, shaAssetUrl, sizeof(shaAssetUrl))) {
+        set_status("Update failed: couldn't find " PLUGIN_CHECKSUM_ASSET_NAME " in the latest release.", true);
+        return;
+    }
+
+    set_status("Downloading plugin...", false);
+    render_and_present();
+
+    // Second hop: Accept: application/octet-stream is what makes the
+    // GitHub asset API respond with a small-header redirect straight
+    // to the asset bytes instead of its default JSON metadata body.
     const char *tmpPath = "/data/ps4_ambient_light_update.tmp";
     uint8_t digest[SHA256_DIGEST_SIZE];
-    if (!http_download(PLUGIN_UPDATE_URL, tmpPath, digest)) {
-        set_status("Download FAILED -- check PLUGIN_UPDATE_URL and network.", true);
+    if (!http_download(prxAssetUrl, tmpPath, digest, "application/octet-stream")) {
+        set_status("Download FAILED -- check your network and try again.", true);
         return;
     }
 
@@ -709,7 +878,7 @@ static void do_plugin_update(void)
     render_and_present();
 
     char expectedHex[512]; // checksum sidecar is tiny; generous vs. a bare 65
-    if (!http_download_text(PLUGIN_CHECKSUM_URL, expectedHex, sizeof(expectedHex))) {
+    if (!http_download_text(shaAssetUrl, expectedHex, sizeof(expectedHex), "application/octet-stream")) {
         // NOT YET VERIFIED (same status as the IME-dialog and L1/R1
         // conventions flagged at the top of this file): sceKernelUnlink
         // matches libkernel's usual POSIX-mirroring naming
