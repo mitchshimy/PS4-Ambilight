@@ -93,6 +93,66 @@ The companion app is a standalone PS4 homebrew UI (not a GoldHEN
 plugin) for editing the plugin's ini config on-console, with a live
 color preview and a plugin self-updater.
 
+- Fixed every create/overwrite `sceKernelOpen()` call missing
+  `O_TRUNC`: the literal `0x200 | 0x001` was commented as
+  `O_TRUNC|O_CREAT`, but on Orbis (FreeBSD-derived) that's actually
+  `O_CREAT|O_WRONLY` -- the real `O_TRUNC` bit (`0x0400`) was never
+  set. Harmless against a brand-new path, but a path with leftover
+  bytes from a previous write -- most importantly
+  `do_plugin_update()`'s `.new` staging file -- could keep a stale
+  tail after a shorter rewrite, so the file that landed on disk could
+  be longer than the SHA-256 verified during download. That's why
+  `check_for_plugin_update()` kept reporting "update available" on
+  every relaunch even when the release hadn't changed. Added
+  `ORBIS_O_CREAT_TRUNC_WRONLY` (correct BSD flag values) to
+  `plugin_common.h` and switched every affected call site
+  (`config.c`'s ini writer; `main.c`'s tmp download, checksum
+  sidecar, `plugins.ini` rewrite, and staged `.prx` copy) to use it.
+  Also removed the temporary debug hash dump from the update-check
+  status line.
+- Fixed a startup crash on real hardware: the background update-check
+  thread (see below) was created via `SDL_CreateThread()` with stack
+  size 0 ("use the platform default"), and on this SDL port that
+  default is small enough to blow past almost immediately -- a
+  `SIGSEGV` write fault at exactly `rsp-8` on every launch. Switched
+  to the same `scePthreadCreate()` pattern the plugin side already
+  uses for its own sampling thread, with an explicit 256KB stack.
+- Fixed `check_for_plugin_update()` trusting a stale checksum sidecar
+  over the real installed file. It read the
+  `PLUGIN_INSTALLED_CHECKSUM_PATH` sidecar first and only fell back
+  to hashing the actual `.prx` if that sidecar was missing -- but the
+  sidecar is only ever written by this app's own updater, so dropping
+  a different build in by hand (FTP, a manual GoldHEN plugins-folder
+  edit) left the sidecar pointing at the old build while still
+  matching the latest release, so the check kept reporting "up to
+  date" while a different build was actually running. Now hashes the
+  real file first and only falls back to the sidecar if that read
+  fails.
+- Moved the plugin update check off the main thread. It does two
+  sequential blocking HTTPS round trips to GitHub, and running that
+  inline at startup held the UI hostage until both finished -- the
+  actual cause of the app feeling slow to open, worse on a bad
+  connection where each request could hit its full 10s timeout. Now
+  runs on a background thread right after the home screen is up,
+  polled once a frame via a pair of atomic flags. Also added the
+  missing `sceHttpSetRecvTimeOut()` to both HTTP helpers, which
+  previously had no bound on a connection that opened and then
+  stalled mid-response.
+- Wired up plugin update detection: `UI_INSTALL_UPDATE` already
+  existed in the UI enum and had a screen ready for it, but nothing
+  ever set it. Added a local checksum sidecar written after every
+  successful install, and a startup check that compares it (or the
+  installed `.prx`'s own hash, as a fallback) against the latest
+  release's published checksum, flipping to the update state on a
+  mismatch. Fails silently on any network/IO error, since this runs
+  unprompted on every launch.
+- Resolves GitHub release assets via the `api.github.com` releases
+  API instead of `releases/latest/download/...` links, requesting
+  `Accept: application/octet-stream` so the redirect goes straight to
+  `objects.githubusercontent.com` rather than through github.com's
+  web app. The updater now resolves both the `.prx` and `.sha256`
+  asset URLs up front, failing fast with a clear status if either is
+  missing from the release.
 - Fixed the self-updater's `http_download()`/`http_download_text()`
   always failing ("Download FAILED -- check PLUGIN_UPDATE_URL and
   network") even against a valid `PLUGIN_UPDATE_URL`/
