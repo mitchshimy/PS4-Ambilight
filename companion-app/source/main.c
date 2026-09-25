@@ -138,14 +138,15 @@
 #define PLUGIN_CHECKSUM_ASSET_NAME PLUGIN_ASSET_NAME ".sha256"
 #define PLUGIN_CHECKSUM_URL PLUGIN_UPDATE_URL ".sha256"
 
-// Local sidecar recording the checksum of whatever build is currently
-// installed at PLUGIN_PRX_PATH -- written by do_plugin_update() right
-// after a successful install (see write_installed_checksum() below).
-// Lets a startup update check (check_for_plugin_update()) compare
-// against the latest release's checksum without re-hashing the whole
-// .prx on every launch; only falls back to that if this file is
-// missing (e.g. the .prx was placed there by hand, or predates this
-// feature).
+// Local sidecar recording the checksum of whatever build this app
+// itself last installed at PLUGIN_PRX_PATH -- written by
+// do_plugin_update() right after a successful install (see
+// write_installed_checksum() below). check_for_plugin_update() only
+// falls back to this when it can't hash PLUGIN_PRX_PATH directly --
+// this sidecar isn't touched by anything outside this app, so it goes
+// stale the moment someone replaces the .prx by hand (FTP, a manual
+// GoldHEN plugins folder edit, ...) and can't be trusted as the
+// primary source of "what's actually installed right now."
 #define PLUGIN_INSTALLED_CHECKSUM_PATH PLUGIN_PRX_PATH ".sha256"
 
 // ---------------- global state ----------------
@@ -727,9 +728,10 @@ static UiInstallState plugin_registration_state(void)
 
 // Hashes an on-disk file with the same buffered-read pattern used
 // throughout this file (sceKernelOpen/Read/Close, not fopen -- see
-// the note on http_download() above for why). Fallback path for
-// check_for_plugin_update() when PLUGIN_INSTALLED_CHECKSUM_PATH isn't
-// there to short-circuit it.
+// the note on http_download() above for why). check_for_plugin_update()'s
+// primary source of "what's actually installed" -- see
+// PLUGIN_INSTALLED_CHECKSUM_PATH's comment for why the sidecar below
+// is only a fallback, not the other way around.
 static bool sha256_hex_of_file(const char *path, char *outHex, size_t outHexSize)
 {
     if (outHexSize < SHA256_HEX_SIZE) return false;
@@ -757,7 +759,10 @@ static bool sha256_hex_of_file(const char *path, char *outHex, size_t outHexSize
 
 // Reads the plain 64-hex-char PLUGIN_INSTALLED_CHECKSUM_PATH sidecar
 // (no sha256sum-style " filename" suffix -- write_installed_checksum()
-// below never writes one) into outHex.
+// below never writes one) into outHex. check_for_plugin_update()'s
+// fallback, used only when sha256_hex_of_file() can't read the real
+// .prx -- see PLUGIN_INSTALLED_CHECKSUM_PATH's comment for why this
+// sidecar can't be trusted as the primary answer to "what's installed."
 static bool read_installed_checksum(char *outHex, size_t outHexSize)
 {
     if (outHexSize < SHA256_HEX_SIZE) return false;
@@ -798,9 +803,20 @@ static void write_installed_checksum(const char *actualHex)
 // PS4 shouldn't see a scary status message for it.
 static bool check_for_plugin_update(void)
 {
+    // Hash the real .prx on disk first, not the cached sidecar --
+    // the sidecar only gets written by do_plugin_update() after an
+    // in-app install, so it goes stale (and silently wrong) the
+    // moment someone drops a different build in by hand, e.g. FTPing
+    // an older .prx over it. Falling back to the sidecar only when
+    // hashing the real file fails means a manual replacement always
+    // gets compared honestly against the real bytes now sitting at
+    // PLUGIN_PRX_PATH, instead of whatever this app last installed.
+    // Re-hashing on every check used to matter when this ran inline
+    // on the main thread at startup; now that it's a background-
+    // thread check, that cost isn't worth trading correctness for.
     char installedHex[SHA256_HEX_SIZE];
-    if (!read_installed_checksum(installedHex, sizeof(installedHex)) &&
-        !sha256_hex_of_file(PLUGIN_PRX_PATH, installedHex, sizeof(installedHex))) {
+    if (!sha256_hex_of_file(PLUGIN_PRX_PATH, installedHex, sizeof(installedHex)) &&
+        !read_installed_checksum(installedHex, sizeof(installedHex))) {
         return false;
     }
 
