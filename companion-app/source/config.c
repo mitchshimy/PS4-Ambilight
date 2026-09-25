@@ -295,7 +295,7 @@ bool ini_table_write_to_file(ini_table_s *table, const char *file) {
     }
     #undef INI_APPEND
 
-    int32_t fd = sceKernelOpen(file, 0x200 | 0x001 /* O_TRUNC|O_CREAT */, 0777);
+    int32_t fd = sceKernelOpen(file, ORBIS_O_CREAT_TRUNC_WRONLY /* see plugin_common.h's BUG FIX comment */, 0777);
     if (fd < 0) { free(out); return false; }
     bool ok = (len == 0) || (sceKernelWrite(fd, out, len) == (ssize_t)len);
     sceKernelClose(fd);

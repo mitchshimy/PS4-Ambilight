@@ -1,5 +1,9 @@
 # PS4 Ambilight
 
+<p align="center">
+  <img src="companion-app/sce_sys/icon0.png" alt="PS4 Ambilight companion app icon" width="220">
+</p>
+
 An Ambilight-style setup for jailbroken PS4 consoles: a [GoldHEN](https://github.com/GoldHEN/GoldHEN)
 plugin samples the console's video output every frame and streams the edge colors over the
 network (DDP protocol) to a real [WLED](https://kno.wled.ge/) LED controller in real time while

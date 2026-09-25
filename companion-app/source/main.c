@@ -59,6 +59,7 @@
 #include "relay_signal.h"
 #include "layout.h"
 #include "sha256.h"
+#include "plugin_common.h" // ORBIS_O_CREAT_TRUNC_WRONLY -- see its BUG FIX comment
 #include "ui_canvas.h"
 #include "ui_theme.h"
 #include "ui_screens.h"
@@ -440,7 +441,7 @@ static bool http_download(const char *full_url, const char *local_dst, uint8_t o
                     // from an unusual thread context is not reliably
                     // safe in this environment (same fix the plugin
                     // itself needed).
-                    int32_t fd = sceKernelOpen(local_dst, 0x200 | 0x001 /* O_TRUNC|O_CREAT */, 0777);
+                    int32_t fd = sceKernelOpen(local_dst, ORBIS_O_CREAT_TRUNC_WRONLY /* see plugin_common.h's BUG FIX comment */, 0777);
                     if (fd >= 0) {
                         uint8_t buf[64 * 1024];
                         Sha256Ctx shaCtx;
@@ -783,7 +784,7 @@ static bool read_installed_checksum(char *outHex, size_t outHexSize)
 // return value.
 static void write_installed_checksum(const char *actualHex)
 {
-    int32_t fd = sceKernelOpen(PLUGIN_INSTALLED_CHECKSUM_PATH, 0x200 | 0x001 /* O_TRUNC|O_CREAT */, 0777);
+    int32_t fd = sceKernelOpen(PLUGIN_INSTALLED_CHECKSUM_PATH, ORBIS_O_CREAT_TRUNC_WRONLY /* see plugin_common.h's BUG FIX comment */, 0777);
     if (fd < 0) return;
     sceKernelWrite(fd, actualHex, strlen(actualHex));
     sceKernelClose(fd);
@@ -815,18 +816,30 @@ static bool check_for_plugin_update(void)
     // on the main thread at startup; now that it's a background-
     // thread check, that cost isn't worth trading correctness for.
     char installedHex[SHA256_HEX_SIZE];
-    if (!sha256_hex_of_file(PLUGIN_PRX_PATH, installedHex, sizeof(installedHex)) &&
-        !read_installed_checksum(installedHex, sizeof(installedHex))) {
+    bool hashedRealFile = sha256_hex_of_file(PLUGIN_PRX_PATH, installedHex, sizeof(installedHex));
+    if (!hashedRealFile && !read_installed_checksum(installedHex, sizeof(installedHex))) {
+        printf("[update-check] FAILED: couldn't hash %s and no readable sidecar\n", PLUGIN_PRX_PATH);
         return false;
     }
 
     char shaAssetUrl[256];
-    if (!github_resolve_asset_api_url(PLUGIN_CHECKSUM_ASSET_NAME, shaAssetUrl, sizeof(shaAssetUrl))) return false;
+    if (!github_resolve_asset_api_url(PLUGIN_CHECKSUM_ASSET_NAME, shaAssetUrl, sizeof(shaAssetUrl))) {
+        printf("[update-check] FAILED: github_resolve_asset_api_url(%s)\n", PLUGIN_CHECKSUM_ASSET_NAME);
+        return false;
+    }
 
     char remoteHex[512]; // checksum sidecar is tiny; generous vs. a bare 65
-    if (!http_download_text(shaAssetUrl, remoteHex, sizeof(remoteHex), "application/octet-stream")) return false;
+    if (!http_download_text(shaAssetUrl, remoteHex, sizeof(remoteHex), "application/octet-stream")) {
+        printf("[update-check] FAILED: http_download_text(%s)\n", shaAssetUrl);
+        return false;
+    }
 
-    return !sha256_hex_matches(installedHex, remoteHex);
+    bool matches = sha256_hex_matches(installedHex, remoteHex);
+    printf("[update-check] source=%s\n  installed=%s\n  remote_url=%s\n  remote=%.64s\n  result=%s\n",
+           hashedRealFile ? "hashed real .prx" : "fallback sidecar", installedHex, shaAssetUrl, remoteHex,
+           matches ? "up to date" : "UPDATE AVAILABLE");
+
+    return !matches;
 }
 
 // ---------------- background update check ----------------
@@ -840,30 +853,54 @@ static bool check_for_plugin_update(void)
 // home screen becomes interactive, and on a bad connection it's the
 // full 10s connect/resolve/send timeout, more than once.
 //
-// Fixed by kicking the check off on its own SDL thread right after
-// the home screen is up, and polling a plain atomic flag once a frame
+// Fixed by kicking the check off on its own thread right after the
+// home screen is up, and polling a plain atomic flag once a frame
 // (poll_background_update_check(), called from the main loop below)
 // instead of blocking anything. SDL_atomic_t is used rather than a
 // plain bool specifically so the main thread's read and the
 // background thread's write can't tear -- g_state itself is still
 // only ever touched from the main thread, in the polling function.
 //
+// CRASH FIX: the first version of this used SDL_CreateThread(), which
+// on a stack size of 0 means "whatever this platform's default is" --
+// SDL's own docs warn that default can be "wildly different between
+// platforms... a few kilobytes" on some. On real hardware this
+// crashed on startup every time: a SIGSEGV write fault at exactly
+// rsp-8, with a huge rbp/rsp gap for only a few stack frames rooted at
+// a fresh thread-entry trampoline -- the textbook shape of overrunning
+// a too-small thread stack, not a bad pointer. github_resolve_asset_
+// api_url() above already treats a 64KB buffer as "too large to
+// comfortably put on this thread's stack", so a platform default small
+// enough to blow past on this call chain isn't a stretch. Switched to
+// the plugin side's own scePthreadCreate pattern (see plugin/source/
+// main.c's ambient_sample_thread call, confirmed against real
+// hardware there) with an explicit stack size instead of trusting an
+// unknown SDL-port default. UPDATE_CHECK_THREAD_STACK_SIZE reuses the
+// same 256KB this file already trusts sceSslInit() with, rather than
+// inventing a new number.
+//
 // Deliberately defined after check_for_plugin_update() rather than
 // forward-declared -- this file has no function forward declarations
 // anywhere else and relies entirely on top-to-bottom definition
 // order, so this follows that same convention instead of introducing
 // a new one.
+#define UPDATE_CHECK_THREAD_STACK_SIZE (256 * 1024)
+
 static SDL_atomic_t g_updateCheckDone;      // 0 = not finished yet, 1 = finished
 static SDL_atomic_t g_updateCheckAvailable; // valid only once g_updateCheckDone == 1
 static bool g_updateCheckStarted = false;
 
-static int update_check_thread_fn(void *unused)
+// scePthreadCreate's expected entry-point shape (void *(*)(void *)),
+// same as plugin/source/sample_thread.c's ambient_sample_thread --
+// not SDL_CreateThread's int(*)(void*), since this no longer goes
+// through SDL to create the thread.
+static void *update_check_thread_fn(void *unused)
 {
     (void)unused;
     bool available = check_for_plugin_update();
     SDL_AtomicSet(&g_updateCheckAvailable, available ? 1 : 0);
     SDL_AtomicSet(&g_updateCheckDone, 1); // set last -- this publishes the result above
-    return 0;
+    return NULL;
 }
 
 // Fires the check off in the background. Safe to call even when
@@ -873,11 +910,21 @@ static int update_check_thread_fn(void *unused)
 static void start_background_update_check(void)
 {
     SDL_AtomicSet(&g_updateCheckDone, 0);
-    SDL_Thread *t = SDL_CreateThread(update_check_thread_fn, "plugin_update_check", NULL);
-    if (t) {
-        SDL_DetachThread(t); // fire-and-forget: poll_background_update_check() reads the result via atomics
+
+    OrbisPthreadAttr attr;
+    if (scePthreadAttrInit(&attr) != 0) return;
+    scePthreadAttrSetstacksize(&attr, UPDATE_CHECK_THREAD_STACK_SIZE);
+
+    OrbisPthread thread;
+    if (scePthreadCreate(&thread, &attr, update_check_thread_fn, NULL, "plugin_update_check") == 0) {
+        scePthreadDetach(thread); // fire-and-forget: poll_background_update_check() reads the result via atomics
         g_updateCheckStarted = true;
     }
+    // scePthreadCreate copies whatever it needs out of attr (same as
+    // POSIX pthread_create) -- safe to destroy right after, whether or
+    // not the create call above actually succeeded.
+    scePthreadAttrDestroy(&attr);
+
     // If thread creation itself failed, g_updateCheckStarted stays
     // false and poll_background_update_check() below just never finds
     // anything to report -- same "fail quiet" behavior
@@ -896,7 +943,7 @@ static void poll_background_update_check(void)
     g_updateCheckStarted = false;
     if (SDL_AtomicGet(&g_updateCheckAvailable)) {
         g_state.install = UI_INSTALL_UPDATE;
-        set_status("Update available -- press the button below to update.", false);
+        set_status("Update available.", false);
     } else if (!g_state.statusIsError) {
         // Only overwrite a still-neutral "Checking for updates..." --
         // if something else already changed the status line in the
@@ -1014,7 +1061,7 @@ static bool ensure_plugin_registered_in_goldhen(void)
 
     free(buf);
 
-    int32_t wfd = sceKernelOpen(GOLDHEN_PLUGINS_INI, 0x200 | 0x001 /* O_TRUNC|O_CREAT */, 0777);
+    int32_t wfd = sceKernelOpen(GOLDHEN_PLUGINS_INI, ORBIS_O_CREAT_TRUNC_WRONLY /* see plugin_common.h's BUG FIX comment */, 0777);
     if (wfd < 0) { free(out); return false; }
     bool ok = (outLen == 0) || (sceKernelWrite(wfd, out, outLen) == (long)outLen);
     sceKernelClose(wfd);
@@ -1103,7 +1150,18 @@ static void do_plugin_update(void)
     const char *stagingPath = PLUGIN_PRX_PATH ".new";
     int32_t src = sceKernelOpen(tmpPath, 0, 0777);
     if (src < 0) { set_status("Update failed: couldn't reopen downloaded file.", true); return; }
-    int32_t dst = sceKernelOpen(stagingPath, 0x200 | 0x001, 0777);
+    // BUG FIX: this used to be the bare literal "0x200 | 0x001" with
+    // no O_TRUNC at all (see plugin_common.h's BUG FIX comment) -- if
+    // stagingPath already had leftover bytes from an earlier update
+    // attempt and the new download was the same size or smaller, this
+    // open() didn't truncate them, so the copy loop below (which reads
+    // src until ITS eof, not stagingPath's old length) could carry
+    // that leftover tail through the rename into the live
+    // PLUGIN_PRX_PATH -- corrupting the install with extra trailing
+    // bytes that were never part of the SHA-256-verified download,
+    // which is exactly what made check_for_plugin_update() see a
+    // mismatch against GitHub's checksum on every subsequent launch.
+    int32_t dst = sceKernelOpen(stagingPath, ORBIS_O_CREAT_TRUNC_WRONLY, 0777);
     if (dst < 0) { sceKernelClose(src); set_status("Update failed: can't write staging file.", true); return; }
     uint8_t buf[64 * 1024];
     bool copyOk = true;
@@ -1114,6 +1172,23 @@ static void do_plugin_update(void)
         if (sceKernelWrite(dst, buf, n) != n) { copyOk = false; break; }
     }
     sceKernelClose(src);
+    // DURABILITY FIX: force the staged copy's data out of the OS
+    // write-back cache and onto physical storage BEFORE it's renamed
+    // into place. Without this, sceKernelWrite() above only guarantees
+    // the bytes are visible to reads within this same running OS
+    // instance -- nothing stopped a reboot (or GoldHEN/the console
+    // dropping power) between "Installed." and the plugin actually
+    // being reloaded from disk from silently reverting stagingPath's
+    // dirty pages, so the rename below could complete against data
+    // that was never actually committed. fsync() operates on the
+    // fd, same POSIX call already used (in a different file) on the
+    // libc FILE*-based path in config.c -- sceKernelOpen()'s fds are
+    // the same POSIX-compatible fds, so this works on the raw fd here
+    // too, no sceKernel-prefixed equivalent needed. Checked: a failed
+    // fsync means the data isn't safely on disk, so this must abort
+    // the install rather than rename an unverified-durable file into
+    // the live path.
+    if (copyOk && fsync(dst) < 0) copyOk = false;
     sceKernelClose(dst);
     if (!copyOk) {
         set_status("Update failed: staging copy incomplete. Your existing plugin is untouched.", true);
@@ -1123,6 +1198,22 @@ static void do_plugin_update(void)
     if (sceKernelRename(stagingPath, PLUGIN_PRX_PATH) < 0) {
         set_status("Update failed: couldn't install staged build. Your existing plugin is untouched.", true);
         return;
+    }
+
+    // Same reasoning as above, applied to the rename itself: a rename
+    // is a directory-metadata change, which the OS can also hold in
+    // write-back cache rather than committing immediately. Re-opening
+    // PLUGIN_PRX_PATH here and fsyncing that fd (rather than trying to
+    // fsync stagingPath's now-stale fd, or a directory fd -- open()
+    // on a directory isn't reliably supported by this SDK's libkernel)
+    // pushes the renamed directory entry and its data out to disk
+    // before this function reports success.
+    {
+        int32_t verifyFd = sceKernelOpen(PLUGIN_PRX_PATH, 0, 0777);
+        if (verifyFd >= 0) {
+            fsync(verifyFd);
+            sceKernelClose(verifyFd);
+        }
     }
 
     if (!ensure_plugin_registered_in_goldhen()) {
@@ -1135,7 +1226,7 @@ static void do_plugin_update(void)
     write_installed_checksum(actualHex);
 
     g_state.install = UI_INSTALL_OK;
-    set_status("Installed. Relaunch your game to load it.", false);
+    set_status("Installed. Relaunch your game.", false);
 }
 
 // Re-enables a .prx that's already on disk but whose plugins.ini entry
