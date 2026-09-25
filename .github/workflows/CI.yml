@@ -1,4 +1,4 @@
-name: Build plugin
+name: Build plugin + companion app
 
 on:
   push:
@@ -16,11 +16,6 @@ concurrency:
 jobs:
   build_prx:
     runs-on: ubuntu-latest
-    # softprops/action-gh-release needs this to create the release and
-    # upload assets with the default GITHUB_TOKEN -- the repo-level
-    # default token permissions are read-only otherwise.
-    permissions:
-      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@main
@@ -87,24 +82,136 @@ jobs:
           path: bin/plugins/prx_debug/*.prx
           if-no-files-found: error
 
+  build_pkg:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@main
+
+      - name: Setup variables
+        run: |
+          sudo apt install -y llvm lld
+          sudo ln -sf "$(command -v llvm-ar || ls /usr/bin/llvm-ar-* | sort -V | tail -1)" /usr/local/bin/llvm-ar
+          echo "OO_PS4_TOOLCHAIN=$GITHUB_WORKSPACE/OpenOrbis/PS4Toolchain" >> $GITHUB_ENV
+          # PkgTool.Core is a self-contained .NET build that otherwise
+          # crashes on a bare runner looking for ICU -- this skips
+          # culture-aware globalization instead of installing libicu.
+          echo "DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1" >> $GITHUB_ENV
+
+      - name: Download OpenOrbis Toolchain
+        run: curl -sL https://github.com/illusion0001/OpenOrbis-PS4-Toolchain/releases/latest/download/toolchain.tar.gz | tar xz -C ./
+
+      - name: Make Linux toolchain binaries executable
+        # The release tarball doesn't reliably preserve the executable
+        # bit for the Linux tools (create-fself/create-gp4/PkgTool.Core)
+        # the way it does for the Windows .exes build.bat calls.
+        run: chmod +x "$OO_PS4_TOOLCHAIN"/bin/linux/*
+
+      - name: Compile
+        # Linux equivalent of build.bat's compile loop. The Windows
+        # script's extra -I for include\freetype2 is a dead flag on this
+        # toolchain snapshot -- ft2build.h already resolves via the
+        # top-level include dir below -- so it's dropped here rather
+        # than carried over.
+        working-directory: companion-app
+        run: |
+          mkdir -p build/int
+          for f in source/*.c; do
+            clang --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables \
+              -I"$OO_PS4_TOOLCHAIN/include" -I"$OO_PS4_TOOLCHAIN/include/c++/v1" -Iinclude \
+              -c -o "build/int/$(basename "${f%.c}").o" "$f"
+          done
+
+      - name: Link
+        working-directory: companion-app
+        env:
+          LIBRARIES: >-
+            -lc -lkernel -lc++ -lSceUserService -lSceVideoOut -lSceAudioOut -lScePad
+            -lSceSysmodule -lSceFreeType -lSDL2 -lSceNet -lSceSsl -lSceHttp
+            -lSceCommonDialog -lSceImeDialog -lSceSystemService
+        run: |
+          ld.lld -m elf_x86_64 -pie --script "$OO_PS4_TOOLCHAIN/link.x" --eh-frame-hdr \
+            -o build/eboot.elf "-L$OO_PS4_TOOLCHAIN/lib" $LIBRARIES \
+            "$OO_PS4_TOOLCHAIN/lib/crt1.o" build/int/*.o
+
+      - name: Create self + param.sfo
+        working-directory: companion-app
+        run: |
+          "$OO_PS4_TOOLCHAIN/bin/linux/create-fself" -in build/eboot.elf --out build/eboot.oelf --eboot eboot.bin --paid 0x3800000000000011
+
+          PT="$OO_PS4_TOOLCHAIN/bin/linux/PkgTool.Core"
+          "$PT" sfo_new sce_sys/param.sfo
+          "$PT" sfo_setentry sce_sys/param.sfo APP_TYPE --type Integer --maxsize 4 --value 1
+          "$PT" sfo_setentry sce_sys/param.sfo APP_VER --type Utf8 --maxsize 8 --value "1.00"
+          "$PT" sfo_setentry sce_sys/param.sfo ATTRIBUTE --type Integer --maxsize 4 --value 2
+          "$PT" sfo_setentry sce_sys/param.sfo CATEGORY --type Utf8 --maxsize 4 --value "gd"
+          "$PT" sfo_setentry sce_sys/param.sfo CONTENT_ID --type Utf8 --maxsize 48 --value "IV0000-SHMY00091_00-PS4AMBILIGHT0000"
+          "$PT" sfo_setentry sce_sys/param.sfo DOWNLOAD_DATA_SIZE --type Integer --maxsize 4 --value 0
+          "$PT" sfo_setentry sce_sys/param.sfo SYSTEM_VER --type Integer --maxsize 4 --value 0
+          "$PT" sfo_setentry sce_sys/param.sfo TITLE --type Utf8 --maxsize 128 --value "PS4 Ambilight"
+          "$PT" sfo_setentry sce_sys/param.sfo TITLE_ID --type Utf8 --maxsize 12 --value "SHMY00091"
+          "$PT" sfo_setentry sce_sys/param.sfo VERSION --type Utf8 --maxsize 8 --value "1.00"
+
+      - name: Build package
+        working-directory: companion-app
+        run: |
+          MODULE_FILES=$(cd sce_module && printf 'sce_module/%s ' *)
+          FONT_FILES=$(cd assets/fonts && printf 'assets/fonts/%s ' *)
+
+          "$OO_PS4_TOOLCHAIN/bin/linux/create-gp4" -out pkg.gp4 \
+            --content-id="IV0000-SHMY00091_00-PS4AMBILIGHT0000" \
+            --files "eboot.bin sce_sys/about/right.sprx sce_sys/param.sfo sce_sys/icon0.png $MODULE_FILES $FONT_FILES"
+
+          mkdir -p pkg_out
+          "$OO_PS4_TOOLCHAIN/bin/linux/PkgTool.Core" pkg_build pkg.gp4 pkg_out
+
+      - name: Upload companion app package
+        uses: actions/upload-artifact@main
+        with:
+          name: ps4_ambient_light-companion_pkg
+          path: companion-app/pkg_out/*.pkg
+          if-no-files-found: error
+
+  # Separate from both build jobs so build_prx and build_pkg can run in
+  # parallel: this job just waits on both and is the only one that
+  # talks to softprops/action-gh-release, so there's no risk of the two
+  # builds racing each other to create/update the same tagged release.
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [build_prx, build_pkg]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download plugin (Release)
+        uses: actions/download-artifact@main
+        with:
+          name: ps4_ambient_light-prx_final
+          path: prx
+
+      - name: Download companion app package
+        uses: actions/download-artifact@main
+        with:
+          name: ps4_ambient_light-companion_pkg
+          path: pkg
+
       # Only the Release .prx is ever fetched by anything at runtime --
       # companion-app/source/main.c's PLUGIN_UPDATE_URL points at
       # ".../releases/latest/download/ps4_ambient_light.prx", which
       # only resolves once an actual GitHub Release exists with an
       # asset of exactly that name attached. This job produces both
       # that asset and its checksum sidecar (PLUGIN_CHECKSUM_URL,
-      # "<same name>.sha256") from the SAME build, so they can never
-      # drift out of sync with each other -- do_plugin_update() in
-      # main.c refuses to install if they don't match.
+      # "<same name>.sha256") from the SAME build_prx artifact, so they
+      # can never drift out of sync with each other -- do_plugin_update()
+      # in main.c refuses to install if they don't match.
       - name: Compute checksum
-        if: startsWith(github.ref, 'refs/tags/')
-        working-directory: bin/plugins/prx_final
+        working-directory: prx
         run: sha256sum ps4_ambient_light.prx > ps4_ambient_light.prx.sha256
 
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            bin/plugins/prx_final/ps4_ambient_light.prx
-            bin/plugins/prx_final/ps4_ambient_light.prx.sha256
+            prx/ps4_ambient_light.prx
+            prx/ps4_ambient_light.prx.sha256
+            pkg/*.pkg
