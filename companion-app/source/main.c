@@ -58,6 +58,7 @@
 #include "ddp.h"
 #include "relay_signal.h"
 #include "layout.h"
+#include "sha256.h"
 #include "ui_canvas.h"
 #include "ui_theme.h"
 #include "ui_screens.h"
@@ -84,6 +85,29 @@
 #define PLUGIN_PRX_PATH GOLDHEN_PLUGINS_DIR "/ps4_ambient_light.prx"
 
 #define PLUGIN_UPDATE_URL "https://github.com/mitchshimy/PS4-Ambilight/releases/latest/download/ps4_ambient_light.prx"
+
+// Companion checksum asset -- must be uploaded to the SAME GitHub
+// release as the .prx above, named by appending ".sha256" to the prx
+// filename. Its contents are expected to be (or at least start with)
+// 64 lowercase/uppercase hex chars: the plain output of
+// `sha256sum ps4_ambient_light.prx` is exactly this, including its
+// trailing "  ps4_ambient_light.prx" -- sha256_hex_matches() only
+// reads the first 64 hex chars, so that suffix is fine as-is. A
+// release build's CI should run that command and upload the result
+// as this exact filename alongside the .prx.
+//
+// This catches a corrupted or tampered download (the two things
+// flagged about this path: no integrity check on what gets installed,
+// and the SSL callback below accepts any certificate). It is NOT a
+// substitute for real certificate validation -- an attacker able to
+// MITM the .prx download can equally serve a fake checksum file next
+// to it. Real protection against that would mean signing releases
+// with a keypair and embedding the public key here instead of
+// fetching a hash from the same untrusted connection; this is the
+// lighter-weight step that at least catches corruption and
+// accidental/incidental tampering, and is worth doing regardless of
+// whether signing is added later.
+#define PLUGIN_CHECKSUM_URL PLUGIN_UPDATE_URL ".sha256"
 
 // ---------------- global state ----------------
 
@@ -318,8 +342,11 @@ static bool http_init(void)
 }
 
 // Downloads full_url to local_dst. Returns true on a clean 200 +
-// complete read.
-static bool http_download(const char *full_url, const char *local_dst)
+// complete read. If outDigest is non-NULL, it's filled with the
+// SHA-256 of exactly the bytes written to local_dst, computed
+// incrementally as each chunk arrives -- no separate re-read of the
+// file afterwards.
+static bool http_download(const char *full_url, const char *local_dst, uint8_t outDigest[SHA256_DIGEST_SIZE])
 {
     if (!http_init()) return false;
 
@@ -352,15 +379,79 @@ static bool http_download(const char *full_url, const char *local_dst)
                     int32_t fd = sceKernelOpen(local_dst, 0x200 | 0x001 /* O_TRUNC|O_CREAT */, 0777);
                     if (fd >= 0) {
                         uint8_t buf[64 * 1024];
+                        Sha256Ctx shaCtx;
+                        if (outDigest) sha256_init(&shaCtx);
                         ok = true;
                         for (;;) {
                             int n = sceHttpReadData(req, buf, sizeof(buf));
                             if (n < 0) { ok = false; break; }
                             if (n == 0) break;
                             if (sceKernelWrite(fd, buf, n) != n) { ok = false; break; }
+                            if (outDigest) sha256_update(&shaCtx, buf, (size_t)n);
                         }
                         sceKernelClose(fd);
+                        if (ok && outDigest) sha256_final(&shaCtx, outDigest);
                     }
+                }
+            }
+        }
+        if (req >= 0) sceHttpDeleteRequest(req);
+    }
+    if (conn >= 0) sceHttpDeleteConnection(conn);
+    sceHttpDeleteTemplate(tpl);
+    return ok;
+}
+
+// Downloads full_url straight into outBuf (NUL-terminated on success),
+// for small text responses -- just the checksum sidecar file, which
+// is a couple dozen bytes. Same template/connection/request machinery
+// as http_download() above, just written into memory instead of a
+// file since there's no reason to touch the filesystem for this much
+// data. Returns false on any HTTP failure OR if the response would
+// overflow outBufSize (including the NUL) -- a checksum file should
+// never be anywhere close to outBufSize, so an overflow here almost
+// certainly means the URL served something else (an HTML error page,
+// a redirect-to-login, etc.), which must not be silently truncated
+// and treated as a hash.
+static bool http_download_text(const char *full_url, char *outBuf, size_t outBufSize)
+{
+    if (!http_init() || outBufSize == 0) return false;
+
+    int tpl = sceHttpCreateTemplate(g_libhttpCtxId, "Mozilla/5.0 (PLAYSTATION 4; 1.00)", ORBIS_HTTP_VERSION_1_1, 1);
+    if (tpl < 0) return false;
+    sceHttpsSetSslCallback(tpl, skip_ssl_callback, NULL);
+    sceHttpSetConnectTimeOut(tpl, 10 * 1000 * 1000);
+    sceHttpSetResolveTimeOut(tpl, 10 * 1000 * 1000);
+    sceHttpSetSendTimeOut(tpl, 10 * 1000 * 1000);
+
+    bool ok = false;
+    int conn = sceHttpCreateConnectionWithURL(tpl, full_url, 1);
+    if (conn >= 0) {
+        int req = sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_GET, full_url, 0);
+        if (req >= 0) {
+            if (sceHttpSendRequest(req, NULL, 0) >= 0) {
+                int32_t statusCode = 0;
+                sceHttpGetStatusCode(req, &statusCode);
+                if (statusCode == 200) {
+                    size_t total = 0;
+                    ok = true;
+                    for (;;) {
+                        int n = sceHttpReadData(req, outBuf + total, outBufSize - 1 - total);
+                        if (n < 0) { ok = false; break; }
+                        if (n == 0) break;
+                        total += (size_t)n;
+                        if (total >= outBufSize - 1) {
+                            // Buffer's full but the server might still
+                            // have more to send -- that's the overflow
+                            // case described above, so treat it as a
+                            // failure rather than guess we got it all.
+                            uint8_t probe[1];
+                            int extra = sceHttpReadData(req, probe, sizeof(probe));
+                            if (extra != 0) ok = false;
+                            break;
+                        }
+                    }
+                    if (ok) outBuf[total] = '\0';
                 }
             }
         }
@@ -595,8 +686,36 @@ static void do_plugin_update(void)
     render_and_present();   // one frame of feedback before the blocking I/O below
 
     const char *tmpPath = "/data/ps4_ambient_light_update.tmp";
-    if (!http_download(PLUGIN_UPDATE_URL, tmpPath)) {
+    uint8_t digest[SHA256_DIGEST_SIZE];
+    if (!http_download(PLUGIN_UPDATE_URL, tmpPath, digest)) {
         set_status("Download FAILED -- check PLUGIN_UPDATE_URL and network.", true);
+        return;
+    }
+
+    set_status("Verifying checksum...", false);
+    render_and_present();
+
+    char expectedHex[512]; // checksum sidecar is tiny; generous vs. a bare 65
+    if (!http_download_text(PLUGIN_CHECKSUM_URL, expectedHex, sizeof(expectedHex))) {
+        // NOT YET VERIFIED (same status as the IME-dialog and L1/R1
+        // conventions flagged at the top of this file): sceKernelUnlink
+        // matches libkernel's usual POSIX-mirroring naming
+        // (sceKernelOpen/Read/Write/Close/Rename are all real and
+        // already used above/below), but no sample in this SDK
+        // snapshot was found that actually calls it. If it's missing
+        // at link time, the fallback is to just leave the .tmp file on
+        // disk -- harmless (it's overwritten by O_TRUNC next attempt)
+        // -- rather than something this function must have.
+        sceKernelUnlink(tmpPath);
+        set_status("Update failed: couldn't fetch checksum for verification.", true);
+        return;
+    }
+
+    char actualHex[SHA256_HEX_SIZE];
+    sha256_to_hex(digest, actualHex);
+    if (!sha256_hex_matches(actualHex, expectedHex)) {
+        sceKernelUnlink(tmpPath);
+        set_status("Update failed: checksum mismatch -- downloaded file rejected.", true);
         return;
     }
 
