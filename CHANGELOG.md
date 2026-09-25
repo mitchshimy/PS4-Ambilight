@@ -94,6 +94,12 @@ The companion app is a standalone PS4 homebrew UI (not a GoldHEN
 plugin) for editing the plugin's ini config on-console, with a live
 color preview and a plugin self-updater.
 
+- Added a Help screen (five scrollable cards: getting started, strip
+  setup, picture tuning, controls, troubleshooting), reachable from
+  Home and navigated the same way as Setup/Customization. Live
+  preview is now scoped to an explicit Setup/Customization check
+  instead of "anything that isn't Home", so Help doesn't
+  inadvertently send DDP frames to the real strip either.
 - Fixed a crash on close: the app previously fell off the end of
   `main()` after `SDL_Quit()`, which isn't a valid way to end a
   process launched via the PS4's `LoadExec` and reliably crashed with
@@ -145,3 +151,16 @@ color preview and a plugin self-updater.
   to cross-check the plugin's own tiling math.
 - `tools/udp_ground_truth_listener.py` -- minimal UDP listener used for
   capturing real packets from the plugin during development.
+
+## CI
+
+- Tagged-release builds now also build and package the companion app
+  (`build_pkg` job: compiles `companion-app/source/*.c` against the
+  same OpenOrbis toolchain the plugin job uses, via its Linux
+  `create-fself`/`create-gp4`/`PkgTool.Core` binaries instead of
+  `build.bat`'s Windows ones, producing a `.pkg`). Releasing is now
+  its own `publish` job that waits on both the plugin and companion
+  app builds and is the only job that touches
+  `softprops/action-gh-release`, so the two builds run in parallel
+  without a chance of racing each other to create the same release.
+
