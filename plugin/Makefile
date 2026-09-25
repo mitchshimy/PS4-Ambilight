@@ -12,7 +12,7 @@ endif
 TYPE         := $(BUILD_TYPE)
 FINAL        := $(DEBUG_FLAGS)
 BUILD_FOLDER := $(shell pwd)/../bin/plugins
-OUTPUT_PRX   := $(shell basename $(CURDIR))
+OUTPUT_PRX   := ps4_ambient_light
 TARGET       := $(BUILD_FOLDER)/prx$(TYPE)/$(OUTPUT_PRX)
 TARGET_ELF   := $(BUILD_FOLDER)/elf$(TYPE)/$(OUTPUT_PRX)
 TARGETSTUB   := $(OUTPUT_PRX).so
@@ -21,6 +21,7 @@ TARGETSTUB   := $(OUTPUT_PRX).so
 LIBS := -lSceLibcInternal -lGoldHEN_Hook -lkernel -lSceSysmodule
 
 EXTRAFLAGS := $(DEBUG_FLAGS) $(LOG_TYPE) -fcolor-diagnostics -Wall
+O_FLAG     ?= -O2
 
 # You likely won't need to touch anything below this point.
 # Root vars
