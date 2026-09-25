@@ -93,6 +93,17 @@ The companion app is a standalone PS4 homebrew UI (not a GoldHEN
 plugin) for editing the plugin's ini config on-console, with a live
 color preview and a plugin self-updater.
 
+- Fixed the self-updater's `http_download()`/`http_download_text()`
+  always failing ("Download FAILED -- check PLUGIN_UPDATE_URL and
+  network") even against a valid `PLUGIN_UPDATE_URL`/
+  `PLUGIN_CHECKSUM_URL` and a working network. Both URLs are GitHub
+  `/releases/latest/download/...` links, which GitHub serves as a
+  302 to a signed `objects.githubusercontent.com` URL rather than
+  the asset itself; `sceHttp` doesn't follow redirects unless told
+  to, so the strict `statusCode == 200` check was seeing the 302 and
+  failing every time -- worked fine in a browser (which follows
+  redirects transparently) but never on-console. Added
+  `sceHttpSetAutoRedirect(tpl, 1)` on both request templates.
 - Added a QR-code popup to the Help screen (Triangle), pointing at
   this repo's README `## Help` section -- the on-console cards stay
   short on purpose, so this is the hand-off to the long-form version

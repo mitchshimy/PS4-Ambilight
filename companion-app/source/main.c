@@ -355,6 +355,15 @@ static bool http_download(const char *full_url, const char *local_dst, uint8_t o
     if (tpl < 0) return false;
     sceHttpsSetSslCallback(tpl, skip_ssl_callback, NULL);
 
+    // PLUGIN_UPDATE_URL is a GitHub "/releases/latest/download/..."
+    // link, which GitHub serves as a 302 to a signed, short-lived
+    // objects.githubusercontent.com URL -- the actual asset never
+    // lives at the github.com URL itself. Without this, sceHttp
+    // returns that 302 as-is, statusCode != 200 below, and the
+    // download fails every time even though the same URL opens fine
+    // in a browser (which follows the redirect transparently).
+    sceHttpSetAutoRedirect(tpl, 1);
+
     // Bounds how long a hung/unreachable PLUGIN_UPDATE_URL can freeze
     // the app. Confirmed real 2-arg signatures; NOT confirmed against
     // a working call site in this SDK (no sample calls these), so
@@ -421,6 +430,9 @@ static bool http_download_text(const char *full_url, char *outBuf, size_t outBuf
     int tpl = sceHttpCreateTemplate(g_libhttpCtxId, "Mozilla/5.0 (PLAYSTATION 4; 1.00)", ORBIS_HTTP_VERSION_1_1, 1);
     if (tpl < 0) return false;
     sceHttpsSetSslCallback(tpl, skip_ssl_callback, NULL);
+    // Same redirect fix as http_download() above -- PLUGIN_CHECKSUM_URL
+    // is PLUGIN_UPDATE_URL + ".sha256", so it 302s the same way.
+    sceHttpSetAutoRedirect(tpl, 1);
     sceHttpSetConnectTimeOut(tpl, 10 * 1000 * 1000);
     sceHttpSetResolveTimeOut(tpl, 10 * 1000 * 1000);
     sceHttpSetSendTimeOut(tpl, 10 * 1000 * 1000);
