@@ -94,6 +94,18 @@ The companion app is a standalone PS4 homebrew UI (not a GoldHEN
 plugin) for editing the plugin's ini config on-console, with a live
 color preview and a plugin self-updater.
 
+- Added a QR-code popup to the Help screen (Triangle), pointing at
+  this repo's README `## Help` section -- the on-console cards stay
+  short on purpose, so this is the hand-off to the long-form version
+  (setup walkthrough, full ini reference, troubleshooting) that
+  doesn't fit in a controller-navigable list. Vendored Project
+  Nayuki's QR Code generator library (`qrcodegen.c`, MIT license) for
+  the encode; the popup itself draws the module grid straight into
+  the canvas with `ui_fill_rect_fast()` rather than shipping a
+  pre-rendered image asset. Round-tripped through a real QR decoder
+  off-console to confirm the encoded bitmap is correct -- see the
+  companion app's own README for what's still unverified about how
+  it reads on an actual screen and camera.
 - Added a Help screen (five scrollable cards: getting started, strip
   setup, picture tuning, controls, troubleshooting), reachable from
   Home and navigated the same way as Setup/Customization. Live

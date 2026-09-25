@@ -64,6 +64,7 @@
 #include "ui_screens.h"
 #include "led_frame.h"
 #include "ui_widgets.h"   // CONTENT_TOP / CONTENT_H for scroll clamping
+#include "help_qr.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -1240,8 +1241,25 @@ static void handle_settings_input(bool up, bool down, bool left, bool right,
 
 #define HELP_SCROLL_STEP_PX 80.0f
 
-static void handle_help_input(bool up, bool down, bool circle)
+static void handle_help_input(bool up, bool down, bool circle, bool cross, bool triangle)
 {
+    // While the QR popup is up, it owns Cross/Circle/Triangle
+    // entirely -- none of Help's own scrolling or back-navigation
+    // should also fire underneath it on the same press. up/down are
+    // deliberately NOT swallowed here: scrolling the cards behind a
+    // popup that fully covers the .content viewport has no visible
+    // effect anyway, and letting the D-Pad repeat-fire logic keep
+    // running avoids a stale-press artifact the instant the popup
+    // closes (the same class of bug crossUp's whole edge-triggered
+    // design exists to avoid elsewhere in this file).
+    if (g_state.qrVisible) {
+        if (circle || cross) {
+            g_state.qrVisible = false;
+            g_dirty = true;
+        }
+        return;
+    }
+
     if (up || down) {
         float maxScroll = ui_screen_content_height(g_fonts, &g_cfg, UI_SCREEN_HELP) - CONTENT_H;
         if (maxScroll < 0.0f) maxScroll = 0.0f;
@@ -1250,6 +1268,12 @@ static void handle_help_input(bool up, bool down, bool circle)
         if (g_state.scrollY < 0.0f) g_state.scrollY = 0.0f;
         if (g_state.scrollY > maxScroll) g_state.scrollY = maxScroll;
         g_dirty = true;
+    }
+
+    if (triangle) {
+        g_state.qrVisible = true;
+        g_dirty = true;
+        return; // don't also process circle below on the same frame
     }
 
     if (circle) {
@@ -1342,6 +1366,15 @@ int main(void)
     int commonDialogRet = sceCommonDialogInitialize();
     printf("[main] sceCommonDialogInitialize() = %d\n", commonDialogRet);
 
+    // Encodes once, up front, rather than on first Triangle press --
+    // qrcodegen's Reed-Solomon pass is cheap but there's no reason to
+    // pay it on a frame that also has to redraw the whole modal for
+    // the first time. Logged, not fatal: render_qr_modal() falls back
+    // to a plain "visit this URL" panel if this never succeeds.
+    if (!help_qr_init()) {
+        printf("[main] help_qr_init() failed -- QR popup will show the URL as text only\n");
+    }
+
     memset(&g_state, 0, sizeof(g_state));
     g_state.screen = UI_SCREEN_HOME;
     g_state.install = plugin_registration_state();
@@ -1399,8 +1432,9 @@ int main(void)
             // Cross, Circle, Options: edge-only, on purpose (see the
             // comment above repeat_fire()).
             #define PRESSED(b) ((pad.buttons & (b)) && !(prevPad.buttons & (b)))
-            bool circle  = PRESSED(ORBIS_PAD_BUTTON_CIRCLE);
-            bool options = PRESSED(ORBIS_PAD_BUTTON_OPTIONS);
+            bool circle   = PRESSED(ORBIS_PAD_BUTTON_CIRCLE);
+            bool options  = PRESSED(ORBIS_PAD_BUTTON_OPTIONS);
+            bool triangle = PRESSED(ORBIS_PAD_BUTTON_TRIANGLE);
             // Cross fires on release, not press: opening the keyboard
             // on the press edge left a stale press for the IME dialog
             // to consume as an immediate Cancel before any real input
@@ -1415,7 +1449,7 @@ int main(void)
                 if (g_state.screen == UI_SCREEN_HOME)
                     handle_home_input(up, down, left, right, crossUp);
                 else if (g_state.screen == UI_SCREEN_HELP)
-                    handle_help_input(up, down, circle);
+                    handle_help_input(up, down, circle, crossUp, triangle);
                 else
                     handle_settings_input(up, down, left, right, crossUp, circle, l1, r1);
             }

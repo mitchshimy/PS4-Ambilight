@@ -9,6 +9,7 @@
 #include "ui_widgets.h"
 #include "ui_icons.h"
 #include "led_frame.h"
+#include "help_qr.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -432,11 +433,107 @@ static void render_help_screen(UiCanvas *c, const UiFonts *f, const UiState *st)
 
         float hintsTop = barY + (barH - ui_hint_row_line_height(f)) * 0.5f;
         float hintsBase = hintsTop + ui_hint_row_baseline_above(f);
-        UiHintItem hints[2] = {
+        UiHintItem hints[3] = {
             { "D-Pad", "scroll" },
+            { "\xE2\x96\xB3", "QR code" },
             { "\xE2\x97\x8B", "back" },
         };
-        ui_draw_hint_row(c, f, PAGE_MARGIN_X, hintsBase, hints, 2);
+        ui_draw_hint_row(c, f, PAGE_MARGIN_X, hintsBase, hints, 3);
+    }
+}
+
+// ---------------------------------------------------------------
+// Help -> QR popup (Triangle)
+// ---------------------------------------------------------------
+//
+// A dim backdrop over whatever Help already drew, plus one centered
+// panel: title, one line of instructions, the QR code itself (drawn
+// module-by-module with ui_fill_rect_fast -- see that function's own
+// comment on why it, not the AA rasteriser, is the right tool for a
+// grid of single-digit-px squares), and the URL spelled out in mono
+// underneath for anyone who'd rather type it than scan it. help_qr.c
+// owns the actual QR bitmap; this only lays it out.
+static void render_qr_modal(UiCanvas *c, const UiFonts *f)
+{
+    // Backdrop -- same idea as a CSS position:fixed dimmer, just a
+    // flat rect the size of the page at low alpha over everything
+    // already drawn this frame.
+    ui_fill_rect(c, ui_rect(0.0f, 0.0f, PAGE_W, PAGE_H), ui_rgba(0, 0, 0, 0.72f));
+
+    int qrSize = help_qr_size();
+    if (qrSize <= 0) {
+        // help_qr_init() failed (see main.c's startup check) -- rather
+        // than draw an empty panel that looks broken, say so plainly
+        // and point at the fallback that always works regardless.
+        float pw = 720.0f, ph = 220.0f;
+        UiRect p = ui_rect((PAGE_W - pw) * 0.5f, (PAGE_H - ph) * 0.5f, pw, ph);
+        ui_fill_round_rect(c, p, ui_radius_all(RADIUS_PANEL), COL_PANEL_BG);
+        ui_stroke_round_rect(c, p, ui_radius_all(RADIUS_PANEL), 1.0f, COL_PANEL_BORDER);
+        float ty = p.y + 40.0f;
+        ui_text_draw_box(c, f->cardTitle, p.x + 32.0f, ty, 0.0f, "Couldn't build QR code", COL_TEXT_HEADING);
+        ty += ui_font_line_normal(f->cardTitle) + 16.0f;
+        ui_text_draw_box(c, f->note, p.x + 32.0f, ty, 0.0f, "Visit the URL below instead:", COL_TEXT_BODY);
+        ty += ui_font_line_normal(f->note) + 12.0f;
+        ui_text_draw_box(c, f->monoStatus, p.x + 32.0f, ty, 0.0f, HELP_QR_URL, COL_CYAN);
+        return;
+    }
+
+    // Each module drawn at a fixed on-screen size rather than
+    // stretching to fill some target box -- at this panel's size a
+    // module works out to a clean integer pixel count, and a QR
+    // scanner (especially a phone camera at a shallow angle off the
+    // TV) reads crisp square edges far more reliably than anything
+    // that landed on a fractional pixel boundary.
+    const float moduleSize = 8.0f;
+    float qrPx = (float)qrSize * moduleSize;
+
+    float pw = qrPx + 96.0f;
+    float ph = qrPx + 96.0f + 120.0f; // + title/instructions above, URL below
+    UiRect p = ui_rect((PAGE_W - pw) * 0.5f, (PAGE_H - ph) * 0.5f, pw, ph);
+
+    ui_fill_round_rect(c, p, ui_radius_all(RADIUS_PANEL), COL_PANEL_BG);
+    ui_stroke_round_rect(c, p, ui_radius_all(RADIUS_PANEL), 1.0f, COL_PANEL_BORDER_STRONG);
+
+    float ty = p.y + 36.0f;
+    ui_text_draw_box(c, f->cardTitle, p.x + 48.0f, ty, 0.0f, "Scan for the full guide", COL_TEXT_HEADING);
+    ty += ui_font_line_normal(f->cardTitle) + 10.0f;
+    ui_text_draw_box(c, f->note, p.x + 48.0f, ty, 0.0f,
+        "Opens this project's README on GitHub.",
+        COL_TEXT_BODY);
+
+    // QR itself -- a plain white square behind it first (most scanners
+    // expect light modules to actually be light, not "the panel's own
+    // dark background showing through"), then the dark modules on top.
+    float qrTop = p.y + 118.0f;
+    float qrX = p.x + (pw - qrPx) * 0.5f;
+    ui_fill_rect(c, ui_rect(qrX, qrTop, qrPx, qrPx), ui_rgb(255, 255, 255));
+    for (int y = 0; y < qrSize; y++) {
+        for (int x = 0; x < qrSize; x++) {
+            if (!help_qr_module(x, y)) continue;
+            ui_fill_rect_fast(c,
+                ui_rect(qrX + (float)x * moduleSize, qrTop + (float)y * moduleSize, moduleSize, moduleSize),
+                ui_rgb(0x0b, 0x0c, 0x0e)); // COL_BG0 -- reads on camera better than pure black on some sensors
+        }
+    }
+
+    float urlY = qrTop + qrPx + 28.0f;
+    float urlW = ui_text_width(f->monoStatus, HELP_QR_URL);
+    ui_text_draw_box(c, f->monoStatus, p.x + (pw - urlW) * 0.5f, urlY, 0.0f, HELP_QR_URL, COL_TEXT_LABEL);
+
+    // Hint bar for the modal itself, bottom of the page -- same slot
+    // Help's own hint bar uses, since the modal fully covers it.
+    {
+        float barH = 96.0f;
+        float barY = PAGE_H - barH;
+        ui_fill_rect(c, ui_rect(0.0f, barY, PAGE_W, barH), COL_BG0);
+        ui_fill_rect(c, ui_rect(0.0f, barY, PAGE_W, 1.0f), COL_PANEL_BORDER);
+
+        float hintsTop = barY + (barH - ui_hint_row_line_height(f)) * 0.5f;
+        float hintsBase = hintsTop + ui_hint_row_baseline_above(f);
+        UiHintItem hints[1] = {
+            { "\xE2\x9C\x95 / \xE2\x97\x8B", "close" },
+        };
+        ui_draw_hint_row(c, f, PAGE_MARGIN_X, hintsBase, hints, 1);
     }
 }
 
@@ -805,6 +902,7 @@ void ui_render(UiCanvas *c, const UiFonts *f, const AmbientConfig *cfg, const Ui
             break;
         case UI_SCREEN_HELP:
             render_help_screen(c, f, st);
+            if (st->qrVisible) render_qr_modal(c, f);
             break;
         case UI_SCREEN_HOME:
         default:

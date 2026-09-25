@@ -446,6 +446,20 @@ static const Shape SH_HELP[] = {
     { SH_PATH, "M9.2 9.3a2.8 2.8 0 1 1 4.4 2.6c-.7.5-1.1 1-1.1 2.1", {0}, false, 0, CUR },
     { SH_LINE, NULL, {12, 17, 12, 17.01f, 0}, false, 0, CUR },
 };
+static const Shape SH_QR[] = {
+    { SH_RECT, NULL, {3, 3, 5, 5, 1}, false, 0, CUR },
+    { SH_RECT, NULL, {16, 3, 5, 5, 1}, false, 0, CUR },
+    { SH_RECT, NULL, {3, 16, 5, 5, 1}, false, 0, CUR },
+    { SH_PATH, "M21 16h-3a2 2 0 0 0-2 2v3", {0}, false, 0, CUR },
+    { SH_LINE, NULL, {21, 21, 21, 21.01f, 0}, false, 0, CUR },
+    { SH_PATH, "M12 7v3a2 2 0 0 1-2 2H7", {0}, false, 0, CUR },
+    { SH_LINE, NULL, {3, 12, 3.01f, 12, 0}, false, 0, CUR },
+    { SH_LINE, NULL, {12, 3, 12.01f, 3, 0}, false, 0, CUR },
+    { SH_LINE, NULL, {12, 16, 12, 16.01f, 0}, false, 0, CUR },
+    { SH_LINE, NULL, {16, 12, 17, 12, 0}, false, 0, CUR },
+    { SH_LINE, NULL, {21, 12, 21, 12.01f, 0}, false, 0, CUR },
+    { SH_LINE, NULL, {12, 21, 12, 20, 0}, false, 0, CUR },
+};
 static const Shape SH_CALENDAR[] = {
     { SH_RECT, NULL, {3, 4, 18, 16, 1.5f}, false, 0, CUR },
     { SH_PATH, "M3 9h18", {0}, false, 0, CUR },
@@ -506,6 +520,7 @@ static const IconDef kIcons[ICON_COUNT] = {
     [ICON_SLIDER_B]    = DEF(SH_SLIDER_B, 1.8f, true),
     [ICON_RING]        = DEF(SH_RING, 1.8f, false),
     [ICON_HELP]        = DEF(SH_HELP, 1.8f, true),
+    [ICON_QR]          = DEF(SH_QR, 2.0f, true),
     [ICON_CALENDAR]    = DEF(SH_CALENDAR, 1.8f, true),
     [ICON_ACTIVITY]    = DEF(SH_ACTIVITY, 2.0f, true),
     [ICON_DOWNLOAD]    = DEF(SH_DOWNLOAD, 2.0f, true),

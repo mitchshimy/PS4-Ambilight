@@ -30,6 +30,14 @@ self-updating the plugin binary from your GitHub repo.
 - LED output goes through `layout.c`, a C port of the Android app's
   `LedLayoutGeometry.kt`, sending one color per configured LED in
   real physical wire order (not a fixed sample-swatch layout).
+- The Help screen stays deliberately minimal (five short cards --
+  see `ui_screens.c`'s own comment above `help_cards_init()`), since
+  there's no room here for the level of detail this repo's own
+  README goes into. Triangle on that screen instead opens a QR-code
+  popup (`help_qr.c`, drawing through `ui_fill_rect_fast()` in
+  `render_qr_modal()`, `ui_screens.c`) pointing at this repo's own
+  README `## Help` section, for anyone who wants the long version
+  without typing a URL on a controller.
 - On-screen keyboard for `wledHost` uses the real
   `sceImeDialogInit`/`sceImeDialogGetStatus`/`sceImeDialogGetResult`/
   `sceImeDialogTerm` sequence from `orbis/ImeDialog.h`.
@@ -49,6 +57,18 @@ self-updating the plugin binary from your GitHub repo.
    at this repo's GitHub releases) has the HTTP/SSL/Net calls checked
    against SDK samples and builds successfully, but hasn't been
    exercised end-to-end.
+3. The Help screen's QR popup: `help_qr.c`'s encode/lookup path is
+   verified off-console (built and run against the real vendored
+   `qrcodegen.c` on a desktop toolchain, then round-tripped through
+   an actual QR decoder -- comes back as exactly
+   `https://github.com/mitchshimy/PS4-Ambilight#help`, nothing more,
+   nothing less). What isn't yet verified is the on-console rendering
+   itself against a real screen and a real phone camera: whether an
+   8px-per-module code at this panel size reads reliably off a TV
+   from a few feet away, and whether the dark-on-white contrast holds
+   up under a TV's own brightness/gamma. If it doesn't scan cleanly,
+   raising `moduleSize` in `render_qr_modal()` (`ui_screens.c`) is the
+   first thing to try before touching anything in `help_qr.c`.
 
 ## Building
 
@@ -68,4 +88,6 @@ build.bat <intermediate_dir> ps4_ambient_light_companion <output_dir>
 - `source/ddp.c` / `include/ddp.h` -- WLED UDP sender (mirrors the plugin)
 - `source/config.c` / `include/config.h` -- ini_table parser (shared with the plugin)
 - `source/layout.c` / `include/layout.h` -- full-strip LED layout geometry (physical wire order + on-screen position), a C port of the Android app's `LedLayoutGeometry.kt`
+- `source/help_qr.c` / `include/help_qr.h` -- builds and caches the Help screen's QR bitmap (points at this repo's README `## Help` section)
+- `source/qrcodegen.c` / `include/qrcodegen.h` -- vendored, unmodified: [Project Nayuki's QR Code generator library](https://github.com/nayuki/QR-Code-generator) (C edition, MIT license)
 - `tests/test_settings.c`, `tests/test_pipeline.c` -- isolation tests; `gcc -Iinclude -o test_x test_x.c source/x.c source/config.c tests/test_sce_stubs.c` to rerun

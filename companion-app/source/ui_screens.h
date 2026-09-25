@@ -48,6 +48,11 @@ typedef struct {
     bool toastVisible;
     int homeFocus;
 
+    // Help screen only: the Triangle-button QR popup (help_qr.c)
+    // pointing at this project's README. Independent of scrollY --
+    // opening it doesn't move or reset the card list underneath.
+    bool qrVisible;
+
     // Set up / Customization
     float scrollY;
     int focusField;           // index into that screen's field list; == field count means the Save button

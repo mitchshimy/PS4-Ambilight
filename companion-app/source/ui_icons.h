@@ -48,6 +48,7 @@ typedef enum {
 
     // Home
     ICON_HELP,
+    ICON_QR,            // Help screen: open QR code popup
     ICON_CALENDAR,      // Set up nav tab
     ICON_ACTIVITY,      // Test strip
     ICON_DOWNLOAD,      // Install plugin
