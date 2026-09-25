@@ -314,6 +314,133 @@ static int build_group_cards(MenuScreen screen, const AmbientConfig *cfg, int fo
 }
 
 // ---------------------------------------------------------------
+// Help
+// ---------------------------------------------------------------
+//
+// Static prose, not data-driven from kMenuItems like Set up/
+// Customization are -- there's nothing per-config to show. Reuses
+// UiCard purely for its title+icon+desc layout: every card here has
+// rowCount 0, so ui_card_draw never reaches its field-row code at
+// all.
+//
+// Content is kept honest against what's actually true elsewhere in
+// this app: group names match kMenuItems' own "group" strings
+// (settings.c).
+//
+// Built inside a function, not as a file-scope static const table --
+// COL_* (ui_theme.h) expands to a call to ui_rgb(), an ordinary
+// function, not a constant expression, so it can't sit in a
+// static-storage initializer the way kGroupLayouts' plain ints and
+// strings can.
+#define HELP_CARD_COUNT 5
+
+static void help_cards_init(UiCard out[HELP_CARD_COUNT])
+{
+    out[0] = (UiCard){ COL_CYAN, ICON_DOWNLOAD, COL_CYAN, "Getting started",
+        "Install ps4_ambient_light.prx from Home once GoldHEN is running -- "
+        "the button there reads Install, Update or Enable depending on "
+        "what's already on the console. From there, Set up connects WLED "
+        "and describes your physical strip, and Customization tunes how "
+        "captured colours look. Test strip on Home sends live colours to "
+        "your strip so you can check it before starting a game.",
+        NULL, 0, -1, NULL, NULL };
+
+    out[1] = (UiCard){ COL_AMBER, ICON_WIFI, COL_AMBER, "Set up your strip",
+        "Under WLED connection, enter your WLED controller's IPv4 address "
+        "and UDP port (DDP defaults to 4048). Under LED strip layout, set "
+        "how many LEDs run along each edge, which corner the strip starts "
+        "from, which direction it runs, and colour order -- these have to "
+        "match how the strip is physically wired, not just how many LEDs "
+        "you own. Live reload controls how often the plugin re-reads this "
+        "file while a game is running, so changes apply without closing it.",
+        NULL, 0, -1, NULL, NULL };
+
+    out[2] = (UiCard){ COL_AMBER, ICON_LEVELS, COL_AMBER, "Tune the picture",
+        "Screen sampling sets how much of each edge is captured, and how "
+        "far in from the bezel -- raise the capture margins if letterbox "
+        "bars or overscan are being sampled instead of picture content. "
+        "Colour shapes brightness, saturation, gamma and black/white "
+        "levels. Motion and darkness controls transition smoothing and "
+        "how the strip behaves in very dark scenes. RGB balance calibrates "
+        "each channel separately, for a strip or TV with an off white point.",
+        NULL, 0, -1, NULL, NULL };
+
+    out[3] = (UiCard){ COL_CYAN, ICON_HELP, COL_CYAN, "Controls",
+        "D-Pad moves between fields and cards, and scrolls this screen. "
+        "Cross selects a highlighted item, opens the on-screen keyboard "
+        "for a text field, or cycles an enum value one step. L1/R1 nudge "
+        "a focused number up or down directly, without opening the "
+        "keyboard -- the fast way to walk a value across its full range. "
+        "Circle goes back a screen. Options saves and quits from Home.",
+        NULL, 0, -1, NULL, NULL };
+
+    out[4] = (UiCard){ COL_WARN, ICON_WARNING, COL_WARN, "Troubleshooting",
+        "Strip stays dark: re-check the WLED host/port on Set up, and "
+        "that WLED's realtime UDP listener is actually reachable on your "
+        "network. Colours land on the wrong LEDs: revisit start corner, "
+        "direction and colour order together -- getting one wrong usually "
+        "looks like the others are wrong too. Light stuck on after "
+        "quitting a game: update the plugin from Home, older builds had a "
+        "bug here.",
+        NULL, 0, -1, NULL, NULL };
+}
+
+static float help_content_height(const UiFonts *f)
+{
+    UiCard cards[HELP_CARD_COUNT];
+    help_cards_init(cards);
+
+    float h = 0.0f;
+    for (int i = 0; i < HELP_CARD_COUNT; i++) {
+        if (i) h += CARD_GAP;
+        h += ui_card_height(f, &cards[i], CONTENT_W);
+    }
+    // Clears the back-hint bar (96px) plus the same margin above it
+    // that the settings screens leave above their taller save bar.
+    h += 40.0f + 96.0f;
+    return h;
+}
+
+static void render_help_screen(UiCanvas *c, const UiFonts *f, const UiState *st)
+{
+    ui_draw_scene(c);
+    ui_page_header(c, f, "Help",
+        "Setup steps, controls and fixes for common problems, in one place.");
+
+    UiCard cards[HELP_CARD_COUNT];
+    help_cards_init(cards);
+
+    // .content { top:236px; height:844px; overflow-y:auto } -- same
+    // viewport the settings screens scroll within.
+    ui_clip_push(c, ui_rect(0.0f, CONTENT_TOP, PAGE_W, CONTENT_H));
+    float y = CONTENT_TOP - st->scrollY;
+    for (int i = 0; i < HELP_CARD_COUNT; i++) {
+        float h = ui_card_height(f, &cards[i], CONTENT_W);
+        if (y + h > CONTENT_TOP - 40.0f && y < CONTENT_TOP + CONTENT_H + 40.0f)
+            ui_card_draw(c, f, &cards[i], PAGE_MARGIN_X, y, CONTENT_W);
+        y += h + CARD_GAP;
+    }
+    ui_clip_pop(c);
+
+    // A plain hint bar, not the settings screens' save bar -- Help has
+    // nothing to save, just somewhere to scroll back from.
+    {
+        float barH = 96.0f;
+        float barY = PAGE_H - barH;
+        ui_fill_rect(c, ui_rect(0.0f, barY, PAGE_W, barH), COL_BG0);
+        ui_fill_rect(c, ui_rect(0.0f, barY, PAGE_W, 1.0f), COL_PANEL_BORDER);
+
+        float hintsTop = barY + (barH - ui_hint_row_line_height(f)) * 0.5f;
+        float hintsBase = hintsTop + ui_hint_row_baseline_above(f);
+        UiHintItem hints[2] = {
+            { "D-Pad", "scroll" },
+            { "\xE2\x97\x8B", "back" },
+        };
+        ui_draw_hint_row(c, f, PAGE_MARGIN_X, hintsBase, hints, 2);
+    }
+}
+
+// ---------------------------------------------------------------
 // Settings-screen shell
 // ---------------------------------------------------------------
 
@@ -326,6 +453,8 @@ static int build_cards(const AmbientConfig *cfg, const UiState *st, UiScreenId s
 
 float ui_screen_content_height(const UiFonts *f, const AmbientConfig *cfg, UiScreenId screen)
 {
+    if (screen == UI_SCREEN_HELP) return help_content_height(f);
+
     UiCard cards[6]; UiField fields[32]; UiFieldRow rows[10];
     ValueBuf vb; vb.n = 0;
     UiState st; memset(&st, 0, sizeof(st)); st.focusField = -1;
@@ -673,6 +802,9 @@ void ui_render(UiCanvas *c, const UiFonts *f, const AmbientConfig *cfg, const Ui
         case UI_SCREEN_CUSTOMIZATION:
             render_settings_screen(c, f, cfg, st, "Customization",
                 "Tune how captured colours are sampled, balanced and animated on the strip.");
+            break;
+        case UI_SCREEN_HELP:
+            render_help_screen(c, f, st);
             break;
         case UI_SCREEN_HOME:
         default:

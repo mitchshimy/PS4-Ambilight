@@ -1111,6 +1111,10 @@ static void handle_home_input(bool up, bool down, bool left, bool right, bool cr
                 set_status(msg, false);
             }
             break;
+        case HOME_FOCUS_HELP:
+            g_state.screen = UI_SCREEN_HELP;
+            g_state.scrollY = 0.0f;
+            break;
         case HOME_FOCUS_SETUP:
             g_state.screen = UI_SCREEN_SETUP;
             g_state.focusField = 0;
@@ -1218,6 +1222,33 @@ static void handle_settings_input(bool up, bool down, bool left, bool right,
     } else if ((l1 || r1) && !onSaveButton) {
         const MenuItem *item = &kMenuItems[start + g_state.focusField];
         nudge_field(item, r1 ? +1 : -1);
+        g_dirty = true;
+    }
+
+    if (circle) {
+        g_state.screen = UI_SCREEN_HOME;
+        g_state.scrollY = 0.0f;
+        g_dirty = true;
+    }
+}
+
+// ---------------- Help screen input ----------------
+//
+// No fields here, so no move_focus_vertical()/scroll_to_focus() --
+// just a plain scroll, clamped the same way scroll_to_focus() clamps
+// against ui_screen_content_height(), and Circle back to Home.
+
+#define HELP_SCROLL_STEP_PX 80.0f
+
+static void handle_help_input(bool up, bool down, bool circle)
+{
+    if (up || down) {
+        float maxScroll = ui_screen_content_height(g_fonts, &g_cfg, UI_SCREEN_HELP) - CONTENT_H;
+        if (maxScroll < 0.0f) maxScroll = 0.0f;
+
+        g_state.scrollY += down ? HELP_SCROLL_STEP_PX : -HELP_SCROLL_STEP_PX;
+        if (g_state.scrollY < 0.0f) g_state.scrollY = 0.0f;
+        if (g_state.scrollY > maxScroll) g_state.scrollY = maxScroll;
         g_dirty = true;
     }
 
@@ -1383,6 +1414,8 @@ int main(void)
             if (!commonDialogUsed) {
                 if (g_state.screen == UI_SCREEN_HOME)
                     handle_home_input(up, down, left, right, crossUp);
+                else if (g_state.screen == UI_SCREEN_HELP)
+                    handle_help_input(up, down, circle);
                 else
                     handle_settings_input(up, down, left, right, crossUp, circle, l1, r1);
             }
@@ -1416,8 +1449,11 @@ int main(void)
         // since their own LED edge frame is always on screen there.
         // Home only runs it -- and therefore only actually sends
         // anything over DDP -- while Test Strip is active, so sitting
-        // on Home doesn't silently drive the real strip.
-        if (g_state.screen != UI_SCREEN_HOME || g_state.testRunning) {
+        // on Home doesn't silently drive the real strip. Help has no
+        // LED edge frame either and nothing on screen a live preview
+        // would even show, so it's excluded the same way Home is.
+        bool screenHasLedFrame = (g_state.screen == UI_SCREEN_SETUP || g_state.screen == UI_SCREEN_CUSTOMIZATION);
+        if (screenHasLedFrame || g_state.testRunning) {
             update_live_preview();
         }
 

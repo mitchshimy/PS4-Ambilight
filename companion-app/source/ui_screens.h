@@ -17,7 +17,8 @@
 typedef enum {
     UI_SCREEN_HOME,
     UI_SCREEN_SETUP,
-    UI_SCREEN_CUSTOMIZATION
+    UI_SCREEN_CUSTOMIZATION,
+    UI_SCREEN_HELP
 } UiScreenId;
 
 typedef enum {
