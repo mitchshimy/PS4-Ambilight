@@ -30,7 +30,7 @@
 // and per-edge direction) was verified in Python for all 8 corner x
 // direction combinations -- including an exact regression check
 // against v1.0-v1.3's hardcoded bottom-left/clockwise output -- before
-// being ported here. See handoff §43.
+// being ported here. See.
 // ============================================================
 
 #define SCREEN_WIDTH  1920
@@ -111,7 +111,7 @@ void buildZoneGeometry(void)
     } else {
         // CCW = reverse of the CW-for-this-corner visit order, with
         // every edge's own direction also reversed. Verified in
-        // Python against all 4 corners before porting (handoff §43).
+        // Python against all 4 corners before porting.
         for (int i = 0; i < 4; i++) { order[i] = kCwFromBL[(startEdgeIdx + (3 - i)) % 4]; edgeReversed[i] = true; }
     }
 
@@ -248,7 +248,7 @@ void sampleZoneAverage(const TileParams *p, uint64_t bufferAddr, PixelUnpackFn u
             // v1.1: bounds-check before touching real memory. A correct
             // offset formula should never produce something out of
             // range for a valid (sx,sy), but this project has already
-            // paid for bad-memory-access crashes once (handoff §3) --
+            // paid for bad-memory-access crashes once --
             // cheap insurance against a future edge case or a param
             // typo, not a sign anything is currently wrong.
             if (off + 4 > BASE_PADDED_BUFFER_BYTES) continue;

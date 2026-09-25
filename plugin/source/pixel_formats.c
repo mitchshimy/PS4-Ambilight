@@ -63,7 +63,7 @@ void unpackA8R8G8B8_to_rgb888(uint32_t px, uint8_t *r, uint8_t *g, uint8_t *b)
 // decode matched the real screen within single-digit-to-teens RGB
 // units at all 5 points simultaneously; the no-swap version never
 // matched at any point, on any screen, across the whole investigation
-// (see detile_verify_probe's history/handoff for the full trail).
+// (see detile_verify_probe's history/ for the full trail).
 //
 // The format ID itself was confirmed UNCHANGED (0x80002200) between
 // HDR on and off via a fresh registration event -- so this isn't a
@@ -101,7 +101,7 @@ void unpackA8B8G8R8_to_rgb888(uint32_t px, uint8_t *r, uint8_t *g, uint8_t *b)
 // PQ_REFERENCE_WHITE_NITS / PQ_TONE_MAP_MAX_NITS are the same tunable
 // ASSUMPTIONS as the Python script, not measured constants -- if HDR
 // colors still look off after this ships, these two are the knobs to
-// adjust (empirically, against a real capture, same method as §21/§22
+// adjust (empirically, against a real capture, same method as /
 // and the screenshot verification). The PQ EOTF and BT.2020->BT.709
 // matrix below are fixed standards and should not need touching.
 // ------------------------------------------------------------------
@@ -113,7 +113,7 @@ void unpackA8B8G8R8_to_rgb888(uint32_t px, uint8_t *r, uint8_t *g, uint8_t *b)
 // Precomputed on the dev machine (Python, matching
 // decode_verification_dump.py's unpack_a2r10g10b10_bt2020_pq exactly)
 // and verified to reproduce identical output to a live pow()-based
-// version on this session's 5 real captured pixels (max 1-unit diff,
+// version on 5 real captured pixels (max 1-unit diff,
 // from LUT quantization -- well within the photo-comparison noise
 // floor already established). Table lookups only, no libm calls --
 // see buildZoneGeometry's comment above: this build does not link
@@ -536,7 +536,7 @@ static double pqToneMap(double nits)
 // 30 times a second -- on the order of 150,000+ calls/sec at this
 // project's own default layout. Under CPU pressure (a game's loading
 // screen was captured at 97% CPU usage during the investigation that
-// led here -- see handoff), that's real, avoidable contention.
+// led here.
 //
 // This is IDENTICAL output to calling pqToneMap(kPqEotfNitsLut[code])
 // live, not an approximation -- same double-precision formula, same
@@ -622,7 +622,7 @@ void unpackA2R10G10B10_BT2020_PQ_to_rgb888(uint32_t px, uint8_t *r, uint8_t *g, 
 // smoothly under the correct hypothesis and noisily under the wrong
 // one. Method validated twice, blind, against real captures in
 // decode_verification_dump.py before being ported here -- see that
-// script's own comment and this repo's handoff for the full trail.
+// script's own comment and this repo's for the full trail.
 //
 // Kept deliberately cheap, per explicit instruction not to have this
 // plugin compete with the game for CPU: reuses zone coordinates
@@ -638,7 +638,7 @@ void unpackA2R10G10B10_BT2020_PQ_to_rgb888(uint32_t px, uint8_t *r, uint8_t *g, 
 //
 // UNTESTED WITH HDR ACTUALLY ON. Nothing in this whole investigation
 // has run this decision live, watching real LED output, with HDR
-// engaged -- see this repo's handoff for exactly what has and hasn't
+// engaged
 // been verified before treating this as a finished fix.
 #define HDR2200_DETECT_SAMPLES   8   // zones sampled per check (capped, not all configured zones)
 #define HDR2200_DETECT_INTERVAL  60  // run the check every Nth sampling pass, not every pass
@@ -655,14 +655,14 @@ PixelUnpackFn getUnpackFnForFormat(uint32_t format)
         return unpackA2R10G10B10_to_rgb888;
     case 0x88740000: // A2R10G10B10_BT2020_PQ -- real PQ decode, not SDR truncation (was the bug)
         return unpackA2R10G10B10_BT2020_PQ_to_rgb888;
-    case 0x80000000: // A8R8G8B8_SRGB -- confirmed live format this session, §21/§22
+    case 0x80000000: // A8R8G8B8_SRGB -- confirmed live format on real hardware
         return unpackA8R8G8B8_to_rgb888;
     case 0x80002200: // A8B8G8R8_SRGB (HDR off) or A2R10G10B10_BT2020_PQ (HDR on) --
         // same registered format ID means two different real byte layouts
         // on this title, decided live by detectHdr2200Format() (called
         // just before this from the main sampling loop). See that
         // function's own comment above g_hdr2200IsHdr for the full trail.
-        // UNTESTED WITH HDR ACTUALLY ON -- see this repo's handoff.
+        // UNTESTED WITH HDR ACTUALLY ON.
         return g_hdr2200IsHdr ? unpackA2R10G10B10_BT2020_PQ_to_rgb888
                                : unpackA8B8G8R8_to_rgb888;
     default:

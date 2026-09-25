@@ -19,7 +19,7 @@
 #include "ambient_internal.h"
 
 // ============================================================
-// v2.2 color processing (see handoff §49): gamma -> brightness ->
+// v2.2 color processing : gamma -> brightness ->
 // contrast -> saturation -> levels -> color order. Most of this is
 // still applied once per zone AFTER averaging, for the same
 // cheapness argument as before -- EXCEPT the new per-channel
@@ -54,7 +54,7 @@
 // saturation's luma math than a channel clamped to 0 first. Verified
 // in Python before porting: on ordinary test inputs this produced
 // final answers up to ~13/255 away from Android's real result, not
-// mere rounding noise (handoff §49). The only clamp+round in this
+// mere rounding noise. The only clamp+round in this
 // whole chain is in applyColorProcessing, right before the wire-order
 // write.
 // ------------------------------------------------------------
@@ -101,7 +101,7 @@ static void applySaturation(int32_t r, int32_t g, int32_t b, int32_t sat,
     // 0.299/0.587/0.114 as floats; /1000 here instead of the old
     // >>8-and-round-to-256ths approximation, now that this whole path
     // carries enough precision to make the more exact weights worth
-    // using -- see handoff §49).
+    // using.
     int32_t luma = (r * 299 + g * 587 + b * 114) / 1000;
     *outR = luma + ((r - luma) * (100 + sat)) / 100;
     *outG = luma + ((g - luma) * (100 + sat)) / 100;
@@ -109,7 +109,7 @@ static void applySaturation(int32_t r, int32_t g, int32_t b, int32_t sat,
 }
 
 // Writes the 3 output bytes in the configured wire order (most
-// WS2812B/NeoPixel strips are GRB, not RGB -- see handoff §43/the
+// WS2812B/NeoPixel strips are GRB, not RGB
 // Android inspiration project's own color_order setting).
 static void writeColorOrdered(uint8_t r, uint8_t g, uint8_t b, ColorOrder order, uint8_t *out3)
 {
@@ -124,8 +124,8 @@ static void writeColorOrdered(uint8_t r, uint8_t g, uint8_t b, ColorOrder order,
 }
 
 // v2.1/v2.2: levels adjustment (black_level/white_level) -- a
-// "stretch" of the 0-255 range, verified in Python before porting
-// (handoff §45). Applied last in the color pipeline, matching the
+// "stretch" of the 0-255 range, verified in Python before porting.
+// Applied last in the color pipeline, matching the
 // real Android ColorProcessor order (gamma -> brightness -> contrast
 // -> saturation -> levels).
 //
@@ -161,7 +161,7 @@ static void applyLevels(int32_t r, int32_t g, int32_t b, uint32_t blackLevel, ui
 // exactly: gamma -> brightness -> contrast -> saturation -> levels
 // (black/white point) -> wire-order bytes. (v2.0/v2.1 had saturation
 // BEFORE brightness, contradicting this file's own comment about
-// matching Android -- see handoff §49. Harmless while brightness was
+// matching Android. Harmless while brightness was
 // only ever a single uniform scalar, since a uniform scale commutes
 // with saturation's luma-relative math either way, but it stops being
 // harmless the moment per-channel brightness enters the picture below,
@@ -179,7 +179,7 @@ static void applyLevels(int32_t r, int32_t g, int32_t b, uint32_t blackLevel, ui
 //
 // dark_threshold is deliberately NOT applied here -- it needs
 // per-zone hysteresis STATE across calls, which lives with the
-// smoothing state in the thread loop instead (handoff §45).
+// smoothing state in the thread loop instead.
 void applyColorProcessing(uint8_t r8, uint8_t g8, uint8_t b8, uint8_t *out3)
 {
     // --- gamma (legacy global fixed-LUT stage; per-channel gamma_r/g/b
@@ -227,8 +227,8 @@ static bool g_zoneIsDark[MAX_TOTAL_ZONES];
 // "dark", with hysteresis to avoid flicker on scenes hovering right at
 // the threshold: must drop BELOW darkThreshold to go dark, but must
 // rise darkThreshold+10 to come back -- verified in Python against a
-// deliberately noisy sequence straddling the threshold before porting
-// (handoff §45). Applied to the pre-smoothing target, so smoothing (if
+// deliberately noisy sequence straddling the threshold before porting.
+// Applied to the pre-smoothing target, so smoothing (if
 // enabled) naturally fades in/out of black instead of snapping.
 #define DARK_HYSTERESIS 10
 void applyDarkThreshold(uint32_t zoneIdx, uint8_t *r, uint8_t *g, uint8_t *b)

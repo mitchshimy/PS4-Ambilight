@@ -44,7 +44,7 @@
 // load time, see ambient_load_config). Kept as a plain local rather
 // than a macro since it's no longer a compile-time constant.
 
-// handoff §30 step 2: window size for the timing telemetry below.
+// step 2: window size for the timing telemetry below.
 // 30 iterations at the ~30Hz default sample rate is roughly one
 // telemetry packet per second of real play -- frequent enough to see
 // trends during a session, not so frequent it competes with the actual
@@ -62,7 +62,7 @@
 // exponential smoothing, NOT a calibrated real time-constant -- alpha
 // is derived from settlingTimeMs vs the actual sample interval and
 // verified in Python to converge monotonically without oscillation
-// across a range of settling times (handoff §43), but "settling_time_ms
+// across a range of settling times, but "settling_time_ms
 // = 200" should be read as "roughly", not as a precise guarantee.
 static uint8_t g_smoothedRgb[MAX_TOTAL_ZONES][3];
 bool g_smoothedRgbValid = false; // false until the first real frame, so startup doesn't fade in from black
@@ -101,7 +101,7 @@ void *ambient_sample_thread(void *args)
         // v2.4: throttled to roughly once a second (every ~30
         // iterations of this thread's own ~30Hz loop) rather than
         // every iteration -- this calls into a symbol resolved by
-        // name against a real signature this session could only
+        // name against a real signature, which could only
         // corroborate from a third-party reimplementation (see the
         // struct's own comment above), not Sony's actual SDK or real
         // hardware, so its exposure is kept low while unproven. Once
@@ -152,7 +152,7 @@ void *ambient_sample_thread(void *args)
         if (smoothingAlpha > 256u) smoothingAlpha = 256u;
 
         if (g_isBackgrounded) {
-            // v2.4: closes the real, confirmed gap from handoff §36 --
+            // v2.4: closes the real, confirmed gap from --
             // suspending via the PS button no longer leaves the strip
             // frozen showing the last on-screen frame indefinitely;
             // skip the capture/process/send pipeline below while
@@ -219,8 +219,8 @@ void *ambient_sample_thread(void *args)
                 // send, on an ongoing basis for as long as HDR stayed
                 // active -- real, avoidable CPU and network cost that
                 // was still present in the exact build meant to REDUCE
-                // CPU cost after the WLED-timeout root cause was found
-                // (see handoff §53). It has already served its purpose
+                // CPU cost after the WLED-timeout root cause was found.
+                // It has already served its purpose
                 // (it's what let root cause get found at all) and has
                 // no reason to ship active in a release build.
                 //
@@ -237,9 +237,9 @@ void *ambient_sample_thread(void *args)
                 // content in one corner". This sends the RAW pre-decode
                 // 32-bit pixel word for 3 zones spread across the strip
                 // (index 0, middle, last) alongside the already-decoded
-                // 8-bit RGB this session already has visibility into,
-                // so the raw captured value itself -- not just this
-                // session's interpretation of it -- can be checked.
+                // 8-bit RGB pipeline output, so the raw captured value
+                // itself -- not just the decoded interpretation of it --
+                // can be checked.
                 // Throttled to roughly every 3rd time this block runs
                 // (NOT scaled to update_frequency_hz=30 like the first
                 // attempt at this was) -- the color packets in the
@@ -304,7 +304,7 @@ void *ambient_sample_thread(void *args)
         }
         // If g_haveValidFormat is 0 (unknown/unconfirmed format), we
         // deliberately send nothing rather than guess -- this is the
-        // direct fix for how the original §22 bug happened in the
+        // direct fix for how the original bug happened in the
         // first place: an unverified format assumption silently
         // producing wrong color instead of visibly doing nothing.
 
@@ -312,7 +312,7 @@ void *ambient_sample_thread(void *args)
         // Measured window intentionally covers the buffer-resolve +
         // sampling + color processing + UDP send above -- i.e.
         // everything this thread does per iteration except the sleep
-        // itself. That's the number §26/§30 actually cares about: is
+        // itself. That's the number / actually cares about: is
         // the real work fast enough to comfortably fit inside
         // sampleIntervalUs, not how precisely usleep() is honored.
         uint64_t t1 = sceKernelGetProcessTimeCounter();

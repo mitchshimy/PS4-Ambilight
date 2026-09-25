@@ -188,7 +188,7 @@ const uint8_t kGammaLuts[NUM_GAMMA_LUTS][256] = {
 // so its handful of extra ULPs of error versus real pow() (verified
 // in Python before porting: max off-by-one across a full 0-255 LUT,
 // and EXACT agreement across the entire dark end 0-40 that actually
-// matters for the black-crush issue -- see handoff §49) cost nothing
+// matters for the black-crush issue
 // at runtime and are invisible in the final 8-bit LUT anyway.
 static float ambient_fast_log2(float x)
 {
@@ -234,7 +234,7 @@ static float ambient_fast_pow01(float x, float p)
 // -- verified in Python before porting that this isn't just
 // theoretical: chaining early uint8_t clamps between stages produced
 // answers up to ~13/255 off from the real float pipeline on ordinary
-// inputs, not merely off-by-one rounding noise (handoff §49).
+// inputs, not merely off-by-one rounding noise.
 float g_gammaLutR[256], g_gammaLutG[256], g_gammaLutB[256];
 
 static void ambient_build_one_gamma_lut(uint32_t pct, float *outLut)

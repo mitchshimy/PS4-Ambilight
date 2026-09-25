@@ -93,10 +93,10 @@ attr_public uint32_t g_pluginVersion = 0x00000212; // v2.7.1 -> v2.7.2:
 // once, the first hypothesis in the whole investigation to do that),
 // and then the user confirming colors look correct live, in this
 // plugin, on real hardware. See unpackA8B8G8R8_to_rgb888's own comment
-// below, and this repo's handoff for the full investigation trail
+// below, and this repo's for the full investigation trail
 // (kept as a separate document rather than squeezed into this file's
-// existing §-numbered handoff, whose numbering already collides across
-// forks -- see the handoff's own note on why).
+// existing section-numbered project notes, whose numbering already collides across
+// forks.
 
 int32_t (*sceVideoOutRegisterBuffersPtr)(int32_t handle, int32_t startIndex,
                                           void *const *addresses, int32_t bufferNum,
@@ -113,7 +113,7 @@ HOOK_INIT(sceGnmSubmitAndFlipCommandBuffersPtr);
 #define MAX_TRACKED_BUFFERS 16
 volatile uint64_t g_bufferAddrs[MAX_TRACKED_BUFFERS] = {0};
 volatile int32_t  g_bufferCount = 0;
-volatile uint32_t g_activeFormat = 0;       // live format, NOT hardcoded -- the actual fix from this session
+volatile uint32_t g_activeFormat = 0; // live format, NOT hardcoded
 volatile int      g_haveValidFormat = 0;    // 0 until a registration event gives us a known format
 
 int32_t sceVideoOutRegisterBuffersPtr_hook(int32_t handle, int32_t startIndex,
@@ -158,7 +158,7 @@ int32_t sceVideoOutRegisterBuffersPtr_hook(int32_t handle, int32_t startIndex,
             // repo. This unconditionally sent a UDP packet to a
             // hardcoded DEBUG_IP for every single end user on every real
             // release build, which is not something a shipped plugin
-            // should do -- see handoff.
+            // should do.
             if (fmt != prevFormat || g_haveValidFormat != wasValid) {
                 uint8_t fmtPacket[8];
                 memcpy(fmtPacket + 0, &fmt, 4);
@@ -178,7 +178,7 @@ int32_t sceVideoOutRegisterBuffersPtr_hook(int32_t handle, int32_t startIndex,
 
 // v1.1: the flip hook itself only records which buffer is live now --
 // no sampling, no network I/O, no loop. This is the actual fix for
-// handoff §26 finding 1. g_currentDisplayBufferIndex is read by the
+// finding 1. g_currentDisplayBufferIndex is read by the
 // worker thread below at its own pace.
 volatile uint32_t g_currentDisplayBufferIndex = 0xFFFFFFFFu; // sentinel: no flip seen yet
 

@@ -63,7 +63,7 @@ typedef struct {
     uint32_t whiteLevel;        // v2.1: 0-100, percent of 255 at/above which output clips to 255 (100 = no change)
     uint32_t darkThreshold;     // v2.1: 0-255, max(R,G,B) below this forces a zone fully black (0 = disabled)
     // v2.2: ported from the Android "inspiration" project's own
-    // ColorProcessor.kt (see handoff §49). These are ADDITIONS on top
+    // ColorProcessor.kt. These are ADDITIONS on top
     // of the existing brightness/gamma fields above, not replacements
     // -- brightness/gamma keep their original 0-255 / fixed-LUT-string
     // meaning so nobody's existing ini silently changes behavior.
@@ -87,7 +87,7 @@ typedef struct {
     // read) means debug_send_raw() sends nothing at all, full stop --
     // see its own comment for why this check lives there and not
     // scattered across each call site.
-    char devIp[16];          // dotted-quad only, e.g. "192.168.1.100"; empty = disabled regardless of devLoggingEnabled
+    char devIp[16];          // dotted-quad only, e.g. "192.168.2.117"; empty = disabled regardless of devLoggingEnabled
     bool devLoggingEnabled;  // both this AND a non-empty devIp are required -- neither alone is enough
     // [timing]
     uint32_t updateFrequencyHz;

@@ -1,23 +1,22 @@
-// ps4_ambient_light: the real per-frame pipeline (handoff §1 / §21 step
-// 4). Everything here is proven infrastructure lifted directly from
-// detile_verify_probe.prx (v2.2) -- the hooks, the buffer/format
-// tracking, and the tiling math are unchanged from what was verified
-// against a real screenshot this session. This file's only new job is
-// to run that pipeline every frame instead of once on a button press,
-// and turn the result into a live WLED signal instead of a debug dump.
+// ps4_ambient_light: the real per-frame pipeline. Everything here is
+// proven infrastructure lifted directly from detile_verify_probe.prx
+// (v2.2) -- the hooks, the buffer/format tracking, and the tiling
+// math are unchanged from what was verified against a real
+// screenshot. This file's only new job is to run that pipeline every
+// frame instead of once on a button press, and turn the result into
+// a live WLED signal instead of a debug dump.
 //
-// SCOPE (v2.0 -- see handoff §43 for the settings-system addition;
-// v1.1/§26/§27 below still describes the worker-thread architecture,
+// SCOPE (v2.0; the worker-thread architecture described below is
 // unchanged by v2.0):
 //   - Samples a fixed set of 229 screen zones per frame (not a full
 //     frame detile), matching the real measured LED strip layout
 //     (42/73/41/73, see buildZoneGeometry below) using ONLY the
-//     confirmed-correct base tiling params (handoff §22). The Neo path
+//     confirmed-correct base tiling params. The Neo path
 //     is dropped here; it served its purpose settling that question in
 //     the probe and has no reason to run in the hot path.
 //   - Pixel format is read live from sceVideoOutRegisterBuffers, not
-//     assumed at compile time -- this is the actual bug an earlier
-//     session found (A2R10G10B10 math applied to A8R8G8B8 data). If an
+//     assumed at compile time -- this fixed a real bug where
+//     A2R10G10B10 math was applied to A8R8G8B8 data. If an
 //     unknown format shows up, this plugin explicitly stops sending
 //     color rather than guessing.
 //   - v1.1: the actual zone-sampling + UDP send no longer runs inside
@@ -31,19 +30,15 @@
 //     offset against the real padded-buffer size before reading, and
 //     skips (treats as black) any sample that would land outside it,
 //     instead of trusting the offset formula unconditionally.
-
 //   - v1.2: ambient_sample_thread now measures its own loop time
 //     (buffer-resolve + 229-zone sampling + UDP send, i.e. everything
 //     except usleep) and reports per-window min/max/avg microseconds
-//     plus an over-budget count to DEBUG_IP every ~1s (handoff §30
-//     step 2 -- turning "barely noticeable" into an actual number).
-//     Gated behind TIMING_ENABLED so it can be compiled out later.
-//     Decode with decode_verification_dump.py v3+ (24-byte packets).
-
-// STILL OPEN (do not treat this as fully validated -- see handoff):
-//   - §25 (handoff v6) point-1 static-read question: RESOLVED, not a
-//     bug -- see handoff §28. Left here only so this comment block
-//     doesn't repeat the exact staleness mistake §26 called out.
+//     plus an over-budget count to DEBUG_IP every ~1s, turning "barely
+//     noticeable" into an actual number. Gated behind TIMING_ENABLED so
+//     it can be compiled out later. Decode with decode_verification_dump.py
+//     v3+ (24-byte packets).
+//
+// STILL OPEN (do not treat this as fully validated):
 //   - The worker-thread decoupling in v1.1 has not yet been measured
 //     on real hardware for actual frame-time impact of the render-
 //     thread-side work that remains (a couple of volatile writes per
@@ -122,7 +117,7 @@ int32_t attr_public plugin_load(int32_t argc, const char* argv[])
     // below just no-ops (sceSystemServiceGetStatusPtr stays NULL) and
     // this plugin falls back to its pre-v2.4 behavior: freezes the
     // strip on the last frame when suspended, per the known, pre-
-    // existing handoff §36 gap -- not a new regression, just not yet
+    // existing gap -- not a new regression, just not yet
     // fixed on whatever system rejected this symbol.
     int32_t hSystemService = 0;
     sys_dynlib_load_prx("libSceSystemService.sprx", &hSystemService);
@@ -142,7 +137,7 @@ int32_t attr_public plugin_load(int32_t argc, const char* argv[])
 
     OrbisPthread thread;
 
-    // --- Resource-isolation status: MEASURE, not guessed (see handoff) ---
+    // --- Resource-isolation status: MEASURE, not guessed ---
     // Confirmed real, from the same <orbis/libkernel.h> this file already
     // includes:
     //   scePthreadAttrInit(OrbisPthreadAttr*)
@@ -171,7 +166,7 @@ int32_t attr_public plugin_load(int32_t argc, const char* argv[])
     // sceKernelGetCurrentCpu() once per telemetry window, so you can see,
     // empirically, which core this thread actually lands on across a real
     // session -- the same "measure it for real" approach as the loop-time
-    // work in handoff §31. Once you've also logged sceKernelGetCurrentCpu()
+    // work in. Once you've also logged sceKernelGetCurrentCpu
     // from a thread you know is the game's own render/submission path (or
     // found another reliable way to identify it), fill in CORE_MASK below to
     // exclude that core, and verify with the same telemetry that the switch
@@ -180,7 +175,7 @@ int32_t attr_public plugin_load(int32_t argc, const char* argv[])
     // Leave unset until (1) and (2) above are resolved. Setting affinity
     // with an unverified mask is a real risk here, not just a style
     // preference -- verified-wrong is one of this project's exact
-    // recurring bug patterns (§7/§22/§38's format-mismatch bugs, §29's
+    // recurring bug patterns (// format-mismatch bugs,
     // scePadOpen frequency bug), all traced back to this same category of
     // "looked plausible, wasn't checked."
     // #define CORE_MASK (1ULL << N)   // fill in N once measured, not before
@@ -221,8 +216,8 @@ int32_t attr_public plugin_unload(int32_t argc, const char* argv[])
     // relaySignalEnabled here is deliberately fine even if it differs
     // from whatever it was when "on" was last sent: if true now,
     // sending "off" is correct and harmless whether or not an "on"
-    // actually preceded it this session (idempotent on the relay
-    // side). If false now, either it was never enabled this session
+    // actually preceded it (idempotent on the relay
+    // side). If false now, either it was never enabled
     // (no real "on" was ever sent, so none is owed back either), or it
     // WAS enabled and got disabled via a live reload -- which already
     // sent its own "off" at the moment it changed (see

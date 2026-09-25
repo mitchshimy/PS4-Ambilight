@@ -19,7 +19,7 @@
 #include "ambient_internal.h"
 
 // ============================================================
-// Detile math -- confirmed-correct BASE params only (§21/§22).
+// Detile math -- confirmed-correct BASE params only (/).
 // Identical formulas to ps4_detile_2dthin.c / detile_verify_probe,
 // just without the Neo branch, which has no reason to run every frame
 // now that base is the settled answer for this hardware.
@@ -34,7 +34,7 @@ const TileParams kParamsBase = {
 
 // paddedHeight isn't in TileParams (only paddedWidth is used by the
 // offset math itself), but it's needed here for the v1.1 bounds check
-// below -- 1088 for base params, per handoff §12 (ceil(1080/64)*64).
+// below -- 1088 for base params, per (ceil(1080/64)*64).
 #define BASE_PADDED_HEIGHT 1088
 #define BASE_PADDED_BUFFER_BYTES ((uint64_t)1920 * BASE_PADDED_HEIGHT * 4)
 

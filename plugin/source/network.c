@@ -55,19 +55,19 @@ static int wled_ensure_socket(void)
     return g_wledSockfd;
 }
 
-// --- Debug/telemetry channel, handoff §30 step 2: a real number for
+// --- Debug/telemetry channel, step 2: a real number for
 // ambient_sample_thread's own loop time, not just "barely noticeable".
 // Deliberately a SEPARATE socket/target from wled_ensure_socket() above --
-// that one points at the real WLED light (g_config.wledHost, §2/§21/§43); telemetry has no
+// that one points at the real WLED light (g_config.wledHost, //); telemetry has no
 // business going there. This reuses detile_verify_probe's proven
 // wled_send_raw pattern (own socket, dev-PC debug IP, 64-byte payload
 // cap, per-call socket()/close() since this is a ~1x/second send, not a
 // hot path -- unlike wled_send_rgb_zones above there's no reason to hold
 // a persistent socket open for this) rather than routing through the
 // production WLED path.
-#define DEBUG_IP "192.168.1.100"   // v2.2.5: NO LONGER USED as a send target -- kept only as
-                                    // a comment/reference of what this used to be hardcoded to
-                                    // (handoff §2). debug_send_raw now requires g_config.devIp
+#define DEBUG_IP "192.168.2.117"   // v2.2.5: NO LONGER USED as a send target -- kept only as
+                                    // a comment/reference of what this used to be hardcoded to.
+                                    // debug_send_raw now requires g_config.devIp
                                     // to be set via an explicit [dev] section in the ini; see
                                     // that function and the AmbientConfig struct comment.
 
@@ -79,7 +79,7 @@ void debug_send_raw(const uint8_t *data, int len)
     // explicit opt-in via the ini's [dev] section, checked here rather
     // than at each call site so there's exactly one place to get this
     // right, not three. Neither devIp alone nor devLoggingEnabled alone
-    // is enough; both are required. See handoff for why this replaced
+    // is enough; both are required. See for why this replaced
     // a hardcoded always-on DEBUG_IP.
     if (!g_config.devLoggingEnabled || g_config.devIp[0] == '\0') return;
 
@@ -140,12 +140,12 @@ void debug_send_raw(const uint8_t *data, int len)
 // v2.4: real field layout confirmed against shadPS4's own independently
 // reverse-engineered implementation (shadps4-emu/shadPS4,
 // src/core/libraries/system/systemservice.{h,cpp} -- fetched and read
-// directly this session, not recited from memory) because this
+// directly from the SDK, not recited from memory) because this
 // plugin's own OpenOrbis toolchain header (<orbis/SystemService.h>)
 // declares sceSystemServiceGetStatus() as a bare, argument-less `void`
 // stub -- the exact same "unfixed auto-generated placeholder" problem
 // already flagged for sceHttpSetRecvTimeOut (see
-// ps4-ambient-light-handoff-v9.md). This plugin does NOT call through
+// the project history). This plugin does NOT call through
 // that broken declaration -- the real symbol is resolved by name at
 // runtime instead (sys_dynlib_load_prx + sys_dynlib_dlsym in
 // plugin_load), the exact same pattern this file already uses for
@@ -163,15 +163,15 @@ void debug_send_raw(const uint8_t *data, int len)
 // unexpectedly-larger real write lands in our own padding rather than
 // adjacent stack memory -- this project has already had one full
 // crash requiring a console power cycle from an unverified
-// system-level assumption (klog -- see ps4-ambient-light-handoff-v10.md
-// §2's "do not re-enable without a very good reason and a safety-net
+// system-level assumption (klog -- see the project history
+// "do not re-enable without a very good reason and a safety-net
 // signal plan"), and this isn't repeating that mistake without a
 // safety margin.
 //
 // NOT verified against Sony's own official SDK (not available to this
 // session) or against real hardware -- only against shadPS4's public,
 // independently-reverse-engineered source. See
-// ps4-ambient-light-handoff-v22.md for the full account and the
+// the project history for the full account and the
 // recommended staged hardware-verification plan before trusting this
 // for anything beyond an isolated debug-telemetry read-back test.
 // (AMBIENT_SYS_SERVICE_STATUS_PADDING and the AmbientSystemServiceStatus
@@ -200,7 +200,7 @@ void relay_send_external_source(bool active)
     // gate would silently swallow the "off" send the call exists to
     // make, leaving wled-relay believing this plugin is still driving
     // the strip until the separate gaming_mode-off backstop (that
-    // fork's own handoff v21) eventually corrects it as a side effect
+    // fork's own eventually corrects it as a side effect
     // -- not by design. Found while adding this same signal to the
     // companion app, reproduced directly in an isolated sandbox test
     // before being traced back and fixed here too. The opt-in
@@ -240,7 +240,7 @@ void relay_send_external_source(bool active)
 // This adds 3 more uint32 fields (minCpu/maxCpu/migrationCount) for a new,
 // 36-byte length -- same "new packet length -> new dispatch case" pattern
 // decode_verification_dump.py already uses to tell packet types apart
-// (§31), rather than reusing 24 for a changed layout.
+//, rather than reusing 24 for a changed layout.
 //
 // What this answers, using ONLY the confirmed sceKernelGetCurrentCpu()
 // (no affinity/priority APIs involved -- this is pure observation):
@@ -298,7 +298,7 @@ void ambient_read_content_preview(uint8_t *out, size_t previewLen)
 // project's existing packet types (10/11 pixel, 24 old timing, 32
 // registration, 36 current timing, 44 pre-v2.1.3 version of this same
 // packet), matching the same "new packet length -> new dispatch case"
-// convention decode_verification_dump.py already uses (§31).
+// convention decode_verification_dump.py already uses.
 //
 // mtime/size are sent as full 64-bit values (not truncated to uint32
 // like the other telemetry fields) specifically because the bug this is
@@ -315,7 +315,7 @@ void ambient_read_content_preview(uint8_t *out, size_t previewLen)
 //                         ambient_get_real_config_size; field kept at
 //                         the same offset/name for capture compat
 //   [8:16]  cur_mtime:    HARDCODED 0 as of v2.1.4 -- st_mtime never
-//                         worked on this filesystem (§46) and is no
+// worked on this filesystem and is no
 //                         longer read at all. Field kept at the same
 //                         offset so old/new captures still line up
 //                         byte-for-byte; not a live value.

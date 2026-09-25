@@ -367,9 +367,9 @@ void ambient_load_config(void)
 // by this one thread -- plugin_load's initial ambient_load_config()/
 // buildZoneGeometry() call happens before this thread is even spawned,
 // and the flip hook only ever touches g_currentDisplayBufferIndex, not
-// any of this state (handoff §45).
+// any of this state.
 // v2.1.1 BUGFIX (real hardware confirmed live reload never fired --
-// see handoff §46): the original version used g_configLastMtime==0 as
+// ): the original version used g_configLastMtime==0 as
 // its own "not yet initialized" sentinel. That's a real, fatal design
 // flaw independent of any PS4-specific quirk: 0 is also a value
 // st_mtime could legitimately have (unpopulated/unsupported on this
@@ -384,8 +384,8 @@ void ambient_load_config(void)
 // (not verified from here), but because this is cheap insurance
 // against exactly that class of platform-level uncertainty, and this
 // project has already spent one whole session finding out an
-// assumption about low-level platform behavior was wrong (§17-22).
-// v2.1.4: real hardware (see handoff §47/§48) showed st_size is just as
+// assumption about low-level platform behavior was wrong.
+// v2.1.4: real hardware showed st_size is just as
 // broken as st_mtime on this filesystem -- stuck reporting a fixed
 // wrong value (8) for the entire life of the process, never once
 // reflecting the real file's actual size even while it was being
@@ -408,7 +408,7 @@ void ambient_load_config(void)
 // but never differing, so event stayed 3/"unchanged" forever). FNV-1a
 // is used purely as a cheap, dependency-free change signal, not for
 // any security property -- no libm, no external library, consistent
-// with the existing no-libm constraint (§ PQ/sRGB LUT work).
+// with the existing no-libm constraint (see the PQ/sRGB LUT work above).
 #define AMBIENT_FNV1A_OFFSET_BASIS 0x811c9dc5u
 #define AMBIENT_FNV1A_PRIME        0x01000193u
 static uint32_t ambient_fnv1a32(const uint8_t *data, size_t len)
@@ -490,7 +490,7 @@ static bool ambient_get_real_config_size_and_hash(int64_t *outSize, uint32_t *ou
 // layout with the v2.1.2/v2.1.3 captures already on file -- it is
 // HARDCODED to 0 as of v2.1.4 and no longer read from stat() or used
 // for change-detection at all (confirmed non-functional on this
-// filesystem, see handoff §46/§47). Size, sourced from
+// filesystem /). Size, sourced from
 // ambient_get_real_config_size_and_hash above, is one of two change
 // signals as of v2.1.5 -- see g_configLastHash below for the other,
 // added because size alone missed a real same-length edit on hardware.
