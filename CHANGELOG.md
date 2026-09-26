@@ -5,6 +5,19 @@ companion app) are documented here, newest first.
 
 ## Plugin
 
+## Plugin
+
+### v2.7.6
+- Reverted the v2.7.3 stale-flip guard. It was blanking the strip
+  whenever no flip landed within ~350ms, but menus and static loading
+  screens often throttle or stop flipping while idle, and the gaps
+  would drift back and forth across that threshold -- blank, resume,
+  blank, resume, visible as flicker on anything that stays on screen
+  for a while. Wasn't protecting against anything we'd actually
+  confirmed happens (the real black-screen-shows-color bug turned out
+  to be the v2.7.5 smoothing fix), so pulling it out rather than
+  chasing a threshold that might just move the problem.
+
 ### v2.7.5
 - Fixed color smoothing getting stuck a few shades above black instead
   of actually reaching it. Integer division truncates toward zero, so
@@ -21,14 +34,6 @@ companion app) are documented here, newest first.
   shared between two edges got sampled by a zone from each edge --
   confirmed on hardware (zone 0 and the last zone were sending
   bit-identical raw pixel reads, every frame).
-
-### v2.7.3
-- Sampling thread now blanks the strip if no flip has landed in
-  ~350ms, instead of continuing to read a buffer the engine may have
-  silently repurposed (common during loading screens, which often
-  just stop flipping). Didn't end up being the "white on black
-  screens" bug, but a buffer that's gone stale still isn't safe to
-  read, so keeping it.
 
 ### v2.7.2
 - Live HDR/SDR auto-detection for pixel format `0x80002200`, confirmed

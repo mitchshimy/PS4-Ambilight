@@ -66,21 +66,6 @@
 // = 200" should be read as "roughly", not as a precise guarantee.
 static uint8_t g_smoothedRgb[MAX_TOTAL_ZONES][3];
 bool g_smoothedRgbValid = false; // false until the first real frame, so startup doesn't fade in from black
-
-// v2.7.3: flip-staleness guard -- see g_lastFlipTicks's comment in
-// hooks.c for the root cause this fixes (LEDs showing random color on
-// some black loading screens). Once no real flip has landed for this
-// long, g_currentDisplayBufferIndex/g_bufferAddrs can no longer be
-// trusted as "what's actually on screen right now" -- most engines
-// simply stop flipping while a loading screen holds (nothing new to
-// present), and are free to repurpose that same GPU memory for
-// streaming/decompression scratch in the meantime. 350ms is generous
-// against a real hitch (a dropped frame at 30Hz is ~33ms; even several
-// dropped frames in a row doesn't get within 10x of this) while still
-// being far under anything a person would consciously notice as "the
-// strip took a moment to react."
-#define FLIP_STALE_THRESHOLD_US 350000u
-static bool g_flipWasStale = false; // edge-detect: only need to act ONCE on the transition into stale
 #if (__FINAL__) == 0
 static uint32_t s_rawDiagFrameCounter = 0; // v2.2.2: throttles the raw-pixel diagnostic packet to ~1x/sec (debug-only, see v2.2.4 gating note at its use site)
 #endif
@@ -179,46 +164,6 @@ void *ambient_sample_thread(void *args)
             usleep(sampleIntervalUs);
             continue;
         }
-
-        // v2.7.3: is the buffer we're about to read actually still on
-        // screen, or just the last thing that WAS flipped before the
-        // engine stopped flipping (a loading screen, most commonly)?
-        // See g_lastFlipTicks's comment in hooks.c and this file's own
-        // comment above g_flipWasStale for the full rationale. Checked
-        // BEFORE touching g_currentDisplayBufferIndex/g_bufferAddrs
-        // below, since a stale flip makes both of those meaningless
-        // regardless of what they currently contain.
-        uint64_t lastFlipSnapshot = g_lastFlipTicks; // one volatile read
-        uint64_t ticksSinceFlip = (lastFlipSnapshot == 0) ? UINT64_MAX : (t0 - lastFlipSnapshot);
-        uint32_t usSinceFlip = (ticksSinceFlip == UINT64_MAX)
-                                    ? UINT32_MAX
-                                    : (uint32_t)((ticksSinceFlip * 1000000ULL) / tscFreq);
-        bool flipIsStale = usSinceFlip > FLIP_STALE_THRESHOLD_US;
-
-        if (flipIsStale) {
-            if (!g_flipWasStale) {
-                // Just crossed the staleness line -- blank the strip
-                // ONCE rather than continuing to sample a buffer we no
-                // longer trust (this IS the fix: previously nothing
-                // stopped the loop below from averaging whatever the
-                // engine had since written into that memory -- texture
-                // streaming, decompression scratch, anything -- as if
-                // it were a real, unrelated-looking color). Not
-                // repeated every iteration: one send is enough to make
-                // the strip go dark, and continuing to spam black
-                // frames for the whole rest of a loading screen would
-                // just be needless network traffic.
-                uint8_t blackTriplets[MAX_TOTAL_ZONES * 3];
-                memset(blackTriplets, 0, sizeof(blackTriplets));
-                wled_send_rgb_zones(blackTriplets, (int)g_numZones);
-                memset(g_smoothedRgb, 0, sizeof(g_smoothedRgb));
-                g_smoothedRgbValid = false; // so the next real frame snaps straight in instead of smoothing up from black
-                g_flipWasStale = true;
-            }
-            usleep(sampleIntervalUs);
-            continue;
-        }
-        g_flipWasStale = false;
 
         uint32_t displayBufferIndex = g_currentDisplayBufferIndex;
         uint64_t liveBufferAddr = (displayBufferIndex != 0xFFFFFFFFu &&
