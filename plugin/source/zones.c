@@ -51,6 +51,25 @@ typedef enum { EDGE_LEFT, EDGE_TOP, EDGE_RIGHT, EDGE_BOTTOM } Edge;
 // Canonical directions: LEFT bottom->top, TOP left->right,
 // RIGHT top->bottom, BOTTOM right->left -- matches v1.0-v1.3's
 // original (now-default) bottom-left/clockwise behavior exactly.
+//
+// v2.7.4: denominator changed from (count-1) to count -- the old
+// inclusive-both-endpoints spacing put a point at t=0 (this edge's
+// start corner) AND a point at t=count-1 landing exactly on the FAR
+// corner, which the next edge's own t=0 point also lands on (its own
+// start corner is the same physical point). Every one of the 4 screen
+// corners therefore got two zones reading the identical pixel --
+// confirmed on real hardware: zone 0 and zone (numZones-1) sent
+// bit-identical raw pixel values on every single sampled frame,
+// exactly matching this math for a bottom-left-start clockwise loop
+// (zone 0 and the last zone both land on the bottom-left corner).
+// Dividing by `count` instead spaces `count` points evenly across
+// [0, edge_length) -- t=0 still lands exactly on the start corner,
+// but the last point (t=count-1) now falls one step short of the far
+// corner, leaving that corner to be owned solely by the next edge's
+// own t=0 point. No more double-sampled corners, and no more (count >
+// 1 ? ... : 0) special case needed -- count is always >= 1 here (the
+// loop above never runs this function body for count == 0), so
+// dividing by count alone is always safe.
 static void generateEdgePoints(Edge edge, bool reversed, uint32_t count, uint32_t *outIdx)
 {
     for (uint32_t i = 0; i < count && *outIdx < MAX_TOTAL_ZONES; i++) {
@@ -60,21 +79,21 @@ static void generateEdgePoints(Edge edge, bool reversed, uint32_t count, uint32_
         case EDGE_LEFT:
             x = g_config.marginLeft;
             y = (SCREEN_HEIGHT - 1 - g_config.marginBottom) -
-                (count > 1 ? (t * (SCREEN_HEIGHT - 1 - g_config.marginTop - g_config.marginBottom)) / (count - 1) : 0);
+                (t * (SCREEN_HEIGHT - 1 - g_config.marginTop - g_config.marginBottom)) / count;
             break;
         case EDGE_TOP:
             x = g_config.marginLeft +
-                (count > 1 ? (t * (SCREEN_WIDTH - 1 - g_config.marginLeft - g_config.marginRight)) / (count - 1) : 0);
+                (t * (SCREEN_WIDTH - 1 - g_config.marginLeft - g_config.marginRight)) / count;
             y = g_config.marginTop;
             break;
         case EDGE_RIGHT:
             x = SCREEN_WIDTH - 1 - g_config.marginRight;
             y = g_config.marginTop +
-                (count > 1 ? (t * (SCREEN_HEIGHT - 1 - g_config.marginTop - g_config.marginBottom)) / (count - 1) : 0);
+                (t * (SCREEN_HEIGHT - 1 - g_config.marginTop - g_config.marginBottom)) / count;
             break;
         default: // EDGE_BOTTOM
             x = (SCREEN_WIDTH - 1 - g_config.marginRight) -
-                (count > 1 ? (t * (SCREEN_WIDTH - 1 - g_config.marginLeft - g_config.marginRight)) / (count - 1) : 0);
+                (t * (SCREEN_WIDTH - 1 - g_config.marginLeft - g_config.marginRight)) / count;
             y = SCREEN_HEIGHT - 1 - g_config.marginBottom;
             break;
         }

@@ -5,6 +5,13 @@ companion app) are documented here, newest first.
 
 ## Plugin
 
+### v2.7.4
+- Fixed 4 duplicate LEDs, one at each screen corner. Zone geometry
+  generated each edge inclusive of both endpoints, so the corner
+  shared between two edges got sampled by a zone from each edge --
+  confirmed on hardware (zone 0 and the last zone were sending
+  bit-identical raw pixel reads, every frame).
+
 ### v2.7.3
 - Sampling thread now blanks the strip if no flip has landed in
   ~350ms, instead of continuing to read a buffer the engine may have
