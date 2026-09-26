@@ -1,7 +1,7 @@
 # PS4 Ambilight
 
 <p align="center">
-  <img src="companion-app/sce_sys/icon0.png" alt="PS4 Ambilight companion app icon" width="400">
+  <img src="companion-app/sce_sys/icon0.png" alt="PS4 Ambilight companion app icon" width="700" height="400">
 </p>
 
 An Ambilight-style setup for jailbroken PS4 consoles: a [GoldHEN](https://github.com/GoldHEN/GoldHEN)
