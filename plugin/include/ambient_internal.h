@@ -206,6 +206,7 @@ extern volatile int32_t  g_bufferCount;
 extern volatile uint32_t g_activeFormat;
 extern volatile int      g_haveValidFormat;
 extern volatile uint32_t g_currentDisplayBufferIndex;
+extern volatile uint64_t g_lastFlipTicks; // set by the flip hook; read by sample_thread.c's staleness check
 extern int32_t (*sceVideoOutRegisterBuffersPtr)(int32_t handle, int32_t startIndex,
                                           void *const *addresses, int32_t bufferNum,
                                           const OrbisVideoOutBufferAttribute *attribute);

@@ -182,6 +182,21 @@ int32_t sceVideoOutRegisterBuffersPtr_hook(int32_t handle, int32_t startIndex,
 // worker thread below at its own pace.
 volatile uint32_t g_currentDisplayBufferIndex = 0xFFFFFFFFu; // sentinel: no flip seen yet
 
+// v2.7.3: timestamp of the most recent real flip (sceKernelGetProcess-
+// TimeCounter ticks, same TSC clock sample_thread.c already uses for
+// everything else). g_currentDisplayBufferIndex/g_bufferAddrs on their
+// own only answer "what was the last buffer flipped", with no notion
+// of HOW LONG ago that was -- a title that stops flipping entirely
+// (most loading screens: nothing new to present while assets stream
+// in) left those two looking exactly like a perfectly live, still-
+// current frame forever. The sampling thread had no way to tell "this
+// buffer is genuinely still on screen" apart from "this buffer was
+// true 45 seconds ago and the engine may have long since repurposed
+// that memory for something that isn't a picture at all" -- which is
+// the actual root cause behind LEDs showing random color on some
+// black loading screens (see sample_thread.c's staleness check).
+volatile uint64_t g_lastFlipTicks = 0; // 0 == no flip observed yet, same convention as the sentinel above
+
 int32_t sceGnmSubmitAndFlipCommandBuffersPtr_hook(uint32_t count, void *dcbGpuAddrs[],
                                                    uint32_t *dcbSizesInBytes, void *ccbGpuAddrs[],
                                                    uint32_t *ccbSizesInBytes, uint32_t videoOutHandle,
@@ -189,6 +204,7 @@ int32_t sceGnmSubmitAndFlipCommandBuffersPtr_hook(uint32_t count, void *dcbGpuAd
                                                    int64_t flipArg)
 {
     g_currentDisplayBufferIndex = displayBufferIndex; // single volatile write, near-zero cost
+    g_lastFlipTicks = sceKernelGetProcessTimeCounter(); // same TSC source sample_thread.c already trusts
 
     return HOOK_CONTINUE(sceGnmSubmitAndFlipCommandBuffersPtr,
                           int32_t(*)(uint32_t, void **, uint32_t *, void **, uint32_t *, uint32_t, uint32_t, uint32_t, int64_t),

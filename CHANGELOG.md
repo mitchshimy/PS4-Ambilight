@@ -5,6 +5,14 @@ companion app) are documented here, newest first.
 
 ## Plugin
 
+### v2.7.3
+- Sampling thread now blanks the strip if no flip has landed in
+  ~350ms, instead of continuing to read a buffer the engine may have
+  silently repurposed (common during loading screens, which often
+  just stop flipping). Didn't end up being the "white on black
+  screens" bug, but a buffer that's gone stale still isn't safe to
+  read, so keeping it.
+
 ### v2.7.2
 - Live HDR/SDR auto-detection for pixel format `0x80002200`, confirmed
   on real hardware.
