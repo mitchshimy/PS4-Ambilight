@@ -63,6 +63,17 @@ own `GOLDHEN_SDK` copy too.
 
 See [`companion-app/README.md`](companion-app/README.md) for its build steps and design notes.
 
+## Screenshots
+
+<p align="center">
+  <img src="companion-app/assets/screenshots/home.jpg" alt="Companion app Home screen" width="45%">
+  <img src="companion-app/assets/screenshots/setup.jpg" alt="Companion app Set up screen" width="45%">
+</p>
+<p align="center">
+  <img src="companion-app/assets/screenshots/customization.jpg" alt="Companion app Customization screen" width="45%">
+  <img src="companion-app/assets/screenshots/help.jpg" alt="Companion app Help screen" width="45%">
+</p>
+
 ## Configuration
 
 Copy `plugin/config/ps4_ambient_light.ini` to `/data/ps4_ambient_light.ini` on the console (or
