@@ -40,7 +40,7 @@ static const char *kColorOrderNames[]  = { "RGB", "RBG", "GRB", "GBR", "BRG", "B
 const MenuItem kMenuItems[] = {
     // =========================== Set Up ===========================
     { "WLED IPv4",         "network", "wled_host",                  FIELD_STRING, OFF(wledHost),        0, STRBUF(wledHost), 0, NULL, 0,
-      MENU_SCREEN_SETUP, "WLED connection", "New setup starts with local-network discovery. Manual IPv4 entry remains available, and DDP uses UDP port 4048 by default." },
+      MENU_SCREEN_SETUP, "WLED connection", "Enter your WLED controller's IPv4 address. DDP uses UDP port 4048 by default." },
     { "UDP port",          "network", "wled_port",                  FIELD_U16,    OFF(wledPort),        1, 65535,   1, NULL, 0,
       MENU_SCREEN_SETUP, "WLED connection", NULL },
     { "Output FPS",        "timing",  "update_frequency_hz",        FIELD_U32,    OFF(updateFrequencyHz), 1,  240,   1, NULL, 0,
