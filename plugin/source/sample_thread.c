@@ -323,13 +323,29 @@ void *ambient_sample_thread(void *args)
                     debug_send_raw(diagPacket, sizeof(diagPacket));
                 }
 #endif
+            } else {
+                // v2.8: unpack == NULL -- format went unknown between the
+                // outer check and here. Still no guessing at a color;
+                // just keep WLED's realtime override alive with the last
+                // verified one instead of going silent.
+                wled_send_keepalive_if_stale(t0, tscFreq);
             }
+        } else {
+            // v2.8: liveBufferAddr == 0 or g_haveValidFormat == 0. Same
+            // reasoning as above -- we're foregrounded (the
+            // g_isBackgrounded branch already `continue`d otherwise) but
+            // have no valid frame to sample this tick.
+            wled_send_keepalive_if_stale(t0, tscFreq);
         }
         // If g_haveValidFormat is 0 (unknown/unconfirmed format), we
-        // deliberately send nothing rather than guess -- this is the
+        // deliberately send nothing NEW rather than guess -- this is the
         // direct fix for how the original bug happened in the
         // first place: an unverified format assumption silently
-        // producing wrong color instead of visibly doing nothing.
+        // producing wrong color instead of visibly doing nothing. The
+        // heartbeat above only ever repeats a color the real pipeline
+        // already verified, on the cases above where new/unknown/no-frame
+        // states would otherwise mean total silence long enough to trip
+        // WLED's own realtime-timeout fallback (see v2.8 changelog entry).
 
 #if TIMING_ENABLED
         // Measured window intentionally covers the buffer-resolve +

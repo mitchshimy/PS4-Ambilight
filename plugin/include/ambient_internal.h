@@ -128,6 +128,10 @@ void send_config_reload_debug_packet(uint32_t event, uint32_t statErrno,
                                       const uint8_t *contentPreview,
                                       uint32_t curHash, uint32_t lastHash); // called by settings.c
 void wled_send_rgb_zones(const uint8_t *rgbTriplets, int numZones); // called by sample_thread.c
+// v2.8: called only from sample_thread.c's no-valid-frame branch (unknown
+// pixel format while foregrounded) -- NOT from the g_isBackgrounded path,
+// where going silent is intentional. See network.c for the full comment.
+void wled_send_keepalive_if_stale(uint64_t nowTicks, uint64_t tscFreq);
 
 #define WLED_PORT       4048
 #define DDP_HEADER_SIZE 10

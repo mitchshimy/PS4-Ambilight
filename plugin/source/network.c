@@ -375,6 +375,21 @@ void send_config_reload_debug_packet(uint32_t event, uint32_t statErrno,
 // geometry code below cares about it as "max zone count" instead.
 #define MAX_ZONES MAX_TOTAL_ZONES
 
+// v2.8: WLED heartbeat. WLED falls back to its own realtime-timeout
+// color after a gap in packets -- see the v2.2.3 changelog entry and
+// the "deliberately send nothing rather than guess" comment in
+// sample_thread.c for the real, still-open silent path this closes
+// (an unknown/transitioning pixel format while foregrounded). This
+// tracks the last color actually sent so a stale-send check can
+// repeat it, without ever inventing a color that wasn't verified by
+// the real pipeline.
+#define WLED_HEARTBEAT_INTERVAL_US 1000000u // 1s -- comfortably inside WLED's realtime-timeout margin
+
+static uint8_t  g_lastSentRgb[MAX_TOTAL_ZONES * 3];
+static int      g_lastSentNumZones = 0;
+static bool     g_haveLastSent = false;
+static uint64_t g_lastSendTicks = 0;
+
 void wled_send_rgb_zones(const uint8_t *rgbTriplets, int numZones)
 {
     int sockfd = wled_ensure_socket();
@@ -399,5 +414,30 @@ void wled_send_rgb_zones(const uint8_t *rgbTriplets, int numZones)
     memcpy(packet + DDP_HEADER_SIZE, rgbTriplets, dataSize);
 
     sendto(sockfd, packet, DDP_HEADER_SIZE + dataSize, 0, (struct sockaddr*)&destAddr, sizeof(destAddr));
+
+    // v2.8: snapshot what actually went out, so a later stale-send check
+    // (wled_send_keepalive_if_stale) has a real, previously-sent color to
+    // repeat -- covers both a normal per-frame send and a heartbeat
+    // resend, so the timer always measures from the last real packet.
+    if (numZones > 0) {
+        memcpy(g_lastSentRgb, rgbTriplets, (size_t)dataSize);
+        g_lastSentNumZones = numZones;
+        g_haveLastSent = true;
+    }
+    g_lastSendTicks = sceKernelGetProcessTimeCounter();
+}
+
+// v2.8: called once per sample-thread iteration, but ONLY from the
+// no-valid-frame branch (unknown/transitioning pixel format while still
+// foregrounded) -- never from the g_isBackgrounded path, where going
+// silent is intentional (v2.4) and a heartbeat here would reintroduce
+// the frozen-strip-on-suspend bug that fix removed. Resends the last
+// verified color rather than guessing a new one.
+void wled_send_keepalive_if_stale(uint64_t nowTicks, uint64_t tscFreq)
+{
+    if (!g_haveLastSent) return; // nothing sent yet this session
+    uint64_t elapsed = nowTicks - g_lastSendTicks;
+    if (elapsed < (tscFreq * (uint64_t)WLED_HEARTBEAT_INTERVAL_US) / 1000000ULL) return;
+    wled_send_rgb_zones(g_lastSentRgb, g_lastSentNumZones); // also resets g_lastSendTicks
 }
 

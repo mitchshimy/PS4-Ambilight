@@ -7,6 +7,18 @@ companion app) are documented here, newest first.
 
 ## Plugin
 
+### v2.8
+- WLED heartbeat: the plugin now resends the last known-good color once
+  a second during any foregrounded gap where the pixel format is
+  momentarily unknown or unrecognized, instead of going silent. Closes
+  the remaining cases of the v2.2.3 "occasional flash of an unrelated
+  color" -- that release made the underlying gap less frequent by
+  speeding up the pipeline, but didn't remove it; a long enough gap
+  could still trip WLED's own realtime-timeout fallback. This never
+  invents a new color -- it only repeats the last one the real pipeline
+  already verified -- and does not run while backgrounded/suspended,
+  where going silent is still intentional (v2.4).
+
 ### v2.7.6
 - Reverted the v2.7.3 stale-flip guard. It was blanking the strip
   whenever no flip landed within ~350ms, but menus and static loading

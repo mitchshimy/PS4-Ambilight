@@ -232,9 +232,11 @@ release is the first thing to try.
   Home.
 - **An occasional flash of an unrelated color.** Root-caused in v2.2.3 to WLED's own
   realtime-timeout fallback color firing on a brief gap in packets, not a decode bug in the
-  plugin. A performance pass in the same release (a PQ tone-map LUT) also reduced how often that
-  gap happens in practice; updating helps even if it doesn't eliminate it entirely on a
-  congested network.
+  plugin. A performance pass in the same release (a PQ tone-map LUT) reduced how often that gap
+  happened in practice, and v2.8 closes the remaining cases directly: the plugin now resends the
+  last known-good color once a second during any foregrounded gap (an unknown/transitioning
+  pixel format) instead of going silent, so WLED's timeout never has long enough to fire.
+  Updating to the latest plugin release is the fix.
 - **Black bars or overscan are getting sampled as picture content.** Raise the relevant
   `capture_margin_*` value(s) under Screen sampling.
 - **HDR titles look badly wrong, not just slightly off.** See HDR / pixel format handling
