@@ -5,6 +5,16 @@ companion app) are documented here, newest first.
 
 ## Plugin
 
+### v2.7.5
+- Fixed color smoothing getting stuck a few shades above black instead
+  of actually reaching it. Integer division truncates toward zero, so
+  once a channel decayed down to ~3 the per-frame step rounded down to
+  0 and just stopped -- the strip would hold a faint, permanent glow
+  of whatever was on screen before a cut to black instead of settling
+  the rest of the way. Confirmed on hardware: this was the actual
+  cause of "black screen shows color", not the format/decode stuff
+  chased earlier.
+
 ### v2.7.4
 - Fixed 4 duplicate LEDs, one at each screen corner. Zone geometry
   generated each edge inclusive of both endpoints, so the corner

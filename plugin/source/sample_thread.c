@@ -250,7 +250,30 @@ void *ambient_sample_thread(void *args)
                             for (int c = 0; c < 3; c++) {
                                 int32_t prev = g_smoothedRgb[i][c];
                                 int32_t raw = processed[c];
-                                g_smoothedRgb[i][c] = (uint8_t)(prev + ((raw - prev) * (int32_t)smoothingAlpha) / 256);
+                                int32_t delta = ((raw - prev) * (int32_t)smoothingAlpha) / 256;
+                                // v2.7.5: C's / truncates toward zero, not
+                                // toward -infinity -- so once |raw-prev| is
+                                // small enough that |delta| rounds down to
+                                // 0, prev stops moving AT ALL, forever,
+                                // even though raw != prev. Confirmed by
+                                // simulation with this project's own
+                                // defaults (update_frequency_hz=30,
+                                // settling_time_ms=100 -> smoothingAlpha=83):
+                                // decaying toward a target of 0 from ANY
+                                // starting brightness lands on exactly 3
+                                // and sticks there permanently -- a dim
+                                // residual glow that never reaches black on
+                                // its own. This is what was reported as "a
+                                // colorful scene's colors are retained
+                                // dimly" after a cut to black. Forcing a
+                                // minimum step of 1 toward raw whenever the
+                                // proper proportional step would otherwise
+                                // round to 0 guarantees this always
+                                // converges to the exact target within a
+                                // few extra frames, instead of stalling
+                                // short of it indefinitely.
+                                if (delta == 0 && raw != prev) delta = (raw > prev) ? 1 : -1;
+                                g_smoothedRgb[i][c] = (uint8_t)(prev + delta);
                             }
                         }
                         rgbTriplets[i*3+0] = g_smoothedRgb[i][0];
