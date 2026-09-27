@@ -22,7 +22,26 @@
 attr_public const char *g_pluginName = "ps4_ambient_light";
 attr_public const char *g_pluginDesc = "Live per-frame ambient light: detiles the real scanout buffer and streams zone colors to WLED";
 attr_public const char *g_pluginAuth = "(null)";
-attr_public uint32_t g_pluginVersion = 0x00000301; // v3.0 -> v3.1:
+attr_public uint32_t g_pluginVersion = 0x00000302; // v3.1 -> v3.2:
+// The v3.1 flip hooks above fire in EVERY process GoldHEN injects this
+// plugin into -- including this project's own companion app, which is
+// just another titleid (SHMY00091) as far as GoldHEN is concerned. Two
+// consequences, both real: the companion app's own screen flips got
+// captured and streamed to the strip as if it were a game, conflicting
+// with whatever real testing/adjustment was already running; and worse,
+// ambient_sample_thread then applied this file's game-buffer tiling math
+// to the companion app's differently-shaped surface, producing a wild
+// address and a real SIGSEGV (crash report: thread
+// "ambient_sample_thread", proc "eboot.bin", AppName "PS4 Ambilight",
+// TitleID "SHMY00091", page fault on a read from an address matching
+// neither this title's real GNM buffer addresses seen in other
+// captures). Fixed at the top of plugin_load (main.c), before any
+// dlsym/hook/thread work: read procInfo.titleid via sys_sdk_proc_info()
+// and bail out entirely if it's SHMY00091. One check fixes both the
+// crash and the color conflict, since neither can happen if no hook is
+// ever installed in that process to begin with.
+//
+// v3.0 -> v3.1:
 // A title (Shadow of the Tomb Raider, both its SDR and HDR display
 // modes -- confirmed the same title, not two separate ones, after an
 // earlier capture session got that wrong) never lit up the strip at

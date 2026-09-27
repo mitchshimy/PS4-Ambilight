@@ -7,6 +7,31 @@ companion app) are documented here, newest first.
 
 ## Plugin
 
+### v3.2
+- Fixed a real crash: GoldHEN injects every plugin into every title's
+  process, including this project's own companion app -- just another
+  titleid (`SHMY00091`) as far as GoldHEN is concerned. Before this
+  fix that was harmless, since the companion app apparently never
+  called the plain `sceGnmSubmitAndFlipCommandBuffers` path this
+  plugin hooked pre-v3.1. Once v3.1 added the
+  `sceVideoOutSubmitFlip`/`...ForWorkload` hooks, the companion app's
+  own screen flips started getting captured too -- its live UI colors
+  got streamed to the strip, conflicting with whatever real game
+  testing/strip-adjustment session was already running, and
+  `ambient_sample_thread` then applied this plugin's game-buffer
+  tiling math to the companion app's differently-shaped surface.
+  Confirmed via a real crash report: thread `ambient_sample_thread`,
+  proc `eboot.bin`, AppName `PS4 Ambilight`, TitleID `SHMY00091`,
+  SIGSEGV on a page fault reading an address that matched neither this
+  project's real GNM buffer addresses seen in other captures. Fixed at
+  the very top of `plugin_load`, before any `dlsym`/hook/thread work:
+  read `procInfo.titleid` via `sys_sdk_proc_info()` and bail out
+  entirely if it's `SHMY00091`. One check fixes both the crash and the
+  color conflict, since neither can happen if no hook is ever
+  installed in that process to begin with. **Confirmed on real
+  hardware: the companion app no longer streams its own screen colors
+  to the strip, and no longer crashes on options save/exit.**
+
 ### v3.1
 - Added a third flip hook, `sceGnmSubmitAndFlipCommandBuffersForWorkload`,
   fixing titles that never light up at all. Shadow of the Tomb Raider

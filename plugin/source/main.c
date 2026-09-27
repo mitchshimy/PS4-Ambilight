@@ -98,6 +98,34 @@
 
 int32_t attr_public plugin_load(int32_t argc, const char* argv[])
 {
+    // v3.2: GoldHEN injects every plugin into every title's process,
+    // including this project's OWN companion app (titleid SHMY00091 --
+    // hardcoded here to match companion-app/build.bat's PKG_TITLE_ID and
+    // .github/workflows/CI.yml's TITLE_ID entry, both of which already
+    // hardcode this same literal rather than deriving it from one shared
+    // source; not worth adding cross-build-system config plumbing for a
+    // value that isn't expected to change -- if it ever does, update all
+    // three). Before this check, the v3.1 flip hooks fired on the
+    // companion app's own screen flips too: confirmed via a real crash
+    // report, thread "ambient_sample_thread", proc "eboot.bin", AppName
+    // "PS4 Ambilight", TitleID "SHMY00091", SIGSEGV in this plugin's own
+    // .prx applying game-buffer tiling math to the companion app's
+    // differently-shaped surface -- and, before that crash, the same
+    // root cause was already visibly sending the companion app's own
+    // screen colors to the strip, conflicting with whatever real
+    // testing/adjustment session was already running. Bailing out here,
+    // before ANY dlsym/hook/thread work, fixes both in one place rather
+    // than patching either symptom individually downstream.
+    // procInfo retrieved via sys_sdk_proc_info(). Fails safe: if
+    // sys_sdk_proc_info itself fails, this check is simply skipped
+    // rather than blocking plugin_load -- an unknown titleid is not
+    // evidence we're in the companion app, so proceeding normally is
+    // the safer default.
+    struct proc_info procInfo = {0};
+    if (sys_sdk_proc_info(&procInfo) == 0 && strcmp(procInfo.titleid, "SHMY00091") == 0) {
+        return 0;
+    }
+
     ambient_load_config(); // v2.0: read /data/ps4_ambient_light.ini, or write a default template if absent
     buildZoneGeometry();   // fill g_zoneX/g_zoneY (now config-driven counts/corner/direction/offset/margins)
 
