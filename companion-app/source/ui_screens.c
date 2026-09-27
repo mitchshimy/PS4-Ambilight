@@ -79,10 +79,10 @@ static UiIconId icon_for_key(const char *key)
     if (!strcmp(key, "color_order"))                                     return ICON_GLOBE;
     if (!strcmp(key, "config_reload_check_seconds"))                    return ICON_REFRESH;
     if (!strcmp(key, "scan_depth"))                                      return ICON_FRAME;
-    if (!strcmp(key, "capture_margin_top"))                              return ICON_MARGIN_TL;
-    if (!strcmp(key, "capture_margin_right"))                            return ICON_MARGIN_TR;
-    if (!strcmp(key, "capture_margin_bottom"))                           return ICON_MARGIN_BL;
-    if (!strcmp(key, "capture_margin_left"))                             return ICON_MARGIN_BR;
+    if (!strcmp(key, "auto_letterbox_enabled"))                          return ICON_FRAME;
+    if (!strcmp(key, "auto_letterbox_threshold"))                        return ICON_MOON;
+    if (!strcmp(key, "auto_letterbox_stability_frames") ||
+        !strcmp(key, "auto_letterbox_check_interval_frames"))            return ICON_REFRESH;
     if (!strcmp(key, "brightness"))                                      return ICON_SUN;
     if (!strcmp(key, "saturation"))                                      return ICON_DROPLET;
     if (!strcmp(key, "gamma"))                                           return ICON_GAMMA;
@@ -90,6 +90,7 @@ static UiIconId icon_for_key(const char *key)
     if (!strcmp(key, "white_level"))                                     return ICON_SUN_FILLED;
     if (!strcmp(key, "contrast"))                                        return ICON_SPLIT;
     if (!strcmp(key, "smoothing_enabled"))                               return ICON_WAVES;
+    if (!strcmp(key, "smoothing_preset"))                                return ICON_WAVES;
     if (!strcmp(key, "settling_time_ms"))                                return ICON_CLOCK;
     if (!strcmp(key, "dark_threshold"))                                  return ICON_MOON;
     if (!strcmp(key, "brightness_r"))                                    return ICON_SLIDER_R;
@@ -123,6 +124,7 @@ static bool fixed_width_for_key(const char *key, float *outBasis)
 {
     if (!strcmp(key, "led_offset"))                 { *outBasis = 240.0f; return true; }
     if (!strcmp(key, "smoothing_enabled"))           { *outBasis = 240.0f; return true; }
+    if (!strcmp(key, "auto_letterbox_enabled"))      { *outBasis = 240.0f; return true; }
     if (!strcmp(key, "config_reload_check_seconds")) { *outBasis = 300.0f; return true; }
     return false;
 }
@@ -140,6 +142,7 @@ static const char *format_value(const MenuItem *item, const AmbientConfig *cfg, 
         if (!strcmp(item->key, "led_start_corner")) return kCornerLabels[v & 3];
         if (!strcmp(item->key, "led_direction"))     return kDirLabels[v & 1];
         if (!strcmp(item->key, "color_order"))       return kOrderLabels[v % 6];
+        if (!strcmp(item->key, "smoothing_preset"))  return kSmoothingPresetNames[smoothing_preset_index(cfg)];
         return (v >= 0 && v < item->enumCount) ? item->enumNames[v] : "?";
     }
     if (!strcmp(item->key, "gamma")) {
@@ -167,9 +170,10 @@ static const GroupLayout kGroupLayouts[] = {
     { "WLED connection",     ICON_WIFI,        {3},    1, 0.0f,  false },
     { "LED strip layout",    ICON_LED_STRIP,   {4,4},  2, 0.0f,  true  },
     { "Live reload",         ICON_REFRESH,     {1},    1, 0.0f,  false },
-    { "Screen sampling",     ICON_FRAME,       {5},    1, 0.0f,  false },
+    { "Screen sampling",     ICON_FRAME,       {1},    1, 0.0f,  false },
+    { "Auto letterbox",      ICON_FRAME,       {4},    1, 0.0f,  false },
     { "Colour",               ICON_LEVELS,      {6},    1, 0.0f,  false },
-    { "Motion and darkness", ICON_WAVES,       {3},    1, 0.0f,  false },
+    { "Motion and darkness", ICON_WAVES,       {4},    1, 0.0f,  false },
     { "RGB balance",          ICON_SLIDERS_RGB, {3,3},  2, 22.0f, false },
 };
 #define GROUP_LAYOUT_COUNT ((int)(sizeof(kGroupLayouts) / sizeof(kGroupLayouts[0])))
@@ -357,13 +361,16 @@ static void help_cards_init(UiCard out[HELP_CARD_COUNT])
         NULL, 0, -1, NULL, NULL };
 
     out[2] = (UiCard){ COL_AMBER, ICON_LEVELS, COL_AMBER, "Tune the picture",
-        "Screen sampling sets how much of each edge is captured, and how "
-        "far in from the bezel -- raise the capture margins if letterbox "
-        "bars or overscan are being sampled instead of picture content. "
-        "Colour shapes brightness, saturation, gamma and black/white "
-        "levels. Motion and darkness controls transition smoothing and "
-        "how the strip behaves in very dark scenes. RGB balance calibrates "
-        "each channel separately, for a strip or TV with an off white point.",
+        "Screen sampling sets how much of each edge is captured. Auto "
+        "letterbox finds black bars on its own and insets sampling to "
+        "stay off them -- it's the only capture inset, so there's no "
+        "manual margin to raise; lower its threshold if real bars aren't "
+        "pure black, or shorten its recheck interval if it's reacting "
+        "too slowly. Colour shapes brightness, saturation, gamma and "
+        "black/white levels. Motion and darkness controls transition "
+        "smoothing and how the strip behaves in very dark scenes. RGB "
+        "balance calibrates each channel separately, for a strip or TV "
+        "with an off white point.",
         NULL, 0, -1, NULL, NULL };
 
     out[3] = (UiCard){ COL_CYAN, ICON_HELP, COL_CYAN, "Controls",

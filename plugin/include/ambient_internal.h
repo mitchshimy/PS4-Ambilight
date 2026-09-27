@@ -52,8 +52,22 @@ typedef struct {
     StartCorner startCorner;
     LedDirection direction;
     int32_t ledOffset;          // rotates which physical LED index 0 lands on
-    uint32_t marginTop, marginRight, marginBottom, marginLeft; // pixels inset from the true screen edge before sampling
     uint32_t scanDepth;         // sample radius: (2*scanDepth+1)^2 pixels averaged per zone
+    // v3.0: auto letterbox/black-bar detection is now the ONLY inset
+    // applied before sampling -- the old manual capture_margin_{top,
+    // right,bottom,left} fields were removed (see CHANGELOG). Almost
+    // everything plays fullscreen with no letterboxing at all, in
+    // which case this correctly detects and applies zero margin; the
+    // cases it exists for -- cutscenes, aspect-ratio-locked menus, a
+    // status bar along one edge -- are exactly the cases a fixed
+    // manual number couldn't handle anyway (it's either wrong during
+    // the bar, or wrong for the other 99% of gameplay that has none).
+    // On by default for that reason: disabling it now means sampling
+    // starts at the true pixel 0/edge on every side, unconditionally.
+    bool autoLetterboxEnabled;
+    uint32_t autoLetterboxThreshold;         // 0-255: a probed pixel counts as "black" if every channel is below this
+    uint32_t autoLetterboxStabilityFrames;   // consecutive matching detections required before a new border is committed -- kills flicker across a scene cut
+    uint32_t autoLetterboxCheckIntervalFrames; // how many sample-thread iterations to wait between re-detections (this is a full up-to-half-screen probe, not free)
     // [color]
     uint32_t brightness;        // 0-255 global scale, applied after gamma
     uint32_t gammaLutIndex;     // index into kGammaLuts -- see NUM_GAMMA_LUTS below
@@ -191,10 +205,18 @@ extern volatile int32_t g_hdr2200Countdown;
 extern uint32_t g_zoneX[MAX_TOTAL_ZONES];
 extern uint32_t g_zoneY[MAX_TOTAL_ZONES];
 extern uint32_t g_numZones;
-void buildZoneGeometry(void); // called by main.c and settings.c (live layout reload)
+void buildZoneGeometry(void); // called by main.c, settings.c (live layout reload), and letterbox.c (a committed auto-border changes effective margins)
 void detectHdr2200Format(uint64_t bufferAddr); // called by sample_thread.c
 void sampleZoneAverage(const TileParams *p, uint64_t bufferAddr, PixelUnpackFn unpack,
                         uint32_t cx, uint32_t cy, uint8_t *outR, uint8_t *outG, uint8_t *outB); // called by sample_thread.c
+
+// [letterbox] -- auto black-bar detection (letterbox.c), the sole
+// source of capture margin (see zones.c's effMargin{Top,Right,Bottom,
+// Left} helpers). All four default to 0 (no letterbox found, or the
+// feature is off) until ambient_check_letterbox has committed a real
+// border.
+extern uint32_t g_autoLetterboxTop, g_autoLetterboxRight, g_autoLetterboxBottom, g_autoLetterboxLeft;
+void ambient_check_letterbox(const TileParams *p, uint64_t bufferAddr, PixelUnpackFn unpack); // called by sample_thread.c, once per loop pass (throttled internally)
 
 // [color_processing] -- gamma->brightness->contrast->saturation->levels->order (color_processing.c)
 void applyColorProcessing(uint8_t r8, uint8_t g8, uint8_t b8, uint8_t *out3); // called by sample_thread.c

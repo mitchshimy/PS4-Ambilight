@@ -84,4 +84,15 @@ bool settings_save(const AmbientConfig *cfg, const char *path);
 int32_t settings_get_i32(const AmbientConfig *cfg, const MenuItem *item);
 void settings_set_i32(AmbientConfig *cfg, const MenuItem *item, int32_t value);
 
+// v2.9: smoothing preset convenience (settings.c) -- see that file's
+// comment above kSmoothingPresetNames for why this is a UI-only view
+// over smoothingEnabled/settlingTimeMs rather than a real settings
+// field. The kMenuItems row for this uses section "ui" (not a real ini
+// section) precisely so it's never mistaken for one of the actual
+// plugin-schema entries around it.
+#define SMOOTHING_PRESET_COUNT 4
+extern const char *kSmoothingPresetNames[SMOOTHING_PRESET_COUNT]; // "Off","Responsive","Balanced","Smooth"
+int smoothing_preset_index(const AmbientConfig *cfg);             // derives the current bucket from the two real fields
+void smoothing_apply_preset(AmbientConfig *cfg, int presetIndex); // writes both real fields for the given bucket
+
 #endif // SETTINGS_H

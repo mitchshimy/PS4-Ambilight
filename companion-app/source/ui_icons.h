@@ -27,11 +27,7 @@ typedef enum {
     ICON_REFRESH,       // Live reload, Update plugin
 
     // Customization
-    ICON_FRAME,         // Screen sampling, Edge depth
-    ICON_MARGIN_TL,     // Capture margin top
-    ICON_MARGIN_TR,     // Capture margin right
-    ICON_MARGIN_BL,     // Capture margin bottom
-    ICON_MARGIN_BR,     // Capture margin left
+    ICON_FRAME,         // Screen sampling, Edge depth, Auto letterbox
     ICON_LEVELS,        // Colour card, Customization nav tab
     ICON_SUN,           // Brightness
     ICON_DROPLET,       // Saturation

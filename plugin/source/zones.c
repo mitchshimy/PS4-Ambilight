@@ -45,6 +45,37 @@ uint32_t g_numZones = 0; // set by buildZoneGeometry(), 0 until then
 
 typedef enum { EDGE_LEFT, EDGE_TOP, EDGE_RIGHT, EDGE_BOTTOM } Edge;
 
+// v3.0: effective margin per edge = whatever letterbox.c's auto-
+// detection currently has committed for that edge (0 when the feature
+// is off or hasn't found a bar there -- see that file). This used to
+// be a manual g_config.margin* PLUS the auto value; the manual fields
+// were removed once auto letterbox could fully cover what they were
+// for (see CHANGELOG) -- these are kept as their own named functions,
+// rather than reading g_autoLetterboxTop etc. directly below, purely
+// for the safety clamp: no edge's margin can reach past the screen's
+// own midpoint. That's the same limit BorderProcessor.applyKnownBorderCrop
+// itself applies ("never crop more than half of either axis") -- here
+// it also protects the unsigned subtraction below (SCREEN_HEIGHT - 1 -
+// marginTop - marginBottom, etc.) from underflowing, which in
+// principle a bad detection on two opposite edges could still cause
+// without it.
+static inline uint32_t effMarginTop(void)
+{
+    return g_autoLetterboxTop > (SCREEN_HEIGHT / 2 - 1) ? (SCREEN_HEIGHT / 2 - 1) : g_autoLetterboxTop;
+}
+static inline uint32_t effMarginBottom(void)
+{
+    return g_autoLetterboxBottom > (SCREEN_HEIGHT / 2 - 1) ? (SCREEN_HEIGHT / 2 - 1) : g_autoLetterboxBottom;
+}
+static inline uint32_t effMarginLeft(void)
+{
+    return g_autoLetterboxLeft > (SCREEN_WIDTH / 2 - 1) ? (SCREEN_WIDTH / 2 - 1) : g_autoLetterboxLeft;
+}
+static inline uint32_t effMarginRight(void)
+{
+    return g_autoLetterboxRight > (SCREEN_WIDTH / 2 - 1) ? (SCREEN_WIDTH / 2 - 1) : g_autoLetterboxRight;
+}
+
 // Generates `count` points along one screen edge, in either its
 // canonical clockwise-from-bottom-left direction (reversed=false) or
 // the opposite direction (reversed=true), honoring capture margins.
@@ -75,26 +106,27 @@ static void generateEdgePoints(Edge edge, bool reversed, uint32_t count, uint32_
     for (uint32_t i = 0; i < count && *outIdx < MAX_TOTAL_ZONES; i++) {
         uint32_t t = reversed ? (count - 1 - i) : i;
         uint32_t x, y;
+        uint32_t mTop = effMarginTop(), mRight = effMarginRight(), mBottom = effMarginBottom(), mLeft = effMarginLeft();
         switch (edge) {
         case EDGE_LEFT:
-            x = g_config.marginLeft;
-            y = (SCREEN_HEIGHT - 1 - g_config.marginBottom) -
-                (t * (SCREEN_HEIGHT - 1 - g_config.marginTop - g_config.marginBottom)) / count;
+            x = mLeft;
+            y = (SCREEN_HEIGHT - 1 - mBottom) -
+                (t * (SCREEN_HEIGHT - 1 - mTop - mBottom)) / count;
             break;
         case EDGE_TOP:
-            x = g_config.marginLeft +
-                (t * (SCREEN_WIDTH - 1 - g_config.marginLeft - g_config.marginRight)) / count;
-            y = g_config.marginTop;
+            x = mLeft +
+                (t * (SCREEN_WIDTH - 1 - mLeft - mRight)) / count;
+            y = mTop;
             break;
         case EDGE_RIGHT:
-            x = SCREEN_WIDTH - 1 - g_config.marginRight;
-            y = g_config.marginTop +
-                (t * (SCREEN_HEIGHT - 1 - g_config.marginTop - g_config.marginBottom)) / count;
+            x = SCREEN_WIDTH - 1 - mRight;
+            y = mTop +
+                (t * (SCREEN_HEIGHT - 1 - mTop - mBottom)) / count;
             break;
         default: // EDGE_BOTTOM
-            x = (SCREEN_WIDTH - 1 - g_config.marginRight) -
-                (t * (SCREEN_WIDTH - 1 - g_config.marginLeft - g_config.marginRight)) / count;
-            y = SCREEN_HEIGHT - 1 - g_config.marginBottom;
+            x = (SCREEN_WIDTH - 1 - mRight) -
+                (t * (SCREEN_WIDTH - 1 - mLeft - mRight)) / count;
+            y = SCREEN_HEIGHT - 1 - mBottom;
             break;
         }
         g_zoneX[*outIdx] = x;

@@ -7,6 +7,42 @@ companion app) are documented here, newest first.
 
 ## Plugin
 
+### v3.0
+- Removed the manual `capture_margin_top/right/bottom/left` ini keys.
+  v2.9's auto letterbox detection can now fully cover what these were
+  for -- a fixed manual number is either wrong during a letterboxed
+  cutscene or wrong for the fullscreen gameplay around it, since almost
+  everything actually renders edge-to-edge with no bars at all -- so
+  rather than carry unused legacy config, they're gone. `[layout]`'s
+  margin comment block is replaced by the `auto_letterbox_*` keys.
+  **Breaking ini change**: an existing config with `capture_margin_*`
+  set will have those values silently ignored, not migrated -- if you
+  were using them to trim overscan rather than an actual letterbox
+  (some capture chains show a few pixels of border the display itself
+  would normally crop), auto letterbox threshold/stability won't
+  reproduce that; there's no equivalent setting for it anymore.
+- `auto_letterbox_enabled` now defaults to `true` (was `false` in
+  v2.9). It's the only capture inset the plugin applies, so leaving it
+  off by default would mean sampling starts at the true edge on every
+  side, unconditionally, for anyone who doesn't know to turn it on.
+
+### v2.9
+- Added auto letterbox/pillarbox (black bar) detection, ported from
+  the Android "inspiration" project's own `BorderProcessor.kt`: each
+  edge is probed independently at 3 points (25/50/75% along the
+  perpendicular axis) and scanned inward for the first non-black
+  row/column, so an asymmetric bar (e.g. a status bar rendered only
+  along the top) is handled correctly instead of being averaged away.
+  A newly detected border only commits after
+  `auto_letterbox_stability_frames` consecutive re-detections agree,
+  to avoid a one-frame flicker snapping the LED geometry. New
+  `[layout]` keys: `auto_letterbox_enabled` (off by default at
+  introduction), `auto_letterbox_threshold`,
+  `auto_letterbox_stability_frames`, `auto_letterbox_check_interval_frames`.
+  At this point it added to the existing manual `capture_margin_*`
+  fields rather than replacing them -- see v3.0 above, which removed
+  those fields once this could stand on its own.
+
 ### v2.8
 - WLED heartbeat: the plugin now resends the last known-good color once
   a second during any foregrounded gap where the pixel format is
@@ -135,6 +171,26 @@ The companion app is a standalone PS4 homebrew UI (not a GoldHEN
 plugin) for editing the plugin's ini config on-console, with a live
 color preview and a plugin self-updater.
 
+- Removed the four "Capture margin top/right/bottom/left" fields from
+  Customize's Screen sampling card, and added a matching "Auto
+  letterbox" card (enable toggle, bar threshold, stability, recheck
+  interval) -- follows the plugin's own v3.0 removal of the
+  `capture_margin_*` ini keys in favor of always-on auto letterbox
+  detection.
+- Added a "Smoothing preset" picker (Off/Responsive/Balanced/Smooth) to
+  Customize's Motion and darkness card, next to the existing raw
+  "Settling time (ms)" field -- values ported from the Android
+  "inspiration" project's own `ColorSmoothing.applyPreset` (50/50/200/
+  500ms). This is a UI-only convenience: cycling it writes the two real
+  `smoothing_enabled`/`settling_time_ms` fields directly rather than
+  persisting a third setting of its own, so it can't drift out of sync
+  with them, and the raw ms field is still there to hand-tune if
+  neither preset's snapped to fits.
+- Reworded Setup's WLED IPv4 field description -- it previously read
+  "New setup starts with local-network discovery," left over from a
+  plan that was never actually built (there's no scanning code
+  anywhere in this app). Now just describes what exists: manual IPv4
+  entry, DDP on UDP port 4048 by default.
 - Fixed every create/overwrite `sceKernelOpen()` call missing
   `O_TRUNC`: the literal `0x200 | 0x001` was commented as
   `O_TRUNC|O_CREAT`, but on Orbis (FreeBSD-derived) that's actually

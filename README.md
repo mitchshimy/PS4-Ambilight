@@ -153,9 +153,23 @@ guessing at a combination.
 
 Under `[layout]` (capture side) and `[color]`:
 
-- **`capture_margin_top/right/bottom/left`** -- pixels to inset sampling from the true screen
-  edge, per side. Raise these if letterbox bars, overscan, or a game's own HUD border are being
-  sampled instead of real picture content near the edges.
+- **`auto_letterbox_enabled`** (default `true`) -- detects black letterbox/pillarbox bars and
+  insets sampling to stay off them, per edge independently (so e.g. a status bar rendered only
+  along the top is handled correctly without also cropping the other three edges). This is the
+  *only* sampling inset the plugin applies -- there's no manual margin setting. Leave it on
+  unless you have a specific reason to sample every pixel unconditionally (e.g. a game that
+  renders genuine near-black content flush against the edge, which this could misdetect as a
+  bar).
+- **`auto_letterbox_threshold`** (0–255, default 18) -- a probed pixel counts as part of a black
+  bar if every channel is below this.
+- **`auto_letterbox_stability_frames`** (default 3) -- how many consecutive matching detections
+  are required before a newly detected border is actually applied. Higher = slower to react to a
+  real letterbox appearing, but more resistant to a one-frame flicker (a bright flash, a
+  transient bad read) causing a visible snap in the LED geometry.
+- **`auto_letterbox_check_interval_frames`** (default 15, i.e. ~2x/sec at the default 30Hz
+  `update_frequency_hz`) -- how many sample-thread passes to wait between re-checks. Each check
+  is a full per-edge screen probe, not free -- raise this if `update_frequency_hz` is high and
+  CPU headroom is tight.
 - **`scan_depth`** -- sample radius per zone; each zone averages a `(2×scan_depth+1)²` pixel
   block. Higher smooths out noise at the cost of more CPU per frame.
 - **`brightness`** (0–255) -- global scale, 255 = unchanged.
@@ -190,7 +204,10 @@ Under `[timing]`:
 - **`update_frequency_hz`** -- how many times per second to sample and send color (default 30).
 - **`smoothing_enabled`** / **`settling_time_ms`** -- blends each new sample with the previous
   one over roughly `settling_time_ms` instead of snapping instantly, to reduce flicker on fast
-  scene cuts. `smoothing_enabled=false` sends raw samples as-is.
+  scene cuts. `smoothing_enabled=false` sends raw samples as-is. The companion app's Customize
+  screen also offers a **Smoothing preset** picker (Off/Responsive/Balanced/Smooth) as a
+  convenience over these two -- it's a UI-only shortcut that just writes canonical values into
+  them (50/50/200/500ms), not a separate ini key of its own.
 - **`config_reload_check_seconds`** -- how often, in seconds, the plugin re-reads the ini file
   *while a game is running* and applies changes live. `0` reverts to the original v2.0 behavior
   of reading the file once, at plugin load, only.
@@ -237,8 +254,11 @@ release is the first thing to try.
   last known-good color once a second during any foregrounded gap (an unknown/transitioning
   pixel format) instead of going silent, so WLED's timeout never has long enough to fire.
   Updating to the latest plugin release is the fix.
-- **Black bars or overscan are getting sampled as picture content.** Raise the relevant
-  `capture_margin_*` value(s) under Screen sampling.
+- **Black bars or overscan are getting sampled as picture content.** This should self-correct
+  within `auto_letterbox_stability_frames` re-checks once `auto_letterbox_enabled` is on (the
+  default). If it's still happening, lower `auto_letterbox_threshold` slightly if the bars aren't
+  pure black, or shorten `auto_letterbox_check_interval_frames` if it's reacting too slowly to a
+  bar appearing.
 - **HDR titles look badly wrong, not just slightly off.** See HDR / pixel format handling
   above -- make sure you're on the latest plugin release.
 - **The Home screen's install button seems stuck on the wrong state**, e.g. still shows

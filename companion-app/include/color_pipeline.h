@@ -33,8 +33,11 @@ typedef struct {
     StartCorner startCorner;
     LedDirection direction;
     int32_t ledOffset;
-    uint32_t marginTop, marginRight, marginBottom, marginLeft;
     uint32_t scanDepth;
+    int autoLetterboxEnabled;
+    uint32_t autoLetterboxThreshold;
+    uint32_t autoLetterboxStabilityFrames;
+    uint32_t autoLetterboxCheckIntervalFrames;
     // [color]
     uint32_t brightness;
     uint32_t gammaLutIndex;

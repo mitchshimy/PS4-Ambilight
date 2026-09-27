@@ -1645,6 +1645,21 @@ static void do_save(void)
 static void nudge_field(const MenuItem *item, int dir)
 {
     if (item->type == FIELD_STRING) return; // no numeric nudge for an IP
+
+    if (!strcmp(item->key, "smoothing_preset")) {
+        // Not a real field -- see settings.h/settings.c -- so it can't
+        // go through settings_get_i32/set_i32 below, which only know
+        // how to read/write a single struct member at item->offset.
+        int next = smoothing_preset_index(&g_cfg) + dir;
+        if (next < 0) next = SMOOTHING_PRESET_COUNT - 1;
+        if (next >= SMOOTHING_PRESET_COUNT) next = 0;
+        smoothing_apply_preset(&g_cfg, next);
+        char msg[128];
+        snprintf(msg, sizeof(msg), "%s: %s.", item->label, kSmoothingPresetNames[next]);
+        set_status(msg, false);
+        return;
+    }
+
     int32_t cur = settings_get_i32(&g_cfg, item);
     int32_t next;
     if (item->type == FIELD_BOOL) {

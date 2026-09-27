@@ -14,6 +14,46 @@ static const char *kStartCornerNames[] = { "bottom_left", "bottom_right", "top_l
 static const char *kDirectionNames[]   = { "clockwise", "counterclockwise" };
 static const char *kColorOrderNames[]  = { "RGB", "RBG", "GRB", "GBR", "BRG", "BGR" };
 
+// v2.9: smoothing presets, ported from the Android "inspiration"
+// project's own ColorSmoothing.kt (applyPreset) -- the ms values are
+// copied verbatim from its "off"/"responsive"/"balanced"/"smooth"
+// cases (that project's other two per-preset knobs, output delay and a
+// forced update-frequency override, don't have an equivalent here:
+// this plugin has no output-delay concept, and update_frequency_hz is
+// this project's own independent CPU-budget setting that a smoothing
+// preset has no business silently overriding). This is a UI
+// convenience over the two REAL fields below, not a third setting of
+// its own -- nothing here is a new ini key, so kMenuItems' own
+// "every (section,key) pair is exactly what the real plugin reads"
+// invariant for its actual entries is untouched. See its own kMenuItems
+// row (section "ui", not a real ini section) and smoothing_preset_index/
+// smoothing_apply_preset below.
+const char *kSmoothingPresetNames[SMOOTHING_PRESET_COUNT] = { "Off", "Responsive", "Balanced", "Smooth" };
+static const uint32_t kSmoothingPresetMs[SMOOTHING_PRESET_COUNT] = { 50, 50, 200, 500 };
+
+// Bucketed rather than an exact-value match against kSmoothingPresetMs:
+// this always has a defined answer (no "Custom" case to render/cycle
+// out of), including for a settling_time_ms a user typed by hand via
+// the raw field rather than picking a preset. Off (index 0) is decided
+// by smoothingEnabled alone -- matches the Android original, where
+// "off" and "responsive" share the exact same 50ms settling time and
+// are distinguished only by whether smoothing is enabled at all.
+int smoothing_preset_index(const AmbientConfig *cfg)
+{
+    if (!cfg->smoothingEnabled) return 0;
+    if (cfg->settlingTimeMs <= kSmoothingPresetMs[1]) return 1;
+    if (cfg->settlingTimeMs <= kSmoothingPresetMs[2]) return 2;
+    return 3;
+}
+
+void smoothing_apply_preset(AmbientConfig *cfg, int presetIndex)
+{
+    if (presetIndex < 0) presetIndex = 0;
+    if (presetIndex >= SMOOTHING_PRESET_COUNT) presetIndex = SMOOTHING_PRESET_COUNT - 1;
+    cfg->smoothingEnabled = (presetIndex != 0) ? 1 : 0;
+    cfg->settlingTimeMs = kSmoothingPresetMs[presetIndex];
+}
+
 #define OFF(field) offsetof(AmbientConfig, field)
 // For FIELD_STRING items only -- see settings.h's comment on MenuItem's
 // max field for why this reuses it instead of adding a new one.
@@ -68,15 +108,16 @@ const MenuItem kMenuItems[] = {
 
     // ======================== Customize ========================
     { "Edge depth",        "layout",  "scan_depth",                 FIELD_U32,    OFF(scanDepth),       0,    10,   1, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "Screen sampling", "Each edge zone averages a square block of pixels around its sample point. Raise the capture margins if overscan or black bars are being sampled instead of real picture content." },
-    { "Capture margin top",    "layout", "capture_margin_top",      FIELD_U32,    OFF(marginTop),       0,   500,   1, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "Screen sampling", NULL },
-    { "Capture margin right", "layout", "capture_margin_right",     FIELD_U32,    OFF(marginRight),     0,   500,   1, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "Screen sampling", NULL },
-    { "Capture margin bottom","layout", "capture_margin_bottom",    FIELD_U32,    OFF(marginBottom),    0,   500,   1, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "Screen sampling", NULL },
-    { "Capture margin left",  "layout", "capture_margin_left",      FIELD_U32,    OFF(marginLeft),      0,   500,   1, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "Screen sampling", NULL },
+      MENU_SCREEN_CUSTOMIZE, "Screen sampling", "Each edge zone averages a square block of pixels around its sample point." },
+
+    { "Auto letterbox",       "layout", "auto_letterbox_enabled",   FIELD_BOOL,   OFF(autoLetterboxEnabled), 0, 1, 1, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Auto letterbox", "Detects black bars on each edge independently and insets sampling to stay off them. This is the only capture inset -- turn it off to sample every pixel unconditionally." },
+    { "Bar threshold (0\xE2\x80\x93""255)", "layout", "auto_letterbox_threshold", FIELD_U32, OFF(autoLetterboxThreshold), 0, 255, 1, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Auto letterbox", NULL },
+    { "Stability (frames)",   "layout", "auto_letterbox_stability_frames", FIELD_U32, OFF(autoLetterboxStabilityFrames), 1, 30, 1, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Auto letterbox", NULL },
+    { "Recheck every (frames)", "layout", "auto_letterbox_check_interval_frames", FIELD_U32, OFF(autoLetterboxCheckIntervalFrames), 1, 300, 1, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Auto letterbox", NULL },
 
     { "Brightness (0\xE2\x80\x93""255)",        "color", "brightness",  FIELD_U32,  OFF(brightness),      0,   255,   5, NULL, 0,
       MENU_SCREEN_CUSTOMIZE, "Colour", "Shape overall brightness, colour intensity, gamma response and the black/white levels used for LED output." },
@@ -93,6 +134,8 @@ const MenuItem kMenuItems[] = {
 
     { "Smoothing",          "timing",  "smoothing_enabled",         FIELD_BOOL,   OFF(smoothingEnabled),  0,    1,   1, NULL, 0,
       MENU_SCREEN_CUSTOMIZE, "Motion and darkness", "Control transition smoothing and how the strip reacts to very dark scenes." },
+    { "Smoothing preset",   "ui",      "smoothing_preset",          FIELD_ENUM,   OFF(smoothingEnabled), 0, SMOOTHING_PRESET_COUNT - 1, 1, kSmoothingPresetNames, SMOOTHING_PRESET_COUNT,
+      MENU_SCREEN_CUSTOMIZE, "Motion and darkness", NULL }, // "ui" section/not-a-real-offset are deliberate -- see settings.h; nudge_field/format_value special-case this key instead of using it generically
     { "Settling time (ms)", "timing",  "settling_time_ms",          FIELD_U32,    OFF(settlingTimeMs),    0, 5000,  50, NULL, 0,
       MENU_SCREEN_CUSTOMIZE, "Motion and darkness", NULL },
     { "Black threshold (0\xE2\x80\x93""255)", "color", "dark_threshold", FIELD_U32, OFF(darkThreshold), 0, 255, 1, NULL, 0,
@@ -127,8 +170,11 @@ void settings_set_defaults(AmbientConfig *cfg)
     cfg->startCorner = CORNER_BOTTOM_LEFT;
     cfg->direction = DIR_CLOCKWISE;
     cfg->ledOffset = 0;
-    cfg->marginTop = 0; cfg->marginRight = 0; cfg->marginBottom = 0; cfg->marginLeft = 0;
     cfg->scanDepth = 1;
+    cfg->autoLetterboxEnabled = 1;
+    cfg->autoLetterboxThreshold = 18;
+    cfg->autoLetterboxStabilityFrames = 3;
+    cfg->autoLetterboxCheckIntervalFrames = 15;
     cfg->brightness = 255;
     cfg->gammaLutIndex = 0;
     cfg->saturation = 0;
@@ -234,11 +280,11 @@ bool settings_load(AmbientConfig *cfg, const char *path)
     cfg->startCorner = parse_start_corner(ini_table_get_entry(table, "layout", "led_start_corner"), cfg->startCorner);
     cfg->direction = parse_direction(ini_table_get_entry(table, "layout", "led_direction"), cfg->direction);
     if (ini_table_get_entry_as_int(table, "layout", "led_offset", &iv)) cfg->ledOffset = clamp_to_schema("layout", "led_offset", iv);
-    if (ini_table_get_entry_as_int(table, "layout", "capture_margin_top", &iv)) cfg->marginTop = (uint32_t)clamp_to_schema("layout", "capture_margin_top", iv);
-    if (ini_table_get_entry_as_int(table, "layout", "capture_margin_right", &iv)) cfg->marginRight = (uint32_t)clamp_to_schema("layout", "capture_margin_right", iv);
-    if (ini_table_get_entry_as_int(table, "layout", "capture_margin_bottom", &iv)) cfg->marginBottom = (uint32_t)clamp_to_schema("layout", "capture_margin_bottom", iv);
-    if (ini_table_get_entry_as_int(table, "layout", "capture_margin_left", &iv)) cfg->marginLeft = (uint32_t)clamp_to_schema("layout", "capture_margin_left", iv);
     if (ini_table_get_entry_as_int(table, "layout", "scan_depth", &iv)) cfg->scanDepth = (uint32_t)clamp_to_schema("layout", "scan_depth", iv);
+    if (ini_table_get_entry_as_bool(table, "layout", "auto_letterbox_enabled", &bv)) cfg->autoLetterboxEnabled = bv ? 1 : 0;
+    if (ini_table_get_entry_as_int(table, "layout", "auto_letterbox_threshold", &iv)) cfg->autoLetterboxThreshold = (uint32_t)clamp_to_schema("layout", "auto_letterbox_threshold", iv);
+    if (ini_table_get_entry_as_int(table, "layout", "auto_letterbox_stability_frames", &iv)) cfg->autoLetterboxStabilityFrames = (uint32_t)clamp_to_schema("layout", "auto_letterbox_stability_frames", iv);
+    if (ini_table_get_entry_as_int(table, "layout", "auto_letterbox_check_interval_frames", &iv)) cfg->autoLetterboxCheckIntervalFrames = (uint32_t)clamp_to_schema("layout", "auto_letterbox_check_interval_frames", iv);
 
     if (ini_table_get_entry_as_int(table, "color", "brightness", &iv)) cfg->brightness = (uint32_t)clamp_to_schema("color", "brightness", iv);
     // gamma preset is stored as a string ("1.0".."2.8") in the real ini,
@@ -321,11 +367,11 @@ bool settings_save(const AmbientConfig *cfg, const char *path)
     ini_table_create_entry(table, "layout", "led_start_corner", kStartCornerNames[cfg->startCorner]);
     ini_table_create_entry(table, "layout", "led_direction", kDirectionNames[cfg->direction]);
     SET_INT("layout", "led_offset", cfg->ledOffset);
-    SET_INT("layout", "capture_margin_top", cfg->marginTop);
-    SET_INT("layout", "capture_margin_right", cfg->marginRight);
-    SET_INT("layout", "capture_margin_bottom", cfg->marginBottom);
-    SET_INT("layout", "capture_margin_left", cfg->marginLeft);
     SET_INT("layout", "scan_depth", cfg->scanDepth);
+    ini_table_create_entry(table, "layout", "auto_letterbox_enabled", cfg->autoLetterboxEnabled ? "true" : "false");
+    SET_INT("layout", "auto_letterbox_threshold", cfg->autoLetterboxThreshold);
+    SET_INT("layout", "auto_letterbox_stability_frames", cfg->autoLetterboxStabilityFrames);
+    SET_INT("layout", "auto_letterbox_check_interval_frames", cfg->autoLetterboxCheckIntervalFrames);
 
     SET_INT("color", "brightness", cfg->brightness);
     {

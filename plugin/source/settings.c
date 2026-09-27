@@ -43,8 +43,15 @@ AmbientConfig g_config = {
     .startCorner = CORNER_BOTTOM_LEFT,
     .direction = DIR_CLOCKWISE,
     .ledOffset = 0,
-    .marginTop = 0, .marginRight = 0, .marginBottom = 0, .marginLeft = 0,
     .scanDepth = 1,
+    // v3.0: on by default -- this is now the only inset applied before
+    // sampling (see ambient_internal.h). threshold/stability default
+    // values are unchanged from when this was introduced in v2.9 as an
+    // addition on top of manual margins.
+    .autoLetterboxEnabled = true,
+    .autoLetterboxThreshold = 18,
+    .autoLetterboxStabilityFrames = 3,
+    .autoLetterboxCheckIntervalFrames = 15, // ~2x/sec at the 30Hz default update_frequency_hz
     .brightness = 255,
     .gammaLutIndex = 0, // gamma 1.0 == passthrough, matches v1.3 (no color processing existed)
     .saturation = 0,
@@ -111,16 +118,27 @@ static void ambient_create_default_config(void)
         "; (e.g. everything is one LED off from where it should be),\n" \
         "; adjust this instead of led_start_corner/led_direction.\n" \
         "led_offset=0\n" \
-        "; Pixels to inset sampling from the true screen edge, per side.\n" \
-        "; Raise these if overscan/black bars are being sampled instead\n" \
-        "; of real picture content.\n" \
-        "capture_margin_top=0\n" \
-        "capture_margin_right=0\n" \
-        "capture_margin_bottom=0\n" \
-        "capture_margin_left=0\n" \
         "; Sample radius per zone: (2*scan_depth+1)^2 pixels averaged.\n" \
         "; Higher = smoother/less noisy but more CPU per frame.\n" \
         "scan_depth=1\n" \
+        "; Auto-detects black letterbox/pillarbox bars and insets\n" \
+        "; sampling to stay off them, per edge independently (so e.g.\n" \
+        "; a status bar only on top is handled correctly). This is the\n" \
+        "; ONLY sampling inset the plugin applies -- there's no manual\n" \
+        "; margin setting -- so leave this on unless you have a\n" \
+        "; specific reason to sample every pixel unconditionally.\n" \
+        "auto_letterbox_enabled=true\n" \
+        "; A probed pixel counts as part of a black bar if every\n" \
+        "; channel is below this (0-255).\n" \
+        "auto_letterbox_threshold=18\n" \
+        "; How many consecutive detections must agree before a new\n" \
+        "; border is actually applied -- higher = slower to react but\n" \
+        "; more resistant to flicker across a scene cut.\n" \
+        "auto_letterbox_stability_frames=3\n" \
+        "; How many sample-thread passes to wait between re-checks.\n" \
+        "; This is a full per-edge screen probe, not free -- raise this\n" \
+        "; if update_frequency_hz is high and CPU headroom is tight.\n" \
+        "auto_letterbox_check_interval_frames=15\n" \
         "\n" \
         "[color]\n" \
         "; Global brightness scale, 0-255. 255 = no change.\n" \
@@ -288,16 +306,17 @@ void ambient_load_config(void)
     g_config.direction = parse_direction(ini_table_get_entry(table, "layout", "led_direction"), g_config.direction);
     if (ini_table_get_entry_as_int(table, "layout", "led_offset", &iv))
         g_config.ledOffset = iv;
-    if (ini_table_get_entry_as_int(table, "layout", "capture_margin_top", &iv) && iv >= 0)
-        g_config.marginTop = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "layout", "capture_margin_right", &iv) && iv >= 0)
-        g_config.marginRight = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "layout", "capture_margin_bottom", &iv) && iv >= 0)
-        g_config.marginBottom = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "layout", "capture_margin_left", &iv) && iv >= 0)
-        g_config.marginLeft = (uint32_t)iv;
     if (ini_table_get_entry_as_int(table, "layout", "scan_depth", &iv) && iv >= 0)
         g_config.scanDepth = (uint32_t)iv;
+
+    if (ini_table_get_entry_as_bool(table, "layout", "auto_letterbox_enabled", &bv))
+        g_config.autoLetterboxEnabled = bv;
+    if (ini_table_get_entry_as_int(table, "layout", "auto_letterbox_threshold", &iv) && iv >= 0 && iv <= 255)
+        g_config.autoLetterboxThreshold = (uint32_t)iv;
+    if (ini_table_get_entry_as_int(table, "layout", "auto_letterbox_stability_frames", &iv) && iv >= 1)
+        g_config.autoLetterboxStabilityFrames = (uint32_t)iv;
+    if (ini_table_get_entry_as_int(table, "layout", "auto_letterbox_check_interval_frames", &iv) && iv >= 1)
+        g_config.autoLetterboxCheckIntervalFrames = (uint32_t)iv;
 
     if (ini_table_get_entry_as_int(table, "color", "brightness", &iv) && iv >= 0 && iv <= 255)
         g_config.brightness = (uint32_t)iv;

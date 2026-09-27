@@ -369,10 +369,6 @@ static const Shape SH_FRAME[] = {
     { SH_RECT, NULL, {4, 4, 16, 16, 1.5f}, false, 0, CUR },
     { SH_RECT, NULL, {8.5f, 8.5f, 7, 7, 1}, false, 0, CUR },
 };
-static const Shape SH_MARGIN_TL[] = { { SH_PATH, "M4 9V5a1 1 0 0 1 1-1h4", {0}, false, 0, CUR } };
-static const Shape SH_MARGIN_TR[] = { { SH_PATH, "M20 9V5a1 1 0 0 0-1-1h-4", {0}, false, 0, CUR } };
-static const Shape SH_MARGIN_BL[] = { { SH_PATH, "M4 15v4a1 1 0 0 0 1 1h4", {0}, false, 0, CUR } };
-static const Shape SH_MARGIN_BR[] = { { SH_PATH, "M20 15v4a1 1 0 0 1-1 1h-4", {0}, false, 0, CUR } };
 static const Shape SH_LEVELS[] = {
     { SH_PATH, "M4 17h16", {0}, false, 0, CUR },
     { SH_PATH, "M4 12h10", {0}, false, 0, CUR },
@@ -502,10 +498,6 @@ static const IconDef kIcons[ICON_COUNT] = {
     [ICON_GLOBE]       = DEF(SH_GLOBE, 1.8f, true),
     [ICON_REFRESH]     = DEF(SH_REFRESH, 1.8f, true),
     [ICON_FRAME]       = DEF(SH_FRAME, 1.8f, false),
-    [ICON_MARGIN_TL]   = DEF(SH_MARGIN_TL, 1.8f, true),
-    [ICON_MARGIN_TR]   = DEF(SH_MARGIN_TR, 1.8f, true),
-    [ICON_MARGIN_BL]   = DEF(SH_MARGIN_BL, 1.8f, true),
-    [ICON_MARGIN_BR]   = DEF(SH_MARGIN_BR, 1.8f, true),
     [ICON_LEVELS]      = DEF(SH_LEVELS, 1.6f, true),
     [ICON_SUN]         = DEF(SH_SUN, 1.8f, true),
     [ICON_DROPLET]     = DEF(SH_DROPLET, 1.8f, false),

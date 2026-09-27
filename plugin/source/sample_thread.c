@@ -176,6 +176,13 @@ void *ambient_sample_thread(void *args)
             }
             PixelUnpackFn unpack = getUnpackFnForFormat(g_activeFormat);
             if (unpack != NULL) { // re-check -- format could have gone unknown since the last read
+                // v2.9: throttled internally (autoLetterboxCheckIntervalFrames)
+                // and a complete no-op when autoLetterboxEnabled is false --
+                // see letterbox.c. Runs before this pass's own zone sampling
+                // below so that a border committed just now is reflected in
+                // THIS pass's g_zoneX/g_zoneY, not the next one.
+                ambient_check_letterbox(&kParamsBase, liveBufferAddr, unpack);
+
                 uint8_t rgbTriplets[MAX_TOTAL_ZONES * 3];
                 for (uint32_t i = 0; i < g_numZones; i++) {
                     uint8_t r, g, b;
