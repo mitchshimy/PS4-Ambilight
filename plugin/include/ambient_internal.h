@@ -132,6 +132,13 @@ void send_timing_packet(uint32_t minUs, uint32_t maxUs, uint32_t avgUs,
                          uint32_t sampleCount, uint32_t overBudgetCount,
                          uint32_t windowId, uint32_t minCpu,
                          uint32_t maxCpu, uint32_t migrationCount);
+void send_flip_diag_packet(uint32_t registerHookCallCount, uint32_t flipHookCallCount,
+                            uint32_t displayBufferIndex, uint64_t liveBufferAddr,
+                            uint32_t haveValidFormat, uint32_t activeFormat,
+                            uint32_t videoOutSubmitFlipHookCallCount,
+                            uint32_t submitFlipPtrResolved,
+                            uint32_t gnmForWorkloadHookCallCount,
+                            uint32_t gnmForWorkloadPtrResolved); // called by sample_thread.c, v3.1
 void ambient_read_content_preview(uint8_t *out, size_t previewLen); // called by settings.c
 #define CONFIG_DEBUG_PREVIEW_LEN 16
 void debug_send_raw(const uint8_t *data, int len); // also called directly by zones.c's detectHdr2200Format for its own diagnostic packet
@@ -240,6 +247,22 @@ extern int32_t (*sceGnmSubmitAndFlipCommandBuffersPtr)(uint32_t count, void *dcb
                                                  uint32_t *ccbSizesInBytes, uint32_t videoOutHandle,
                                                  uint32_t displayBufferIndex, uint32_t flipMode,
                                                  int64_t flipArg);
+// v3.1: two more real flip entrypoints -- see hooks.c's g_pluginVersion
+// comment for why these exist.
+extern int32_t (*sceVideoOutSubmitFlipPtr)(int32_t handle, int32_t bufferIndex,
+                                            int32_t flipMode, int64_t flipArg);
+extern int32_t (*sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr)(uint32_t workload, uint32_t count,
+                                                                    void *dcbGpuAddrs[], uint32_t *dcbSizesInBytes,
+                                                                    void *ccbGpuAddrs[], uint32_t *ccbSizesInBytes,
+                                                                    uint32_t videoOutHandle, uint32_t displayBufferIndex,
+                                                                    uint32_t flipMode, int64_t flipArg);
+// v3.1: diagnostic only -- see hooks.c's own declarations/comments.
+extern volatile uint32_t g_registerHookCallCount;
+extern volatile uint32_t g_flipHookCallCount;
+extern volatile uint32_t g_videoOutSubmitFlipHookCallCount;
+extern volatile uint32_t g_submitFlipPtrResolved;
+extern volatile uint32_t g_gnmForWorkloadHookCallCount;
+extern volatile uint32_t g_gnmForWorkloadPtrResolved;
 
 // The actual hook functions (hooks.c) and their Detour_* handles
 // (created by HOOK_INIT in hooks.c) both need to be visible from
@@ -258,8 +281,17 @@ int32_t sceGnmSubmitAndFlipCommandBuffersPtr_hook(uint32_t count, void *dcbGpuAd
                                                    uint32_t *ccbSizesInBytes, uint32_t videoOutHandle,
                                                    uint32_t displayBufferIndex, uint32_t flipMode,
                                                    int64_t flipArg);
+int32_t sceVideoOutSubmitFlipPtr_hook(int32_t handle, int32_t bufferIndex,
+                                       int32_t flipMode, int64_t flipArg);
+int32_t sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr_hook(uint32_t workload, uint32_t count,
+                                                               void *dcbGpuAddrs[], uint32_t *dcbSizesInBytes,
+                                                               void *ccbGpuAddrs[], uint32_t *ccbSizesInBytes,
+                                                               uint32_t videoOutHandle, uint32_t displayBufferIndex,
+                                                               uint32_t flipMode, int64_t flipArg);
 HOOK_EXTERN(sceVideoOutRegisterBuffersPtr);
 HOOK_EXTERN(sceGnmSubmitAndFlipCommandBuffersPtr);
+HOOK_EXTERN(sceVideoOutSubmitFlipPtr);
+HOOK_EXTERN(sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr);
 
 // TIMING_ENABLED gates the loop-time telemetry in sample_thread.c --
 // also referenced (as a plain #if, not calling anything) by main.c's

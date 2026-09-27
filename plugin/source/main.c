@@ -110,6 +110,22 @@ int32_t attr_public plugin_load(int32_t argc, const char* argv[])
     sys_dynlib_dlsym(hGnm, "sceGnmSubmitAndFlipCommandBuffers", (void**)&sceGnmSubmitAndFlipCommandBuffersPtr);
     if (sceVideoOutRegisterBuffersPtr == NULL || sceGnmSubmitAndFlipCommandBuffersPtr == NULL) return 0;
 
+    // v3.1: two more real flip entrypoints -- see hooks.c's
+    // g_pluginVersion comment for why. Both resolved from the SAME
+    // sprx handles already loaded above (no new sys_dynlib_load_prx
+    // calls needed), and deliberately NOT fatal if either fails to
+    // resolve: a title with no use for a given entrypoint just never
+    // triggers that hook, same reasoning as sceSystemServiceGetStatus
+    // below. g_submitFlipPtrResolved/g_gnmForWorkloadPtrResolved (set
+    // here, read by the diagnostic packet) exist specifically so a
+    // future capture can tell "never resolved" apart from "resolved,
+    // never called" instead of both reading as a flat 0.
+    sys_dynlib_dlsym(hVideoOut, "sceVideoOutSubmitFlip", (void**)&sceVideoOutSubmitFlipPtr);
+    g_submitFlipPtrResolved = (sceVideoOutSubmitFlipPtr != NULL) ? 1 : 0;
+    sys_dynlib_dlsym(hGnm, "sceGnmSubmitAndFlipCommandBuffersForWorkload",
+                      (void**)&sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr);
+    g_gnmForWorkloadPtrResolved = (sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr != NULL) ? 1 : 0;
+
     // v2.4: resolved separately from the two required loads above, and
     // deliberately NOT fatal if it fails -- foreground/background
     // detection is additive. If this symbol can't be resolved (wrong
@@ -126,14 +142,27 @@ int32_t attr_public plugin_load(int32_t argc, const char* argv[])
     }
 
     // Same forwarding-stub guard as detile_verify_probe -- proven
-    // necessary, do not skip.
+    // necessary, do not skip. v3.1: extended to the two new pointers,
+    // but only when they actually resolved above -- unlike the two
+    // required ones, a NULL here is an expected, harmless outcome, not
+    // a reason to abort plugin_load.
     if (*((uint8_t*)sceVideoOutRegisterBuffersPtr) == 0xE9 ||
-        *((uint8_t*)sceGnmSubmitAndFlipCommandBuffersPtr) == 0xE9) {
+        *((uint8_t*)sceGnmSubmitAndFlipCommandBuffersPtr) == 0xE9 ||
+        (sceVideoOutSubmitFlipPtr != NULL && *((uint8_t*)sceVideoOutSubmitFlipPtr) == 0xE9) ||
+        (sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr != NULL &&
+         *((uint8_t*)sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr) == 0xE9)) {
         return 0;
     }
 
     HOOK32(sceVideoOutRegisterBuffersPtr);
     HOOK32(sceGnmSubmitAndFlipCommandBuffersPtr);
+    // v3.1: best-effort -- only hook whichever of these actually resolved.
+    if (sceVideoOutSubmitFlipPtr != NULL) {
+        HOOK32(sceVideoOutSubmitFlipPtr);
+    }
+    if (sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr != NULL) {
+        HOOK32(sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr);
+    }
 
     OrbisPthread thread;
 
@@ -229,6 +258,13 @@ int32_t attr_public plugin_unload(int32_t argc, const char* argv[])
 
     UNHOOK(sceVideoOutRegisterBuffersPtr);
     UNHOOK(sceGnmSubmitAndFlipCommandBuffersPtr);
+    // v3.1: only unhook whichever of these was actually hooked above.
+    if (sceVideoOutSubmitFlipPtr != NULL) {
+        UNHOOK(sceVideoOutSubmitFlipPtr);
+    }
+    if (sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr != NULL) {
+        UNHOOK(sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr);
+    }
     if (g_wledSockfd >= 0) { close(g_wledSockfd); g_wledSockfd = -1; }
     return 0;
 }

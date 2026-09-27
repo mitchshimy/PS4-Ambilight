@@ -170,6 +170,29 @@ void *ambient_sample_thread(void *args)
                                     displayBufferIndex < (uint32_t)MAX_TRACKED_BUFFERS)
                                        ? g_bufferAddrs[displayBufferIndex] : 0;
 
+#if (__FINAL__) == 0
+        // v3.1: what actually found "this title never lights up" -- see
+        // hooks.c's g_pluginVersion comment. Sent UNCONDITIONALLY, not
+        // just from inside the liveBufferAddr!=0 branch below -- the
+        // whole point is to keep reporting the true hook-call-count
+        // state even when the pipeline is going silent, same reasoning
+        // as send_timing_packet's own always-on placement. Throttled to
+        // roughly once a second, same ~30-iteration pattern already
+        // used for the sceSystemServiceGetStatus poll above.
+        {
+            static uint32_t s_flipDiagCounter = 0;
+            if ((++s_flipDiagCounter % 30) == 0) {
+                send_flip_diag_packet(g_registerHookCallCount, g_flipHookCallCount,
+                                       displayBufferIndex, liveBufferAddr,
+                                       (uint32_t)g_haveValidFormat, g_activeFormat,
+                                       g_videoOutSubmitFlipHookCallCount,
+                                       g_submitFlipPtrResolved,
+                                       g_gnmForWorkloadHookCallCount,
+                                       g_gnmForWorkloadPtrResolved);
+            }
+        }
+#endif
+
         if (liveBufferAddr != 0 && g_haveValidFormat) {
             if (g_activeFormat == 0x80002200) {
                 detectHdr2200Format(liveBufferAddr); // cheap, throttled -- see its own comment

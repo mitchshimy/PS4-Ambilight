@@ -7,6 +7,66 @@ companion app) are documented here, newest first.
 
 ## Plugin
 
+### v3.1
+- Added a third flip hook, `sceGnmSubmitAndFlipCommandBuffersForWorkload`,
+  fixing titles that never light up at all. Shadow of the Tomb Raider
+  (SDR and HDR runs both -- confirmed the same title, not two, after
+  an earlier capture session got that wrong) never lit the strip on
+  either run. Format registration looked completely normal both
+  times -- `sceVideoOutRegisterBuffersPtr_hook` fired once,
+  `getUnpackFnForFormat` recognized the format both times
+  (`0x80000000` on SDR, `0x88740000` A2R10G10B10_BT2020_PQ on HDR) --
+  so this wasn't another pixel-format gap.
+
+  Added real counters instead of guessing further:
+  `g_registerHookCallCount` / `g_flipHookCallCount`, sent once a
+  second via a new `send_flip_diag_packet` (44 bytes,
+  `__FINAL__==0`-gated same as this project's other diagnostics).
+  First capture against the failing title: register climbing
+  normally, flip stuck at 0 for the entire session,
+  `g_currentDisplayBufferIndex` never once leaving its `0xFFFFFFFF`
+  sentinel. Not a throttling artifact -- an unconditional per-second
+  counter that never moved across an ~11-second capture.
+  `sceGnmSubmitAndFlipCommandBuffers` was simply never being called by
+  this title.
+
+  First guess: a second real flip entrypoint, `sceVideoOutSubmitFlip`
+  (`libSceVideoOut`). Confirmed to exist with its own real NID by
+  pulling shadPS4's `video_out.cpp` directly rather than trusting
+  memory. Hooked non-fatally and recaptured -- resolved fine
+  (`submit_flip_ptr_resolved=1` in the extended packet, so this wasn't
+  a symbol-resolution failure either), call count still flat at 0 for
+  the whole session. Wrong guess. Left the hook in anyway -- harmless,
+  and some other title may genuinely use it.
+
+  Second guess, checked and rejected before writing any hook code for
+  it: `sceVideoOutSubmitEopFlip`. It's real, present in shadPS4's
+  `video_out.cpp`, but it's not registered via `LIB_FUNCTION`/NID
+  there and is missing the `PS4_SYSV_ABI` tag every actual exported
+  hook target in that file has -- reads as shadPS4's own internal
+  EOP-interrupt bookkeeping, not a symbol a game (or this plugin's
+  `sys_dynlib_dlsym`) can actually reach. Not worth a hook attempt on
+  that evidence alone.
+
+  Root cause found in `gnmdriver.cpp`, not guessed at: the plain
+  `sceGnmSubmitAndFlipCommandBuffers` this plugin already hooked
+  turned out to be a thin wrapper around a *separately exported*
+  symbol with its own NID. A title submitting explicit multi-workload
+  GPU work can call the `ForWorkload` entrypoint directly and skip the
+  wrapper this plugin was hooking entirely. Added as a third hook,
+  same non-fatal resolve pattern as the second.
+
+  **Confirmed on real hardware:** `gnm_for_workload_hook_call_count`
+  climbing (0 -> 1 -> 30 -> 95...) over a live capture,
+  `g_currentDisplayBufferIndex` off the sentinel and alternating
+  between the title's two swap-chain slots, `g_bufferAddrs` resolving
+  to real addresses, and the existing raw-pixel diagnostic packet
+  firing at its normal cadence again. Strip lit up.
+- Also bumped `g_pluginVersion`, which had been stuck at the v2.7.2
+  comment (`0x00000212`) since that release, with v2.7.3 through v3.0
+  landing on top of it unbumped -- caught up now that there's a real
+  reason to touch this file again.
+
 ### v3.0
 - Removed the manual `capture_margin_top/right/bottom/left` ini keys.
   v2.9's auto letterbox detection can now fully cover what these were

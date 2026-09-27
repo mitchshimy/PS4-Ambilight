@@ -22,7 +22,63 @@
 attr_public const char *g_pluginName = "ps4_ambient_light";
 attr_public const char *g_pluginDesc = "Live per-frame ambient light: detiles the real scanout buffer and streams zone colors to WLED";
 attr_public const char *g_pluginAuth = "(null)";
-attr_public uint32_t g_pluginVersion = 0x00000212; // v2.7.1 -> v2.7.2:
+attr_public uint32_t g_pluginVersion = 0x00000301; // v3.0 -> v3.1:
+// A title (Shadow of the Tomb Raider, both its SDR and HDR display
+// modes -- confirmed the same title, not two separate ones, after an
+// earlier capture session got that wrong) never lit up the strip at
+// all. Buffer registration looked completely normal --
+// sceVideoOutRegisterBuffersPtr_hook fired once, format came back
+// recognized both times (0x80000000 A8R8G8B8_SRGB on the SDR run,
+// 0x88740000 A2R10G10B10_BT2020_PQ on the HDR run) -- so this wasn't
+// another entry for the pixel-format table.
+//
+// Added real telemetry instead of guessing further:
+// g_registerHookCallCount / g_flipHookCallCount (below), sent once a
+// second via a new send_flip_diag_packet (network.c), __FINAL__==0-
+// gated same as every other diagnostic packet in this file. Captured
+// against the failing title: register climbing normally, flip stuck
+// at 0 for the entire session, g_currentDisplayBufferIndex never
+// leaving its 0xFFFFFFFF sentinel. sceGnmSubmitAndFlipCommandBuffers
+// was simply never being called by this title -- not a timing/
+// throttle artifact, an unconditional per-second counter that never
+// once incremented across an ~11-second capture.
+//
+// First hypothesis: a second, real flip entrypoint,
+// sceVideoOutSubmitFlip (libSceVideoOut) -- confirmed to exist with a
+// real, separate NID via shadPS4's independently reverse-engineered
+// video_out.cpp (fetched and read directly, not recited from memory,
+// same standard of evidence already used for
+// sceSystemServiceGetStatus above). Added as a second hook,
+// resolved/hooked non-fatally (a title with no use for it must not
+// lose the rest of this plugin). Recaptured: resolved fine
+// (submit_flip_ptr_resolved=1 in the extended diagnostic packet,
+// disambiguating "never resolved" from "resolved but never called"),
+// call count still stuck at 0. Wrong hypothesis, but kept hooked --
+// harmless, and some other title may yet use it.
+//
+// Real cause, again found in shadPS4 source rather than guessed:
+// gnmdriver.cpp shows sceGnmSubmitAndFlipCommandBuffers (the hook
+// this file already had) is itself just a thin wrapper --
+//   return sceGnmSubmitAndFlipCommandBuffersForWorkload(count, count, ...);
+// -- around a SEPARATELY exported symbol with its own distinct NID. A
+// title submitting explicit multi-workload GPU work can call the
+// ForWorkload entrypoint directly, skipping the wrapper this plugin
+// hooked, entirely. Added as a third hook, same non-fatal pattern.
+//
+// CONFIRMED on real hardware: gnm_for_workload_hook_call_count
+// climbing (0 -> 1 -> 30 -> 95...) over a live capture,
+// g_currentDisplayBufferIndex off its sentinel and alternating
+// between the title's two swap-chain slots, g_bufferAddrs resolving
+// to real addresses, and the existing __FINAL__==0 raw-pixel
+// diagnostic firing at its normal ~10x/sec cadence. Strip lit up.
+//
+// While in here: g_pluginVersion had been sitting at the v2.7.2
+// comment above since that release, unbumped through v2.7.3-v3.0.
+// Catching it up now that there's a real reason to touch this file
+// again -- not attempting to backfill the missing intermediate
+// comment entries, see CHANGELOG.md for those.
+//
+// v2.7.1 -> v2.7.2:
 // CONFIRMED, no longer diagnostic-only. The v2.7.1 dev-telemetry
 // (still present, still __FINAL__==0-gated -- see detectHdr2200Format's
 // own comment) showed the live detection working exactly as the
@@ -106,9 +162,27 @@ int32_t (*sceGnmSubmitAndFlipCommandBuffersPtr)(uint32_t count, void *dcbGpuAddr
                                                  uint32_t *ccbSizesInBytes, uint32_t videoOutHandle,
                                                  uint32_t displayBufferIndex, uint32_t flipMode,
                                                  int64_t flipArg);
+// v3.1: second real flip entrypoint. Real signature, confirmed against
+// shadPS4's video_out.cpp, not guessed -- see the g_pluginVersion
+// comment above for why this exists. Resolved and hooked non-fatally
+// (main.c) -- a title with no use for it is unaffected either way.
+int32_t (*sceVideoOutSubmitFlipPtr)(int32_t handle, int32_t bufferIndex,
+                                     int32_t flipMode, int64_t flipArg);
+// v3.1: third real flip entrypoint, and the one that actually turned
+// out to matter -- see the g_pluginVersion comment above. Confirmed
+// against shadPS4's gnmdriver.cpp: the plain sceGnmSubmitAndFlipCommand-
+// Buffers hook above is itself just a wrapper around this, separately
+// exported symbol. Same non-fatal resolve/hook pattern.
+int32_t (*sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr)(uint32_t workload, uint32_t count,
+                                                             void *dcbGpuAddrs[], uint32_t *dcbSizesInBytes,
+                                                             void *ccbGpuAddrs[], uint32_t *ccbSizesInBytes,
+                                                             uint32_t videoOutHandle, uint32_t displayBufferIndex,
+                                                             uint32_t flipMode, int64_t flipArg);
 
 HOOK_INIT(sceVideoOutRegisterBuffersPtr);
 HOOK_INIT(sceGnmSubmitAndFlipCommandBuffersPtr);
+HOOK_INIT(sceVideoOutSubmitFlipPtr);
+HOOK_INIT(sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr);
 
 #define MAX_TRACKED_BUFFERS 16
 volatile uint64_t g_bufferAddrs[MAX_TRACKED_BUFFERS] = {0};
@@ -116,10 +190,24 @@ volatile int32_t  g_bufferCount = 0;
 volatile uint32_t g_activeFormat = 0; // live format, NOT hardcoded
 volatile int      g_haveValidFormat = 0;    // 0 until a registration event gives us a known format
 
+// v3.1: diagnostic only, no pipeline effect -- what actually found the
+// "never lights up" bug. Sent via send_flip_diag_packet (network.c),
+// __FINAL__==0-gated same as every other packet in this file; see
+// the g_pluginVersion comment above for the investigation these came
+// out of. Plain volatile counters, same cost class as
+// g_currentDisplayBufferIndex's own single write per hook call.
+volatile uint32_t g_registerHookCallCount = 0;
+volatile uint32_t g_flipHookCallCount = 0;
+volatile uint32_t g_videoOutSubmitFlipHookCallCount = 0;
+volatile uint32_t g_submitFlipPtrResolved = 0;          // set once in main.c, right after that hook's dlsym call
+volatile uint32_t g_gnmForWorkloadHookCallCount = 0;
+volatile uint32_t g_gnmForWorkloadPtrResolved = 0;      // set once in main.c, right after that hook's dlsym call
+
 int32_t sceVideoOutRegisterBuffersPtr_hook(int32_t handle, int32_t startIndex,
                                             void *const *addresses, int32_t bufferNum,
                                             const OrbisVideoOutBufferAttribute *attribute)
 {
+    g_registerHookCallCount++; // v3.1: diagnostic only -- see its declaration above
     if (addresses != NULL && bufferNum > 0) {
         int32_t n = bufferNum > MAX_TRACKED_BUFFERS ? MAX_TRACKED_BUFFERS : bufferNum;
         for (int32_t i = 0; i < n; i++) {
@@ -188,11 +276,46 @@ int32_t sceGnmSubmitAndFlipCommandBuffersPtr_hook(uint32_t count, void *dcbGpuAd
                                                    uint32_t displayBufferIndex, uint32_t flipMode,
                                                    int64_t flipArg)
 {
+    g_flipHookCallCount++; // v3.1: diagnostic only -- see its declaration above
     g_currentDisplayBufferIndex = displayBufferIndex; // single volatile write, near-zero cost
 
     return HOOK_CONTINUE(sceGnmSubmitAndFlipCommandBuffersPtr,
                           int32_t(*)(uint32_t, void **, uint32_t *, void **, uint32_t *, uint32_t, uint32_t, uint32_t, int64_t),
                           count, dcbGpuAddrs, dcbSizesInBytes, ccbGpuAddrs, ccbSizesInBytes,
+                          videoOutHandle, displayBufferIndex, flipMode, flipArg);
+}
+
+// v3.1: second flip entrypoint -- see its pointer declaration above for
+// why this is hooked. Record-only, same discipline as the hook above:
+// no sampling or network I/O from inside a hook, just the buffer index
+// write the worker thread reads at its own pace.
+int32_t sceVideoOutSubmitFlipPtr_hook(int32_t handle, int32_t bufferIndex,
+                                       int32_t flipMode, int64_t flipArg)
+{
+    g_videoOutSubmitFlipHookCallCount++; // diagnostic only -- see its declaration above
+    g_currentDisplayBufferIndex = (uint32_t)bufferIndex; // (uint32_t)(-1) == the existing sentinel
+
+    return HOOK_CONTINUE(sceVideoOutSubmitFlipPtr,
+                          int32_t(*)(int32_t, int32_t, int32_t, int64_t),
+                          handle, bufferIndex, flipMode, flipArg);
+}
+
+// v3.1: third flip entrypoint -- the one that actually turned out to
+// matter, see its pointer declaration above. Same record-only
+// discipline; extra leading `workload` parameter versus the plain
+// variant above is the real, confirmed difference in signature.
+int32_t sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr_hook(uint32_t workload, uint32_t count,
+                                                               void *dcbGpuAddrs[], uint32_t *dcbSizesInBytes,
+                                                               void *ccbGpuAddrs[], uint32_t *ccbSizesInBytes,
+                                                               uint32_t videoOutHandle, uint32_t displayBufferIndex,
+                                                               uint32_t flipMode, int64_t flipArg)
+{
+    g_gnmForWorkloadHookCallCount++; // diagnostic only -- see its declaration above
+    g_currentDisplayBufferIndex = displayBufferIndex; // single volatile write, near-zero cost
+
+    return HOOK_CONTINUE(sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr,
+                          int32_t(*)(uint32_t, uint32_t, void **, uint32_t *, void **, uint32_t *, uint32_t, uint32_t, uint32_t, int64_t),
+                          workload, count, dcbGpuAddrs, dcbSizesInBytes, ccbGpuAddrs, ccbSizesInBytes,
                           videoOutHandle, displayBufferIndex, flipMode, flipArg);
 }
 

@@ -266,6 +266,45 @@ void send_timing_packet(uint32_t minUs, uint32_t maxUs, uint32_t avgUs,
     debug_send_raw(packet, sizeof(packet));
 }
 
+// v3.1: what actually found "this title never lights up" -- see
+// hooks.c's g_pluginVersion comment for the full investigation. One
+// packet per second from sample_thread.c, __FINAL__==0-gated same as
+// every other packet in this file. 44 bytes, deliberately distinct
+// from this project's other packet lengths (8 format, 36 timing, 68
+// config-reload) so decode_verification_dump.py-style dispatch on
+// len(data) keeps working without ambiguity.
+//   [0:4]   register_hook_call_count            -- cumulative sceVideoOutRegisterBuffersPtr_hook calls this session
+//   [4:8]   flip_hook_call_count                 -- cumulative sceGnmSubmitAndFlipCommandBuffersPtr_hook calls (the plain, wrapper entrypoint)
+//   [8:12]  display_buffer_index                 -- g_currentDisplayBufferIndex; 0xFFFFFFFF == still the startup sentinel, no flip seen yet by ANY hook
+//   [12:20] live_buffer_addr                     -- g_bufferAddrs[display_buffer_index], or 0 if the index above is still the sentinel
+//   [20:24] have_valid_format                    -- g_haveValidFormat
+//   [24:28] active_format                        -- g_activeFormat
+//   [28:32] videout_submit_flip_hook_call_count  -- cumulative sceVideoOutSubmitFlipPtr_hook calls (the second, API-path entrypoint)
+//   [32:36] submit_flip_ptr_resolved             -- 1 if dlsym found sceVideoOutSubmitFlip on this title/firmware, 0 if not -- disambiguates "never resolved" from "resolved, never called" when [28:32] reads 0
+//   [36:40] gnm_for_workload_hook_call_count     -- cumulative sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr_hook calls (the third entrypoint, the one that turned out to matter)
+//   [40:44] gnm_for_workload_ptr_resolved        -- same disambiguation as [32:36], for the third entrypoint
+void send_flip_diag_packet(uint32_t registerHookCallCount, uint32_t flipHookCallCount,
+                            uint32_t displayBufferIndex, uint64_t liveBufferAddr,
+                            uint32_t haveValidFormat, uint32_t activeFormat,
+                            uint32_t videoOutSubmitFlipHookCallCount,
+                            uint32_t submitFlipPtrResolved,
+                            uint32_t gnmForWorkloadHookCallCount,
+                            uint32_t gnmForWorkloadPtrResolved)
+{
+    uint8_t packet[44];
+    memcpy(packet +  0, &registerHookCallCount, 4);
+    memcpy(packet +  4, &flipHookCallCount,     4);
+    memcpy(packet +  8, &displayBufferIndex,    4);
+    memcpy(packet + 12, &liveBufferAddr,        8);
+    memcpy(packet + 20, &haveValidFormat,       4);
+    memcpy(packet + 24, &activeFormat,          4);
+    memcpy(packet + 28, &videoOutSubmitFlipHookCallCount, 4);
+    memcpy(packet + 32, &submitFlipPtrResolved, 4);
+    memcpy(packet + 36, &gnmForWorkloadHookCallCount, 4);
+    memcpy(packet + 40, &gnmForWorkloadPtrResolved, 4);
+    debug_send_raw(packet, sizeof(packet));
+}
+
 // v2.1.3: peek at the first bytes of AMBIENT_CONFIG_PATH from the
 // plugin's own point of view, so a capture can show directly what's
 // there instead of inferring it from size/mtime alone -- e.g. leftover
