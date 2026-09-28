@@ -5,179 +5,21 @@ companion app) are documented here, newest first.
 
 ## Plugin
 
-## Plugin
-
 ### v3.3
-- Fixed steady LED flicker on static screens (found on the Assassin's
-  Creed III Remastered menu, CUSA11711, SDR `0x80000000`, 3-slot swap
-  chain, smoothing on, `scan_depth=2`). The sampler was reading the
-  buffer slot the flip hook had just reported, and that slot is not
-  safe to read. Fix: read the slot of the *previous* flip instead.
-  **Confirmed on real hardware: the menu flicker is gone**, and a
-  separate title that used to flash the LEDs on an all-black screen
-  (God of War Ragnarok, dark loading screens, see the older
-  `HANDOFF_ambient_light_flash_bug.md` writeup) **stopped doing that
-  too -- now proven, not just reported.**
-
-  The GOWR flashes came from the same root cause, and were previously
-  misdiagnosed as read tearing (a microsecond-scale race) rather than
-  the hook-timing issue above: during a load, the game resubmits the
-  same buffer index for seconds at a time while still writing to it,
-  so it holds a fading intermediate fill (bright at first, decaying
-  toward black over the session) for most of the load. The pre-fix
-  sampler, reading the hook-reported slot, could land in that window.
-
-  Proof (`gowr.flk`, 818 passes, 28.8s, a GOWR load screen, `FLK1`
-  probe ported into this branch's `sample_thread.c` for the capture --
-  see that file's comment for the packet layout):
-  - The pipeline's own read (the slot this fix actually samples) was
-    `(0,0,0)` on **all 3,540 zone reads** across the whole capture.
-    Whole-strip output `deltaSum` was **0 for every one of the 818
-    passes** -- nothing was ever sent to the strip during the load.
-  - Independently re-reading all three buffer slots every pass (not
-    just the one the fix uses) turned up **33 transients**, up to
-    `(42,50,63)`, fading across the session -- the same decay shape as
-    the original bug report, just caught this time instead of shipped
-    to the strip.
-  - **In all 33 of the 33 events, the slot holding the transient was
-    the slot the flip hook had reported (the pre-fix read), and never
-    the slot this fix was actually sampling.** The two never
-    coincided once. That is the mechanism from the paragraph above,
-    caught live: the fix stays one flip behind exactly the buffer
-    that's still being overwritten.
-
-  This is direct, not inferred: it is not "the flicker went away and
-  we assume it's the same cause," it is "the transient was captured,
-  frame by frame, always in the slot this fix skips and never in the
-  slot it reads."
-
-  Re-captured after fixing a bug in the probe itself (`curIdx` was
-  first recovered from the already-fixed slot instead of the raw
-  hook-reported one, which silently defeats `flicker_capture.py`'s own
-  ring-lag math -- see the `sample_thread.c` comment above the packet
-  build). Second capture (`gowr2.flk`, 715 passes, 25.3s, same load
-  screen): pipeline's own read `(0,0,0)` on every zone read again,
-  `deltaSum` 0 for all 715 passes. 27 more transients found by direct
-  re-read, up to `(199,229,247)` -- the brightest caught so far, right
-  at the 0.2s mark. All 27 in the hook-reported slot, none in the slot
-  this fix reads. With the probe corrected, the tool's own numbers
-  agree without hand-checking: lag 0 (hook-reported) wrong on 0.5% of
-  zone reads, lag 1 (what the fix reads) wrong on 0%; the pipeline's
-  raw read matched lag 1's buffer on 100% of passes.
-
-  Across both captures: 60 of 60 transient events sat in the slot this
-  fix skips, 0 in the slot it reads.
-
-
-  Root cause. All three flip hooks (`sceGnmSubmitAndFlipCommandBuffers`,
-  `sceVideoOutSubmitFlip`, `...ForWorkload`) run when the game
-  *submits* a flip, not when the frame is scanned out.
-  `displayBufferIndex` is therefore the slot the GPU is about to render
-  into, and it can be a cleared or half-drawn frame at the moment the
-  sampler reads it. The sampler runs on its own clock with no
-  synchronization, so on any title it will sometimes land in that
-  window. The earlier stale-flip guard that was reverted addressed a
-  different problem and never covered this.
-
-  What the capture showed (30 s, static menu, 853 passes at 35 ms):
-  - Whole-strip output change: 32% of passes moved by more than 4/255
-    per channel on average; p95 per-zone change 81/255. The flicker was
-    already in what the plugin sent, so it was not WLED, Wi-Fi or the
-    LEDs.
-  - 18% of passes had at least 5 of 6 probe zones read exactly 0,0,0
-    (a cleared buffer), and another 3% had only 1-4 black (mid-draw).
-    The raw undecoded pixel word in those reads was exactly
-    `0xC0000000`; real frames had varied words such as `0xe3a8ea39`.
-    Zeros from a genuinely dark scene would not look like that.
-  - Not tied to a slot: slots 3, 4 and 5 were affected equally in the
-    first capture, so it isn't one bad buffer.
-  - Bursts of about 4 consecutive bad passes every ~0.70 s. That is a
-    beat: a ~30 fps game against the 35 ms sampler, phase drift
-    ~1.6 ms per pass. The flip counter read 59.9/s while the real
-    frame rate is ~30, which matches both flip hooks firing for each
-    real flip. That double-firing is an inference from the counts, not
-    something confirmed in the hook code.
-  - Ring position test, share of zone reads more than 25/255 off the
-    steady value on a static screen: lag 0 (slot the hook reports)
-    19.3%, lag 1 (previous flip) 0.0%, lag 2 (two flips back) 0.0%.
-    In all 165 passes where lag 0 read 3 or more zones wrong, lag 1 and
-    lag 2 were also clean. Ring order was 0 -> 1 -> 2.
-  - Smoothing did not hide it: one black pass dropped a lit zone from
-    157 to 56 and a burst pulled it near 8.
-  - Re-capture with the fix (856 passes, 30 s): output change 0 on
-    every pass, all-zero reads 0%, no passes over the 4/255 threshold.
-    The pipeline's own raw read matched the previous-flip buffer on
-    100% of passes but the hook-reported slot on only 77%; the old
-    behaviour would have read 3 or more of 6 zones wrong on 193 passes
-    (22.5%) and the pipeline read steady values on all 193. Lags 1 and
-    2 hold identical pixels on a static menu, so this capture cannot
-    tell them apart; that the pipeline reads lag 1 comes from the code.
-
-  The change:
-  - `hooks.c`: new `g_prevDisplayBufferIndex` and `record_flip_index()`.
-    All three hooks call it. It only advances when the index actually
-    changes, so two hooks reporting the same index for one real flip
-    don't overwrite the previous slot with the current one.
-  - `sample_thread.c`: `liveBufferAddr` uses
-    `g_bufferAddrs[g_prevDisplayBufferIndex]` when a previous slot is
-    known and has a registered address; otherwise it falls back to the
-    slot the hook reported. A blank flip (`sceVideoOutSubmitFlip` with
-    index -1, the sentinel) keeps the old no-frame keepalive path
-    rather than re-reading the last real slot. Everything downstream (letterbox scan, HDR
-    detect, zone sampling) goes through `liveBufferAddr`, so they all
-    read the finished frame.
-  - `ambient_internal.h`: `AMBIENT_SAMPLE_LAG`, default 1. Building with
-    `-DAMBIENT_SAMPLE_LAG=0` restores the old behaviour, for A/B
-    comparison when a title behaves differently.
-  - Cost: one flip of latency, about 33 ms at 30 fps and 16 ms at
-    60 fps. It replaces any filtering or delay approach, which would
-    have added more lag on top.
-
-  Not verified, so check these when retesting other titles:
-  - A title that re-submits the same buffer index without alternating
-    would leave the "previous" slot stale. Nothing seen so far does
-    this, but only one title has been captured.
-  - Single-buffer or 2-slot swap chains fall back or use the other
-    slot; untested.
-  - Blank (-1) flips: guarded in the sampler, but no title has been
-    seen sending one. After a blank flip the previous slot is the
-    sentinel for one flip, so the sampler falls back to the reported
-    slot for that flip. Left as is rather than change the verified
-    `record_flip_index`.
-  - Only tested on a static screen. Latency on fast-moving content and
-    video was judged by eye only, no capture.
-  - Bug still open: the letterbox cutscene flicker in the same title.
-    Hypotheses so far (unconfirmed, no capture taken): detected bar
-    depth flipping between quantized bands on dark scenes, each commit
-    rebuilding zone geometry and dropping smoothing
-    (`g_smoothedRgbValid = false`); and edge zones landing inside the
-    bar because depth quantizes down (a 138px bar quantizes to 132).
-    Retest with this fix in place before assuming it is separate.
-
-  How to debug a similar flicker next time. The diagnosis needed
-  measurements, not guesses: the first guess (HDR flip-flop, grain,
-  smoothing off) was wrong. The probe is a debug-only build kept in the
-  test repo, not in this one: one 132-byte "FLK1" packet per sampler
-  pass over the `[dev]` channel (`dev_ip`, `dev_logging=true`, debug
-  build), carrying total output change since the previous pass, flip
-  index and count, HDR/SDR decision, sampler timing, and for 6 zones
-  the pipeline's raw read, the sent color, and the same zone re-read
-  from the 3 registered slots. Capture a static screen for 30 s with
-  `tools/flicker_capture.py`, then read in this order: output change
-  (is the flicker in what we send at all?), all-zero reads and burst
-  spacing (cleared buffer and a beat with the frame rate?), and the
-  ring lag table (which slot is clean?). If the output is steady, the
-  problem is downstream of the plugin. Do not run
-  `udp_ground_truth_listener.py` at the same time; both use port 4048.
-  The analyzer's verdict thresholds were guesses made before real data
-  existed; read the numbers, not just the verdict line. Its lag table
-  always measures relative to the slot the hook reports, so on a build
-  with this fix lag 0 still shows ~20% bad even though the plugin no
-  longer samples it. The analyzer works out which lag the pipeline
-  actually read (its raw value against each lag's buffer) and, when it
-  is a clean older lag, reports "FIX ACTIVE AND WORKING" instead of
-  blaming the "tear" and "bufDisagree" columns, which compare against
-  lag 0. On a static screen lags 1 and 2 are indistinguishable.
+- Fixed steady LED flicker on static screens (AC3 Remastered menu) and
+  flashes on all-black load screens (God of War Ragnarok). The sampler was
+  reading the buffer slot the flip hook had just reported, but the flip
+  hooks fire when the game submits a flip, so that slot can still be
+  cleared or half drawn. It now reads the slot of the previous flip
+  (`AMBIENT_SAMPLE_LAG`, default 1, costs one flip of latency).
+  Confirmed on real hardware, and the GOWR flashes were caught frame by
+  frame in the slot the fix skips (60 of 60 transients across two
+  captures). The full investigation is in
+  [`docs/debugging/framebuffer-flicker.md`](docs/debugging/framebuffer-flicker.md),
+  with the details of the change and what's still untested in
+  [`buffer-selection.md`](docs/debugging/buffer-selection.md).
+  Still open: the letterbox cutscene flicker in the same title, no
+  capture yet.
 - Fixed a delay on dark screens with a small bright element in the
   middle (a loading screen with centered text, for example). The
   letterbox scan only checked 3 fixed points per line (25/50/75%), so
@@ -252,58 +94,13 @@ companion app) are documented here, newest first.
 ### v3.1
 - Added a third flip hook, `sceGnmSubmitAndFlipCommandBuffersForWorkload`,
   fixing titles that never light up at all. Shadow of the Tomb Raider
-  (SDR and HDR runs both -- confirmed the same title, not two, after
-  an earlier capture session got that wrong) never lit the strip on
-  either run. Format registration looked completely normal both
-  times -- `sceVideoOutRegisterBuffersPtr_hook` fired once,
-  `getUnpackFnForFormat` recognized the format both times
-  (`0x80000000` on SDR, `0x88740000` A2R10G10B10_BT2020_PQ on HDR) --
-  so this wasn't another pixel-format gap.
-
-  Added real counters instead of guessing further:
-  `g_registerHookCallCount` / `g_flipHookCallCount`, sent once a
-  second via a new `send_flip_diag_packet` (44 bytes,
-  `__FINAL__==0`-gated same as this project's other diagnostics).
-  First capture against the failing title: register climbing
-  normally, flip stuck at 0 for the entire session,
-  `g_currentDisplayBufferIndex` never once leaving its `0xFFFFFFFF`
-  sentinel. Not a throttling artifact -- an unconditional per-second
-  counter that never moved across an ~11-second capture.
-  `sceGnmSubmitAndFlipCommandBuffers` was simply never being called by
-  this title.
-
-  First guess: a second real flip entrypoint, `sceVideoOutSubmitFlip`
-  (`libSceVideoOut`). Confirmed to exist with its own real NID by
-  pulling shadPS4's `video_out.cpp` directly rather than trusting
-  memory. Hooked non-fatally and recaptured -- resolved fine
-  (`submit_flip_ptr_resolved=1` in the extended packet, so this wasn't
-  a symbol-resolution failure either), call count still flat at 0 for
-  the whole session. Wrong guess. Left the hook in anyway -- harmless,
-  and some other title may genuinely use it.
-
-  Second guess, checked and rejected before writing any hook code for
-  it: `sceVideoOutSubmitEopFlip`. It's real, present in shadPS4's
-  `video_out.cpp`, but it's not registered via `LIB_FUNCTION`/NID
-  there and is missing the `PS4_SYSV_ABI` tag every actual exported
-  hook target in that file has -- reads as shadPS4's own internal
-  EOP-interrupt bookkeeping, not a symbol a game (or this plugin's
-  `sys_dynlib_dlsym`) can actually reach. Not worth a hook attempt on
-  that evidence alone.
-
-  Root cause found in `gnmdriver.cpp`, not guessed at: the plain
-  `sceGnmSubmitAndFlipCommandBuffers` this plugin already hooked
-  turned out to be a thin wrapper around a *separately exported*
-  symbol with its own NID. A title submitting explicit multi-workload
-  GPU work can call the `ForWorkload` entrypoint directly and skip the
-  wrapper this plugin was hooking entirely. Added as a third hook,
-  same non-fatal resolve pattern as the second.
-
-  **Confirmed on real hardware:** `gnm_for_workload_hook_call_count`
-  climbing (0 -> 1 -> 30 -> 95...) over a live capture,
-  `g_currentDisplayBufferIndex` off the sentinel and alternating
-  between the title's two swap-chain slots, `g_bufferAddrs` resolving
-  to real addresses, and the existing raw-pixel diagnostic packet
-  firing at its normal cadence again. Strip lit up.
+  (SDR and HDR) never lit the strip because it calls the `ForWorkload`
+  entry point directly and skips the wrapper the plugin was already
+  hooking. Also added `sceVideoOutSubmitFlip` as a second flip hook (it
+  turned out not to be the cause, but it's harmless), plus flip/register
+  counters in the debug telemetry. Confirmed on real hardware. How it
+  was tracked down, including the wrong guesses:
+  [`docs/debugging/videoout-hooks.md`](docs/debugging/videoout-hooks.md).
 - Also bumped `g_pluginVersion`, which had been stuck at the v2.7.2
   comment (`0x00000212`) since that release, with v2.7.3 through v3.0
   landing on top of it unbumped -- caught up now that there's a real
@@ -356,6 +153,7 @@ companion app) are documented here, newest first.
   invents a new color -- it only repeats the last one the real pipeline
   already verified -- and does not run while backgrounded/suspended,
   where going silent is still intentional (v2.4).
+  Write-up: [`docs/debugging/wled-heartbeat.md`](docs/debugging/wled-heartbeat.md).
 
 ### v2.7.6
 - Reverted the v2.7.3 stale-flip guard. It was blanking the strip
@@ -455,6 +253,10 @@ companion app) are documented here, newest first.
   being correct.
 
 ### Unreleased / maintenance
+- Added `docs/` with an architecture overview and write-ups of the
+  v3.3 flicker investigation, the v3.1 flip hook hunt and the v2.8
+  heartbeat. The long investigation text that used to sit in the v3.3
+  and v3.1 entries here moved there.
 - Removed an advanced opt-in networking comment from the default
   ini, matching the companion app's matching fix -- those settings
   are hand-edited-only and don't need documenting in the shipped
@@ -675,9 +477,9 @@ color preview and a plugin self-updater.
   spacing, per-zone tear/disagreement between buffers, a ring-lag
   table showing which slot is safe to read, and which lag the pipeline
   actually read, so a working sample-lag fix is recognised), and
-  `selftest` runs the analyzer against 9 synthetic scenarios. Needs a plugin build that
-  contains the probe (test repo only, not this one) with `[dev]
-  dev_ip` and `dev_logging=true` set. Uses UDP port 4048, so it
+  `selftest` runs the analyzer against 9 synthetic scenarios. Needs a debug build of the plugin
+  (`make DEBUG=1`, the FLK1 probe is compiled out of release builds) with
+  `[dev] dev_ip` and `dev_logging=true` set. Uses UDP port 4048, so it
   can't run alongside `udp_ground_truth_listener.py`. Its verdict
   thresholds are estimates; trust the printed numbers. Found the
   cleared-buffer sampling bug described under Plugin > v3.3.

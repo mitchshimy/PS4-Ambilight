@@ -18,8 +18,8 @@ USAGE
 
 Do NOT run udp_ground_truth_listener.py at the same time (same port, 4048).
 
-Packet ("FLK1", 132 bytes after the 10-byte DDP header) -- the probe lives in the
-test repo's plugin source/sample_thread.c only (not the main repo):
+Packet ("FLK1", 132 bytes after the 10-byte DDP header) -- the probe is in
+plugin/source/sample_thread.c and only compiled into debug builds (make DEBUG=1):
     0 magic  4 seq  8 tsUs  12 deltaSum  16 activeFormat  20 flipTotal(u16)
     22 curIdx  23 bufCount  24 flags  25 nProbe  26 validMask(b0-2 valid, b4-7 slot of buf2)
     27 slotIds(lo nibble slot of buf0, hi nibble slot of buf1)  28 numZones(u16)

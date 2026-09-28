@@ -4,66 +4,38 @@
   <img src="companion-app/sce_sys/icon0.png" alt="PS4 Ambilight companion app icon" width="700" height="400">
 </p>
 
-An Ambilight-style setup for jailbroken PS4 consoles: a [GoldHEN](https://github.com/GoldHEN/GoldHEN)
-plugin samples the console's video output every frame and streams the edge colors over the
-network (DDP protocol) to a real [WLED](https://kno.wled.ge/) LED controller in real time while
-you play. A companion homebrew app provides an on-console UI for editing settings and previewing
-colors live.
-
-See [CHANGELOG.md](CHANGELOG.md) for the version history of both the plugin and the companion app.
-
-## Layout
+Ambilight for a jailbroken PS4, driven by a real [WLED](https://kno.wled.ge/) strip. A
+[GoldHEN](https://github.com/GoldHEN/GoldHEN) plugin reads the console's own video output while
+you play and streams the edge colors to WLED over the network. No capture card, no PC.
 
 ```
-PS4-Ambilight/
-├── plugin/            # the GoldHEN plugin itself (runs on the PS4, hooks the video-out path)
-│   ├── source/          # main.c + 8 supporting modules (gamma, network, tiling, hooks, ...)
-│   ├── include/         # config.h, ambient_internal.h
-│   ├── config/          # default ps4_ambient_light.ini
-│   └── Makefile
-├── common/             # plugin_common.{h,c} -- shared GoldHEN plugin helpers this build needs
-├── companion-app/      # standalone PS4 homebrew app: on-console settings UI + live preview
-│   ├── source/, include/, assets/, sce_sys/, sce_module/
-│   └── tests/           # isolated unit tests for settings/pipeline/layout logic
-├── tools/               # PC-side Python/C helper scripts used for capture and verification
-├── .github/workflows/CI.yml
-├── CHANGELOG.md
-├── LICENSE
-└── .gitignore
+PS4 game
+   |
+PS4-Ambilight plugin (GoldHEN)
+   |   DDP over your network
+WLED controller
+   |
+LED strip
 ```
 
-## Building the plugin
+[Quick start](#quick-start) | [Configuration](#configuration) | [Help](#help) |
+[How it works](#how-it-works) | [Building](#building-the-plugin) | [Changelog](CHANGELOG.md)
 
-Requires the standard GoldHEN plugin toolchain:
-- [OpenOrbis PS4 Toolchain](https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain) (`OO_PS4_TOOLCHAIN`)
-- [GoldHEN SDK](https://github.com/GoldHEN/GoldHEN_Plugins_SDK) (`GOLDHEN_SDK`) -- headers + `libGoldHEN_Hook.a`,
-  **with [`patches/goldhen-sdk-detour64-fix.patch`](patches/goldhen-sdk-detour64-fix.patch) applied** (see below)
-  -- without it, hooking crashes or silently no-ops on real hardware.
+## What you need
 
-```
-git clone https://github.com/GoldHEN/GoldHEN_Plugins_SDK.git
-cd GoldHEN_Plugins_SDK
-patch -p1 < /path/to/PS4-Ambilight/patches/goldhen-sdk-detour64-fix.patch
-make
-```
+- A PS4 running [GoldHEN](https://github.com/GoldHEN/GoldHEN)
+- A WLED controller with an LED strip, on the same network as the PS4
+- The companion app `.pkg` from [Releases](../../releases)
 
-Then point `GOLDHEN_SDK` at that directory and build the plugin as usual:
+## What it does
 
-```
-cd plugin
-make
-```
+- Reads the PS4's rendered video output directly, on the console
+- Samples colors from zones along each screen edge
+- Streams them to WLED over DDP every frame, on its own thread so the game isn't slowed down
+- Detects letterbox bars and SDR/HDR on its own
 
-Output lands in `bin/plugins/` (created next to this repo root). CI applies this same patch to a
-fresh SDK checkout before every build (see `.github/workflows/CI.yml`), so a tagged release is
-always built against the patched SDK -- a local build only gets those same fixes if you patch your
-own `GOLDHEN_SDK` copy too.
-
-## Building the companion app
-
-See [`companion-app/README.md`](companion-app/README.md) for its build steps and design notes.
-
-## Screenshots
+There's no capture card, HDMI splitter, PC or camera involved. The only extra hardware is the WLED
+controller and the strip.
 
 <p align="center">
   <img src="companion-app/assets/screenshots/home.jpg" alt="Companion app Home screen" width="45%">
@@ -73,6 +45,18 @@ See [`companion-app/README.md`](companion-app/README.md) for its build steps and
   <img src="companion-app/assets/screenshots/customization.jpg" alt="Companion app Customization screen" width="45%">
   <img src="companion-app/assets/screenshots/help.jpg" alt="Companion app Help screen" width="45%">
 </p>
+
+## Quick start
+
+1. Install the companion app `.pkg` from [Releases](../../releases) like any other homebrew package.
+2. Open it. On **Home**, press the main button: **Install**, **Update** or **Enable**, depending on
+   what it finds. That puts the plugin in place.
+3. Go to **Set up** and enter your WLED controller's IP and your strip's layout.
+4. Press **Test Strip** to check wiring, layout and color order before trusting it in a game.
+5. Start a game. Nothing else to launch, the plugin starts streaming on its own.
+
+If something's off, the [Help](#help) section below has the long version and a troubleshooting
+list.
 
 ## Configuration
 
@@ -315,6 +299,91 @@ release is the first thing to try.
 
 Covered above under [Building the plugin](#building-the-plugin) and
 [Building the companion app](#building-the-companion-app).
+
+## How it works
+
+Two programs: a GoldHEN plugin that does the real-time work inside the game's process, and a
+companion app for setup and testing. [`docs/architecture.md`](docs/architecture.md) covers why it's
+split that way.
+
+**Flip hooks.** The plugin hooks the calls a game uses to flip a frame
+(`sceGnmSubmitAndFlipCommandBuffers`, `sceVideoOutSubmitFlip` and the `ForWorkload` variant) and
+tracks which buffer slot is which. See
+[`docs/debugging/videoout-hooks.md`](docs/debugging/videoout-hooks.md).
+
+**Buffer selection.** The flip hooks fire at submit time, so the slot they report can be
+half-drawn. The sampler reads the previous flip's slot instead. See
+[`docs/debugging/buffer-selection.md`](docs/debugging/buffer-selection.md) and the investigation
+behind it in [`framebuffer-flicker.md`](docs/debugging/framebuffer-flicker.md).
+
+**Pixel formats and tiling.** It reads the console's active pixel format at runtime and only
+decodes formats it has explicit unpack code for, including the console's tiled memory layout. See
+`plugin/source/pixel_formats.c` and `tiling.c`.
+
+**Sampling and color.** Zones along each edge, an automatic letterbox scan, then the gamma, level,
+saturation and smoothing pipeline in `plugin/source/color_processing.c`.
+
+**Network output.** DDP to WLED, default port 4048. If there's a gap with no valid frame, the last
+color is resent once a second so WLED's realtime timeout doesn't fire. See
+[`docs/debugging/wled-heartbeat.md`](docs/debugging/wled-heartbeat.md).
+
+**Debugging.** `tools/` has the capture and decode scripts. A debug plugin build (`make DEBUG=1`)
+sends telemetry to the `[dev]` address in the ini; the flicker write-up above shows how it's used.
+
+## Layout
+
+```
+PS4-Ambilight/
+├── plugin/            # the GoldHEN plugin itself (runs on the PS4, hooks the video-out path)
+│   ├── source/          # main.c + 11 supporting modules (gamma, network, tiling, hooks, ...)
+│   ├── include/         # config.h, ambient_internal.h
+│   ├── config/          # default ps4_ambient_light.ini
+│   └── Makefile
+├── common/             # plugin_common.{h,c} -- shared GoldHEN plugin helpers this build needs
+├── companion-app/      # standalone PS4 homebrew app: on-console settings UI + live preview
+│   ├── source/, include/, assets/, sce_sys/, sce_module/
+│   └── tests/           # isolated unit tests for settings/pipeline/layout logic
+├── tools/               # PC-side Python/C helper scripts used for capture and verification
+├── docs/                # architecture and debugging write-ups
+├── patches/             # GoldHEN SDK fix the plugin needs to build (see below)
+├── .github/workflows/CI.yml
+├── CHANGELOG.md
+├── LICENSE
+└── .gitignore
+```
+
+## Building the plugin
+
+Requires the standard GoldHEN plugin toolchain:
+- [OpenOrbis PS4 Toolchain](https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain) (`OO_PS4_TOOLCHAIN`)
+- [GoldHEN SDK](https://github.com/GoldHEN/GoldHEN_Plugins_SDK) (`GOLDHEN_SDK`) -- headers + `libGoldHEN_Hook.a`,
+  **with [`patches/goldhen-sdk-detour64-fix.patch`](patches/goldhen-sdk-detour64-fix.patch) applied** (see below)
+  -- without it, hooking crashes or silently no-ops on real hardware.
+
+```
+git clone https://github.com/GoldHEN/GoldHEN_Plugins_SDK.git
+cd GoldHEN_Plugins_SDK
+patch -p1 < /path/to/PS4-Ambilight/patches/goldhen-sdk-detour64-fix.patch
+make
+```
+
+Then point `GOLDHEN_SDK` at that directory and build the plugin as usual:
+
+```
+cd plugin
+make
+```
+
+`make DEBUG=1` builds the debug variant with the telemetry probes compiled in.
+
+Output lands in `bin/plugins/` (created next to this repo root). CI applies this same patch to a
+fresh SDK checkout before every build (see `.github/workflows/CI.yml`), so a tagged release is
+always built against the patched SDK -- a local build only gets those same fixes if you patch your
+own `GOLDHEN_SDK` copy too.
+
+## Building the companion app
+
+See [`companion-app/README.md`](companion-app/README.md) for its build steps and design notes.
 
 ## Credits
 
