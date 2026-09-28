@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <assert.h>
 #include "include/settings.h"
@@ -7,7 +8,7 @@ int main(void) {
     AmbientConfig cfg1;
     settings_set_defaults(&cfg1);
     printf("Menu item count: %d\n", kMenuItemCount);
-    assert(kMenuItemCount == 32);
+    assert(kMenuItemCount == 31); // 33 in the repo as shipped (its old assert of 32 was already stale) minus the two hidden letterbox debounce rows (stability, recheck) -- see settings.c
 
     // save defaults to a temp file, reload, confirm round-trip
     assert(settings_save(&cfg1, "/tmp/test_ambient.ini"));
@@ -97,6 +98,7 @@ int main(void) {
         (void)before;
     }
     printf("Generic offset-based get/set: PASSED for all %d numeric/enum/bool items\n", kMenuItemCount);
+
 
     printf("ALL CHECKS PASSED\n");
     return 0;

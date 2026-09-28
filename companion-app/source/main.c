@@ -1457,8 +1457,10 @@ static void open_field_ime_dialog(int itemIndex)
         snprintf(placeholderAscii, sizeof(placeholderAscii), "192.168.x.x");
         snprintf(currentAscii, sizeof(currentAscii), "%s", g_cfg.wledHost);
     } else {
-        snprintf(placeholderAscii, sizeof(placeholderAscii), "%d to %d", item->min, item->max);
-        snprintf(currentAscii, sizeof(currentAscii), "%d", settings_get_i32(&g_cfg, item));
+        const char *pct = (item->unit != UNIT_RAW) ? "%" : "";
+        snprintf(placeholderAscii, sizeof(placeholderAscii), "%d to %d%s",
+                 settings_display_min(item), settings_display_max(item), pct);
+        snprintf(currentAscii, sizeof(currentAscii), "%d", settings_to_display(item, settings_get_i32(&g_cfg, item)));
     }
     snprintf(titleAscii, sizeof(titleAscii), "%s", item->label);
 
@@ -1535,8 +1537,13 @@ static void update_ime_dialog(void)
                 snprintf(msg, sizeof(msg), "\"%s\" isn't a number -- %s unchanged.", typed, item->label);
                 set_status(msg, true);
             } else {
-                settings_set_i32(&g_cfg, item, (int32_t)v); // clamps into [item->min, item->max]
-                snprintf(msg, sizeof(msg), "%s set to %d.", item->label, settings_get_i32(&g_cfg, item));
+                // What was typed is in DISPLAY units (a percent for the
+                // percent-style rows); settings_from_display converts and
+                // clamps into [item->min, item->max].
+                settings_set_i32(&g_cfg, item, settings_from_display(item, (int32_t)v));
+                char vbuf[24];
+                settings_format_display(item, settings_to_display(item, settings_get_i32(&g_cfg, item)), vbuf, sizeof(vbuf));
+                snprintf(msg, sizeof(msg), "%s set to %s.", item->label, vbuf);
                 set_status(msg, false);
             }
         }
@@ -1668,6 +1675,13 @@ static void nudge_field(const MenuItem *item, int dir)
         next = cur + dir;
         if (next < item->min) next = item->max;
         if (next > item->max) next = item->min;
+    } else if (item->unit == UNIT_PCT_OF_MAX) {
+        // Step in the percent the person sees, then convert back -- so
+        // brightness moves 100% -> 95% -> 90%, not 255 -> 250 -> 245.
+        // Only a value that's actually being edited goes through this;
+        // untouched settings keep their exact stored number.
+        int32_t d = settings_to_display(item, cur) + dir * settings_display_step(item);
+        next = settings_from_display(item, d);
     } else {
         next = cur + dir * item->step;
     }
@@ -1675,7 +1689,11 @@ static void nudge_field(const MenuItem *item, int dir)
 
     char msg[128];
     if (item->type == FIELD_BOOL) snprintf(msg, sizeof(msg), "%s: %s.", item->label, next ? "On" : "Off");
-    else snprintf(msg, sizeof(msg), "%s: %d.", item->label, settings_get_i32(&g_cfg, item));
+    else {
+        char vbuf[24];
+        settings_format_display(item, settings_to_display(item, settings_get_i32(&g_cfg, item)), vbuf, sizeof(vbuf));
+        snprintf(msg, sizeof(msg), "%s: %s.", item->label, vbuf);
+    }
     set_status(msg, false);
 }
 

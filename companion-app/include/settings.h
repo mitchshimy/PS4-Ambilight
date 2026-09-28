@@ -26,13 +26,25 @@ typedef enum {
     MENU_SCREEN_CUSTOMIZE,
 } MenuScreen;
 
+// How a numeric field is SHOWN and TYPED in the UI. Purely presentation --
+// the value stored in AmbientConfig, written to the ini and read by the
+// plugin is always the raw number in [min,max]; only what the person sees
+// and enters changes. "255" means nothing to most people, "100%" does.
+typedef enum {
+    UNIT_RAW = 0,        // shown exactly as stored (counts, ms, Hz, ports...)
+    UNIT_PCT_OF_MAX,     // stored 0..max shown as 0..100% (e.g. brightness 255 -> "100%").
+                         // For these rows `step` is in PERCENT, not stored units.
+    UNIT_PCT_DIRECT,     // stored value already IS a percent (100 = unchanged) -- just gets a "%"
+    UNIT_PCT_SIGNED,     // stored value is a percent change around 0 -- shown "+20%" / "-10%" / "0%"
+} DisplayUnit;
+
 typedef struct {
     const char *label;        // shown in the UI
     const char *section;      // ini [section]
     const char *key;          // ini key
     FieldType type;
     size_t offset;             // offsetof(AmbientConfig, field)
-    int32_t min, max, step;    // ignored for BOOL/ENUM. For STRING, max is
+    int32_t min, max, step;    // min/max are stored values; `step` is in display units (percent for UNIT_PCT_OF_MAX rows). ignored for BOOL/ENUM. For STRING, max is
                                 // repurposed as the destination buffer's
                                 // size in bytes (e.g. sizeof(cfg.wledHost))
                                 // -- see settings.c's STRBUF() macro --
@@ -51,6 +63,7 @@ typedef struct {
                                 // the heading, on the first item of a new
                                 // group -- NULL on every other item in
                                 // that same group
+    DisplayUnit unit;          // trailing + optional: rows that omit it are UNIT_RAW
 } MenuItem;
 
 // The full settings menu, data-driven so the UI doesn't need one
@@ -81,6 +94,16 @@ bool settings_save(const AmbientConfig *cfg, const char *path);
 
 // Generic get/set through a MenuItem's offset -- used by the UI so
 // navigation/adjustment code is written once, not per-field.
+// Display-unit helpers (settings.c). The UI shows/accepts "display" values;
+// everything stored stays raw. Round-tripping an UNTOUCHED value never
+// goes through these, so merely opening a screen can't perturb a setting.
+int32_t settings_to_display(const MenuItem *item, int32_t stored);
+int32_t settings_from_display(const MenuItem *item, int32_t display); // rounds, then clamps into [min,max]
+int32_t settings_display_min(const MenuItem *item);
+int32_t settings_display_max(const MenuItem *item);
+int32_t settings_display_step(const MenuItem *item); // one D-Pad/L1/R1 nudge, in display units
+// Formats a display value ("100%", "+20%", "1234"). Returns dst.
+char   *settings_format_display(const MenuItem *item, int32_t display, char *dst, size_t dstSize);
 int32_t settings_get_i32(const AmbientConfig *cfg, const MenuItem *item);
 void settings_set_i32(AmbientConfig *cfg, const MenuItem *item, int32_t value);
 

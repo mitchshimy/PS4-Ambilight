@@ -150,6 +150,14 @@ static const char *format_value(const MenuItem *item, const AmbientConfig *cfg, 
         snprintf(gammaStr, sizeof(gammaStr), "%.2f", kGammaPresets[v >= 0 && v < 8 ? v : 0]);
         return gammaStr;
     }
+    if (item->unit != UNIT_RAW) {
+        // Percent-style units: show the friendly value, never the raw
+        // stored number (255 -> "100%"). Stored value is untouched.
+        if (vb->n >= 24) return "";
+        char *d = vb->s[vb->n++];
+        settings_format_display(item, settings_to_display(item, v), d, 40);
+        return d;
+    }
     return vnum(vb, v);
 }
 
@@ -171,7 +179,7 @@ static const GroupLayout kGroupLayouts[] = {
     { "LED strip layout",    ICON_LED_STRIP,   {4,4},  2, 0.0f,  true  },
     { "Live reload",         ICON_REFRESH,     {1},    1, 0.0f,  false },
     { "Screen sampling",     ICON_FRAME,       {1},    1, 0.0f,  false },
-    { "Auto letterbox",      ICON_FRAME,       {4},    1, 0.0f,  false },
+    { "Auto letterbox",      ICON_FRAME,       {2},    1, 0.0f,  false },
     { "Colour",               ICON_LEVELS,      {6},    1, 0.0f,  false },
     { "Motion and darkness", ICON_WAVES,       {4},    1, 0.0f,  false },
     { "RGB balance",          ICON_SLIDERS_RGB, {3,3},  2, 22.0f, false },
@@ -361,12 +369,12 @@ static void help_cards_init(UiCard out[HELP_CARD_COUNT])
         NULL, 0, -1, NULL, NULL };
 
     out[2] = (UiCard){ COL_AMBER, ICON_LEVELS, COL_AMBER, "Tune the picture",
-        "Screen sampling sets how much of each edge is captured. Auto "
+        "Screen sampling's edge depth sets how many pixels around each "
+        "sample point are averaged. Auto "
         "letterbox finds black bars on its own and insets sampling to "
         "stay off them -- it's the only capture inset, so there's no "
-        "manual margin to raise; lower its threshold if real bars aren't "
-        "pure black, or shorten its recheck interval if it's reacting "
-        "too slowly. Colour shapes brightness, saturation, gamma and "
+        "manual margin to raise; raise its threshold if real bars aren't "
+        "pure black. Colour shapes brightness, saturation, gamma and "
         "black/white levels. Motion and darkness controls transition "
         "smoothing and how the strip behaves in very dark scenes. RGB "
         "balance calibrates each channel separately, for a strip or TV "
@@ -676,7 +684,14 @@ static void render_settings_screen(UiCanvas *c, const UiFonts *f, const AmbientC
         float by = barY + (barH - bh) * 0.5f;
         UiRect btnRect = ui_rect(bx, by, bw, bh);
 
-        int screenFieldCount = (st->screen == UI_SCREEN_SETUP) ? SETUP_FIELD_COUNT : CUST_FIELD_COUNT;
+        // Derived from the schema, same as main.c's navigation -- NOT a
+        // hardcoded count. It used to be SETUP_FIELD_COUNT/CUST_FIELD_COUNT
+        // constants, which silently broke the Save button's focus ring the
+        // moment a row was hidden from kMenuItems (main.c moved focus onto
+        // Save at the real count, this check still waited for the old one).
+        int screenFieldStart = 0, screenFieldCount = 0;
+        ui_screen_item_range((st->screen == UI_SCREEN_SETUP) ? MENU_SCREEN_SETUP : MENU_SCREEN_CUSTOMIZE,
+                             &screenFieldStart, &screenFieldCount);
         bool saveFocused = !showConfirm && (st->focusField >= screenFieldCount);
 
         UiColor fill = showConfirm ? COL_OK : (saveFocused ? COL_AMBER_BRIGHT : COL_AMBER);

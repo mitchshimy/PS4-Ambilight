@@ -80,6 +80,29 @@ Copy `plugin/config/ps4_ambient_light.ini` to `/data/ps4_ambient_light.ini` on t
 edit it live from the companion app) and set `wled_host`/`wled_port` to your WLED controller,
 plus your strip's per-edge LED counts under `[layout]`.
 
+### Percentages in the companion app vs. the ini
+
+Some settings show up as percentages on the companion app's Customize screen but are plain
+numbers in `ps4_ambient_light.ini`. That's display only: the app converts what you type into the
+raw value before saving, and the ini and the plugin only ever see the raw value. It exists
+because "100%" is easier to reason about than "255".
+
+| Companion app shows | ini key | ini value |
+|---|---|---|
+| Brightness, `0%`-`100%` | `brightness` | `0`-`255` (100% = 255) |
+| Bar threshold, `0%`-`100%` | `auto_letterbox_threshold` | `0`-`255` |
+| Black threshold, `0%`-`100%` | `dark_threshold` | `0`-`255` |
+| Saturation, Contrast, e.g. `+20%` | `saturation`, `contrast` | same number (`-100`-`100`) |
+| Black/White level, RGB balance, Gamma R/G/B | `black_level`, `white_level`, `brightness_r/g/b`, `gamma_r/g/b` | same number |
+
+Only the first three rows are actually rescaled; the rest are already percentages in the ini and
+just get a `%` sign in the app.
+
+If you edit the same file by hand as well, keep in mind that the app only has whole percents to
+work with, so a 0-255 value can't always round-trip exactly. `brightness=200` shows as `78%`, and
+if you then change it in the app it's saved as `199`. Values you don't touch are saved exactly as
+they were loaded.
+
 ## Help
 
 The companion app's own Help screen (Home → Help) keeps things to five short cards -- just
@@ -169,7 +192,8 @@ Under `[layout]` (capture side) and `[color]`:
   transient bad read) causing a visible snap in the LED geometry.
 - **`auto_letterbox_check_interval_frames`** (default 15, i.e. ~2x/sec at the default 30Hz
   `update_frequency_hz`; hand-edit only) -- how many sample-thread passes to wait between re-checks. Each check
-  is a full per-edge screen probe, not free -- raise this if `update_frequency_hz` is high and
+  probes each edge inward (up to 180px from top/bottom, 320px from left/right) with several
+  tiled reads per line, so it isn't free -- raise this if `update_frequency_hz` is high and
   CPU headroom is tight.
 - **`scan_depth`** (0-4, default 1) -- sample radius per zone; each zone averages a
   `(2×scan_depth+1)²` pixel block. Higher smooths out noise at the cost of more CPU per frame.
@@ -177,17 +201,21 @@ Under `[layout]` (capture side) and `[color]`:
 - **`brightness`** (0–255) -- global scale, 255 = unchanged.
 - **`gamma`** -- must be exactly one of `1.0 1.4 1.8 2.0 2.2 2.4 2.6 2.8` (precomputed lookup
   tables; no other value is accepted).
-- **`saturation`** (-100 to 300, 0 = unchanged) -- -100 is grayscale, values above ~150 are
-  mostly clipped in practice.
+- **`saturation`** (-100 to 100, 0 = unchanged) -- -100 is grayscale, +100 doubles the color
+  intensity. That's the cap because the result is clamped to 0-255 per channel, so past +100
+  most vivid colors just clip and stop looking different. A higher value in the ini is clamped
+  to 100.
 - **`black_level` / `white_level`** (0–100, percent) -- a levels adjustment: anything at/below
   `black_level` becomes 0, anything at/above `white_level` becomes 255, the rest stretches to
   fill the gap. Defaults (0, 100) are a no-op.
-- **`dark_threshold`** (0–255, default 10) -- if a zone's brightest channel drops below this,
+- **`dark_threshold`** (0–255, default 0) -- if a zone's brightest channel drops below this,
   that zone is forced fully black instead of showing a faint, noisy near-black color. Has
   built-in hysteresis (must rise 10 above the threshold again before turning back on), so it
   won't flicker on scenes that hover right at the line. `0` disables it entirely.
-- **`contrast`** (-100 to 300, 0 = unchanged) -- stretches/shrinks around mid-grey, same math as
-  saturation but applied to brightness instead of hue.
+- **`contrast`** (-100 to 100, 0 = unchanged) -- stretches/shrinks each channel around mid-grey
+  (128), same idea as saturation but applied to brightness instead of hue. Capped at 100 (2x),
+  where half the tonal range already clips to black or white; a higher ini value is clamped.
+  Negative values lift blacks toward grey, so the strip stays dimly lit on dark scenes.
 - **`brightness_r/g/b`** (0–500, 100 = unchanged) -- per-channel brightness, multiplying with
   the single `brightness` above rather than replacing it.
 - **`gamma_r/g/b`** (10–500, 100 = unchanged) -- per-channel gamma, independent of the fixed
@@ -258,9 +286,10 @@ release is the first thing to try.
   Updating to the latest plugin release is the fix.
 - **Black bars or overscan are getting sampled as picture content.** This should self-correct
   within `auto_letterbox_stability_frames` re-checks once `auto_letterbox_enabled` is on (the
-  default). If it's still happening, lower `auto_letterbox_threshold` slightly if the bars aren't
-  pure black, or shorten `auto_letterbox_check_interval_frames` if it's reacting too slowly to a
-  bar appearing.
+  default). If it's still happening, raise `auto_letterbox_threshold` slightly if the bars aren't
+  pure black (it's **Bar threshold** in the companion app, shown as a percent), or shorten
+  `auto_letterbox_check_interval_frames` in the ini if it's reacting too slowly to a bar
+  appearing.
 - **HDR titles look badly wrong, not just slightly off.** See HDR / pixel format handling
   above -- make sure you're on the latest plugin release.
 - **The Home screen's install button seems stuck on the wrong state**, e.g. still shows

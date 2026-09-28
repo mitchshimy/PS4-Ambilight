@@ -18,13 +18,23 @@ self-updating the plugin binary from your GitHub repo.
   since SDL2_ttf isn't a compiled lib in the toolchain snapshot this
   targets. `draw_text()` in `main.c` calls into the resulting glyph
   atlas.
+- **Percent display.** Brightness, the two black thresholds, saturation, contrast, black/white
+  level, RGB balance and per-channel gamma are shown as percentages, but the config struct and the
+  ini keep the raw value (brightness is still 0-255). Each `MenuItem` carries a `DisplayUnit`, and
+  `settings_to_display()` / `settings_from_display()` convert at the edges: on render, on D-Pad/L1/R1
+  nudges and on keyboard entry. Nothing else in the app sees a percent. See "Percentages in the
+  companion app vs. the ini" in the main README for the mapping; `tests/test_display_units.c`
+  covers the conversion.
+- Two auto letterbox keys (`auto_letterbox_stability_frames`, `auto_letterbox_check_interval_frames`)
+  are intentionally not in `kMenuItems`. They're still loaded and saved, and `settings_load` bounds
+  them itself since there's no schema row to clamp against.
 - Controller navigation uses the native `scePad` API, not SDL's
   joystick subsystem -- `SDL_INIT_JOYSTICK` is deliberately left
   disabled, since it can contend with a separately-opened `scePad`
   handle for the same DualShock HID device and cause
   `scePadReadState` to report stale button state.
 - The settings list scrolls once it exceeds one screen's worth of
-  rows (32 items across 4 sections); `g_scrollOffset` tracks the
+  rows (31 items, split between Set up and Customize); `g_scrollOffset` tracks the
   selection via `settings_last_visible_index()`, with a
   "-- showing X-Y of N --" indicator when the list is cut off.
 - LED output goes through `layout.c`, converting the configured strip
@@ -90,4 +100,4 @@ build.bat <intermediate_dir> ps4_ambient_light_companion <output_dir>
 - `source/layout.c` / `include/layout.h` -- full-strip LED layout geometry (physical wire order + on-screen position)
 - `source/help_qr.c` / `include/help_qr.h` -- builds and caches the Help screen's QR bitmap (points at this repo's README `## Help` section)
 - `source/qrcodegen.c` / `include/qrcodegen.h` -- vendored, unmodified: [Project Nayuki's QR Code generator library](https://github.com/nayuki/QR-Code-generator) (C edition, MIT license)
-- `tests/test_settings.c`, `tests/test_pipeline.c` -- isolation tests; `gcc -Iinclude -o test_x test_x.c source/x.c source/config.c tests/test_sce_stubs.c` to rerun
+- `tests/test_settings.c`, `tests/test_pipeline.c`, `tests/test_display_units.c` -- isolation tests; `gcc -Iinclude -o test_x test_x.c source/x.c source/config.c tests/test_sce_stubs.c` to rerun

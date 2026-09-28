@@ -64,9 +64,11 @@ void smoothing_apply_preset(AmbientConfig *cfg, int presetIndex)
 // order -- MENU_SCREEN_SETUP items first, then MENU_SCREEN_CUSTOMIZE,
 // each screen's items one contiguous run so the UI can group by a run
 // of matching `group` strings into one card. `label` is now the exact
-// on-screen text (including unit/range suffixes), since ui_screens.c
-// builds every settings card directly from this table -- there is no
-// second, hand-written copy of these strings to keep in sync.
+// on-screen text, since ui_screens.c builds every settings card
+// directly from this table -- there is no second, hand-written copy of
+// these strings to keep in sync. Percent-style units are not part of
+// the label: they come from the trailing DisplayUnit, so the number
+// shown can differ from the stored one (see settings.h).
 //
 // This reshuffles TWO fields from where the plugin's own ini
 // sections would naturally put them, because the blueprint's cards
@@ -75,8 +77,14 @@ void smoothing_apply_preset(AmbientConfig *cfg, int presetIndex)
 //    pill next to Direction there), not on Customize's "Colour" card.
 //  - config_reload_check_seconds gets its own "Live reload" card on
 //    Set Up, not folded into Customize's "Motion and darkness".
-// Every (section, key, type, min, max, step) tuple is still exactly
-// what the real plugin reads -- only screen/group/label/order changed.
+// Every (section, key, type, min, max) tuple is still exactly what the
+// real plugin reads -- only screen/group/label/order changed. `step`
+// is too, except on UNIT_PCT_OF_MAX rows (brightness and the two
+// thresholds), where it's in the percent the person sees.
+//
+// A few ini keys have no row here on purpose (the two auto letterbox
+// debounce timings). settings_load/settings_save still handle them
+// directly; see the note where they used to sit.
 const MenuItem kMenuItems[] = {
     // =========================== Set Up ===========================
     { "WLED IPv4",         "network", "wled_host",                  FIELD_STRING, OFF(wledHost),        0, STRBUF(wledHost), 0, NULL, 0,
@@ -107,30 +115,43 @@ const MenuItem kMenuItems[] = {
       MENU_SCREEN_SETUP, "Live reload", "How often the plugin checks this file for changes while it's running, so updates apply without closing the game. Set to 0 to only read the file once, at load." },
 
     // ======================== Customize ========================
-    { "Edge depth",        "layout",  "scan_depth",                 FIELD_U32,    OFF(scanDepth),       0,    10,   1, NULL, 0,
+    // Capped at 4, not the plugin's old ceiling of 10 -- each step here
+    // is (2*scan_depth+1)^2 real tiled-memory reads PER ZONE, PER
+    // SAMPLE-THREAD PASS (see letterbox.c's own probeNonBlack comment
+    // on why a tiled read isn't a free array index). 4 still gives a
+    // clearly smoother average than the default of 1 without the
+    // worst-case cost climbing anywhere near what 10 allowed. The
+    // plugin's own ini loader enforces this same ceiling independently
+    // (SCAN_DEPTH_MAX in ambient_internal.h), so a hand-edited ini
+    // can't bypass it even if this slider's max ever drifts from that.
+    { "Edge depth",        "layout",  "scan_depth",                 FIELD_U32,    OFF(scanDepth),       0,     4,   1, NULL, 0,
       MENU_SCREEN_CUSTOMIZE, "Screen sampling", "Each edge zone averages a square block of pixels around its sample point." },
 
     { "Auto letterbox",       "layout", "auto_letterbox_enabled",   FIELD_BOOL,   OFF(autoLetterboxEnabled), 0, 1, 1, NULL, 0,
       MENU_SCREEN_CUSTOMIZE, "Auto letterbox", "Detects black bars on each edge independently and insets sampling to stay off them. This is the only capture inset -- turn it off to sample every pixel unconditionally." },
-    { "Bar threshold (0\xE2\x80\x93""255)", "layout", "auto_letterbox_threshold", FIELD_U32, OFF(autoLetterboxThreshold), 0, 255, 1, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "Auto letterbox", NULL },
-    { "Stability (frames)",   "layout", "auto_letterbox_stability_frames", FIELD_U32, OFF(autoLetterboxStabilityFrames), 1, 30, 1, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "Auto letterbox", NULL },
-    { "Recheck every (frames)", "layout", "auto_letterbox_check_interval_frames", FIELD_U32, OFF(autoLetterboxCheckIntervalFrames), 1, 300, 1, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "Auto letterbox", NULL },
+    { "Bar threshold", "layout", "auto_letterbox_threshold", FIELD_U32, OFF(autoLetterboxThreshold), 0, 255, 1, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Auto letterbox", NULL, UNIT_PCT_OF_MAX },
+    // "Stability (frames)" and "Recheck every (frames)" (auto_letterbox_
+    // stability_frames / auto_letterbox_check_interval_frames) are also
+    // dropped from the UI -- these are the debounce timing constants
+    // tuned alongside the depth-bounded, majority-vote detection scan
+    // (see the plugin's own letterbox.c). A user turning "Stability"
+    // down to react faster is exactly how the flicker that setting
+    // exists to prevent comes back. The "Auto letterbox" card's row
+    // layout ({4} -> {2}) is updated to match in kGroupLayouts.
 
-    { "Brightness (0\xE2\x80\x93""255)",        "color", "brightness",  FIELD_U32,  OFF(brightness),      0,   255,   5, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "Colour", "Shape overall brightness, colour intensity, gamma response and the black/white levels used for LED output." },
-    { "Saturation (\xE2\x88\x92""100\xE2\x80\x93""300)", "color", "saturation", FIELD_I32, OFF(saturation), -100, 300, 5, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "Colour", NULL },
+    { "Brightness",        "color", "brightness",  FIELD_U32,  OFF(brightness),      0,   255,   5, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Colour", "Shape overall brightness, colour intensity, gamma response and the black/white levels used for LED output.", UNIT_PCT_OF_MAX },
+    { "Saturation", "color", "saturation", FIELD_I32, OFF(saturation), -100, 100, 5, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Colour", NULL, UNIT_PCT_SIGNED },
     { "Gamma",              "color",   "gamma",                     FIELD_U32,    OFF(gammaLutIndex),   0,     7,   1, NULL, 0, // display maps 0-7 -> "1.0".."2.8", see format_item_value()
       MENU_SCREEN_CUSTOMIZE, "Colour", NULL },
-    { "Black level %",      "color",   "black_level",               FIELD_U32,    OFF(blackLevel),      0,   100,   1, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "Colour", NULL },
-    { "White level %",      "color",   "white_level",               FIELD_U32,    OFF(whiteLevel),      0,   100,   1, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "Colour", NULL },
-    { "Contrast (\xE2\x88\x92""100\xE2\x80\x93""300)",   "color", "contrast", FIELD_I32, OFF(contrast), -100, 300, 5, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "Colour", NULL },
+    { "Black level",      "color",   "black_level",               FIELD_U32,    OFF(blackLevel),      0,   100,   1, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Colour", NULL, UNIT_PCT_DIRECT },
+    { "White level",      "color",   "white_level",               FIELD_U32,    OFF(whiteLevel),      0,   100,   1, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Colour", NULL, UNIT_PCT_DIRECT },
+    { "Contrast",   "color", "contrast", FIELD_I32, OFF(contrast), -100, 100, 5, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Colour", NULL, UNIT_PCT_SIGNED },
 
     { "Smoothing",          "timing",  "smoothing_enabled",         FIELD_BOOL,   OFF(smoothingEnabled),  0,    1,   1, NULL, 0,
       MENU_SCREEN_CUSTOMIZE, "Motion and darkness", "Control transition smoothing and how the strip reacts to very dark scenes." },
@@ -138,21 +159,21 @@ const MenuItem kMenuItems[] = {
       MENU_SCREEN_CUSTOMIZE, "Motion and darkness", NULL }, // "ui" section/not-a-real-offset are deliberate -- see settings.h; nudge_field/format_value special-case this key instead of using it generically
     { "Settling time (ms)", "timing",  "settling_time_ms",          FIELD_U32,    OFF(settlingTimeMs),    0, 5000,  50, NULL, 0,
       MENU_SCREEN_CUSTOMIZE, "Motion and darkness", NULL },
-    { "Black threshold (0\xE2\x80\x93""255)", "color", "dark_threshold", FIELD_U32, OFF(darkThreshold), 0, 255, 1, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "Motion and darkness", NULL },
+    { "Black threshold", "color", "dark_threshold", FIELD_U32, OFF(darkThreshold), 0, 255, 1, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Motion and darkness", NULL, UNIT_PCT_OF_MAX },
 
-    { "Red balance %",      "color",   "brightness_r",              FIELD_U32,    OFF(brightnessR),     0,   500,   5, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "RGB balance", "Calibrate per-channel brightness and gamma to match your television and wall colour." },
-    { "Green balance %",    "color",   "brightness_g",              FIELD_U32,    OFF(brightnessG),     0,   500,   5, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "RGB balance", NULL },
-    { "Blue balance %",     "color",   "brightness_b",              FIELD_U32,    OFF(brightnessB),     0,   500,   5, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "RGB balance", NULL },
+    { "Red balance",      "color",   "brightness_r",              FIELD_U32,    OFF(brightnessR),     0,   500,   5, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "RGB balance", "Calibrate per-channel brightness and gamma to match your television and wall colour.", UNIT_PCT_DIRECT },
+    { "Green balance",    "color",   "brightness_g",              FIELD_U32,    OFF(brightnessG),     0,   500,   5, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "RGB balance", NULL, UNIT_PCT_DIRECT },
+    { "Blue balance",     "color",   "brightness_b",              FIELD_U32,    OFF(brightnessB),     0,   500,   5, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "RGB balance", NULL, UNIT_PCT_DIRECT },
     { "Gamma R",            "color",   "gamma_r",                   FIELD_U32,    OFF(gammaR),         10,   500,   5, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "RGB balance", NULL },
+      MENU_SCREEN_CUSTOMIZE, "RGB balance", NULL, UNIT_PCT_DIRECT },
     { "Gamma G",            "color",   "gamma_g",                   FIELD_U32,    OFF(gammaG),         10,   500,   5, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "RGB balance", NULL },
+      MENU_SCREEN_CUSTOMIZE, "RGB balance", NULL, UNIT_PCT_DIRECT },
     { "Gamma B",            "color",   "gamma_b",                   FIELD_U32,    OFF(gammaB),         10,   500,   5, NULL, 0,
-      MENU_SCREEN_CUSTOMIZE, "RGB balance", NULL },
+      MENU_SCREEN_CUSTOMIZE, "RGB balance", NULL, UNIT_PCT_DIRECT },
 };
 const int kMenuItemCount = sizeof(kMenuItems) / sizeof(kMenuItems[0]);
 
@@ -240,6 +261,14 @@ static int32_t clamp_to_schema(const char *section, const char *key, int32_t val
     return value;
 }
 
+// These two letterbox debounce keys have no row in kMenuItems any more (they're
+// hidden from the UI), so clamp_to_schema() can't find bounds for them and
+// would pass any value straight through. Same limits the rows used to carry.
+static int32_t clamp_i32(int32_t v, int32_t lo, int32_t hi)
+{
+    return v < lo ? lo : (v > hi ? hi : v);
+}
+
 bool settings_load(AmbientConfig *cfg, const char *path)
 {
     settings_set_defaults(cfg);
@@ -283,8 +312,8 @@ bool settings_load(AmbientConfig *cfg, const char *path)
     if (ini_table_get_entry_as_int(table, "layout", "scan_depth", &iv)) cfg->scanDepth = (uint32_t)clamp_to_schema("layout", "scan_depth", iv);
     if (ini_table_get_entry_as_bool(table, "layout", "auto_letterbox_enabled", &bv)) cfg->autoLetterboxEnabled = bv ? 1 : 0;
     if (ini_table_get_entry_as_int(table, "layout", "auto_letterbox_threshold", &iv)) cfg->autoLetterboxThreshold = (uint32_t)clamp_to_schema("layout", "auto_letterbox_threshold", iv);
-    if (ini_table_get_entry_as_int(table, "layout", "auto_letterbox_stability_frames", &iv)) cfg->autoLetterboxStabilityFrames = (uint32_t)clamp_to_schema("layout", "auto_letterbox_stability_frames", iv);
-    if (ini_table_get_entry_as_int(table, "layout", "auto_letterbox_check_interval_frames", &iv)) cfg->autoLetterboxCheckIntervalFrames = (uint32_t)clamp_to_schema("layout", "auto_letterbox_check_interval_frames", iv);
+    if (ini_table_get_entry_as_int(table, "layout", "auto_letterbox_stability_frames", &iv)) cfg->autoLetterboxStabilityFrames = (uint32_t)clamp_i32(iv, 1, 30);
+    if (ini_table_get_entry_as_int(table, "layout", "auto_letterbox_check_interval_frames", &iv)) cfg->autoLetterboxCheckIntervalFrames = (uint32_t)clamp_i32(iv, 1, 300);
 
     if (ini_table_get_entry_as_int(table, "color", "brightness", &iv)) cfg->brightness = (uint32_t)clamp_to_schema("color", "brightness", iv);
     // gamma preset is stored as a string ("1.0".."2.8") in the real ini,
@@ -408,6 +437,69 @@ bool settings_save(const AmbientConfig *cfg, const char *path)
 // Only used for the numeric/bool/enum types (U32/I32/U16/BOOL/ENUM) --
 // FIELD_STRING (wledHost) is handled separately by the UI via the
 // on-screen keyboard, not through these.
+// ---- display-unit helpers (see DisplayUnit in settings.h) -------------
+// Presentation only: stored values stay raw 0-255 / 0-500 / etc. so the
+// ini format and the plugin never see percentages. Only what is shown and
+// typed changes -- "255" means nothing to most people, "100%" does.
+static int32_t div_round(int32_t num, int32_t den)
+{
+    if (den <= 0) return 0;
+    return (num >= 0) ? (num + den / 2) / den : -((-num + den / 2) / den);
+}
+
+int32_t settings_to_display(const MenuItem *item, int32_t stored)
+{
+    if (item->unit == UNIT_PCT_OF_MAX) return div_round(stored * 100, item->max);
+    return stored;
+}
+
+int32_t settings_from_display(const MenuItem *item, int32_t display)
+{
+    int32_t v = display;
+    if (item->unit == UNIT_PCT_OF_MAX) {
+        if (display < 0) display = 0;
+        if (display > 100) display = 100;
+        v = div_round(display * item->max, 100);
+    }
+    if (v < item->min) v = item->min;
+    if (v > item->max) v = item->max;
+    return v;
+}
+
+int32_t settings_display_min(const MenuItem *item)
+{
+    return settings_to_display(item, item->min);
+}
+
+int32_t settings_display_max(const MenuItem *item)
+{
+    return settings_to_display(item, item->max);
+}
+
+// For UNIT_PCT_OF_MAX rows `step` in the table is ALREADY in percent (so
+// brightness nudges by a clean 5%, thresholds by 1%); every other unit
+// keeps stepping in stored units, which for the "direct" percents are
+// percent anyway.
+int32_t settings_display_step(const MenuItem *item)
+{
+    return item->step > 0 ? item->step : 1;
+}
+
+char *settings_format_display(const MenuItem *item, int32_t display, char *dst, size_t dstSize)
+{
+    switch (item->unit) {
+        case UNIT_PCT_OF_MAX:
+        case UNIT_PCT_DIRECT: snprintf(dst, dstSize, "%d%%", (int)display); break;
+        case UNIT_PCT_SIGNED:
+            if (display == 0) snprintf(dst, dstSize, "0%%");
+            else snprintf(dst, dstSize, "%+d%%", (int)display);
+            break;
+        default: snprintf(dst, dstSize, "%d", (int)display); break;
+    }
+    return dst;
+}
+
+
 int32_t settings_get_i32(const AmbientConfig *cfg, const MenuItem *item)
 {
     const uint8_t *base = (const uint8_t *)cfg + item->offset;

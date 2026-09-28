@@ -35,8 +35,9 @@ typedef enum {
 #define HOME_FOCUS_SETUP 2
 #define HOME_FOCUS_CUST  3
 
-#define SETUP_FIELD_COUNT 12
-#define CUST_FIELD_COUNT  20
+// Field counts per screen are derived from kMenuItems via
+// ui_screen_item_range() -- don't reintroduce hardcoded counts here; they
+// go stale the moment a row is added or hidden and break Save focus.
 
 typedef struct {
     UiScreenId screen;

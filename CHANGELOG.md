@@ -41,6 +41,16 @@ companion app) are documented here, newest first.
   zones and 240Hz; 4 brings that to about 10M. A value above 4 in the
   ini is now rejected and the default (1) is kept, same as the other
   bounded keys.
+- `saturation` and `contrast` now top out at 100 (were 300). The color
+  chain is clamped to 0-255 per channel at the end, so most of that
+  range just clipped: over sample colors, +100 already has a channel
+  clipped on ~84% of vivid colors and +300 is ~99.8%; for contrast the
+  2x factor at +100 clips half the tonal range. Testing 100 against 175
+  on a real strip showed little difference, which lines up. Unlike
+  `scan_depth`, these two are clamped to the new cap on load rather
+  than rejected, so an existing `saturation=175` becomes 100 instead of
+  silently resetting to 0. New `SATURATION_MAX` / `CONTRAST_MAX` in
+  `ambient_internal.h`.
 
 ### v3.2
 - Fixed a real crash: GoldHEN injects every plugin into every title's
@@ -277,7 +287,7 @@ companion app) are documented here, newest first.
   ini, matching the companion app's matching fix -- those settings
   are hand-edited-only and don't need documenting in the shipped
   file.
-- `dark_threshold` default changed from 0 to 10, to match the
+- `dark_threshold` default changed from 0 to 10 (reverted to 0 in 82c8ca0), to match the
   companion app's default.
 - Personal WLED IPs blanked out of the shipped default ini.
 - `main.c` (3,240 lines) split into 9 modules (`gamma`, `settings`,
@@ -291,6 +301,40 @@ The companion app is a standalone PS4 homebrew UI (not a GoldHEN
 plugin) for editing the plugin's ini config on-console, with a live
 color preview and a plugin self-updater.
 
+- Fixed the Save button losing its focus highlight on Customize. The
+  screen field counts were hardcoded (`SETUP_FIELD_COUNT` 12,
+  `CUST_FIELD_COUNT` 20), so once rows were hidden from the schema the
+  D-Pad moved focus onto Save at the real count while the render code
+  kept waiting for the old one. Both now come from
+  `ui_screen_item_range()` and the constants are gone.
+- Hid the auto letterbox "Stability (frames)" and "Recheck every
+  (frames)" rows. They're debounce timings tuned alongside the plugin's
+  new detection scan, and lowering stability to "react faster" just
+  brings the flicker back. They're still loaded and saved like any
+  other key, and since they no longer have a schema row to clamp
+  against, `settings_load` bounds them itself (1-30 and 1-300). Edge
+  depth and Reload check stay visible.
+- "Edge depth" now tops out at 4 (was 10), matching the plugin's new
+  `SCAN_DEPTH_MAX`. Saturation and Contrast now top out at +100% (were
+  +300%), matching the plugin.
+- The Help screen's "Tune the picture" card still told people to shorten
+  the recheck interval, which isn't in the app anymore, and it said to
+  *lower* the letterbox threshold when the bars aren't pure black. It's
+  the other way round: a pixel counts as black if it's below the
+  threshold, so bars at 25 need a threshold above 25. Same mistake in
+  the README's troubleshooting entry; both fixed.
+- Brightness, both black thresholds, saturation, contrast, black/white
+  level, RGB balance and per-channel gamma now show as percentages
+  (`DisplayUnit` on `MenuItem`). Display only: `brightness` is still
+  0-255 in the ini and the config struct, the app just shows 255 as
+  100% and steps it by 5%. Typing a value in the keyboard dialog takes
+  a percent too. Untouched values are saved exactly as loaded. See the
+  README for the full mapping.
+- `test_settings.c` asserted 32 menu items when the schema already had
+  33; now asserts the real 31. It still fails at the `relayHost`
+  round-trip, which was failing before this and isn't touched here.
+  Added `test_display_units.c` for the percent conversion and the
+  load-time bounds on the hidden keys.
 - Removed the four "Capture margin top/right/bottom/left" fields from
   Customize's Screen sampling card, and added a matching "Auto
   letterbox" card (enable toggle, bar threshold, stability, recheck
@@ -423,7 +467,7 @@ color preview and a plugin self-updater.
 - Brought in an advanced opt-in networking signal to match the
   plugin, then later removed the dedicated UI card for it -- it's
   ini-only now, matching how the plugin itself exposes it.
-- `dark_threshold` default changed from 0 to 10, matching the plugin.
+- `dark_threshold` default changed from 0 to 10, matching the plugin (both reverted to 0 in 82c8ca0).
 - Added disabled-plugin detection and blanked default WLED IPs out
   of shipped defaults.
 - Settings-UI, layout-editor, and color-pipeline updates across
