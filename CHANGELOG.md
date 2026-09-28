@@ -15,8 +15,59 @@ companion app) are documented here, newest first.
   safe to read. Fix: read the slot of the *previous* flip instead.
   **Confirmed on real hardware: the menu flicker is gone**, and a
   separate title that used to flash the LEDs on an all-black screen
-  stopped doing that too (reported by the user, not captured, so the
-  shared cause there is likely but unproven).
+  (God of War Ragnarok, dark loading screens, see the older
+  `HANDOFF_ambient_light_flash_bug.md` writeup) **stopped doing that
+  too -- now proven, not just reported.**
+
+  The GOWR flashes came from the same root cause, and were previously
+  misdiagnosed as read tearing (a microsecond-scale race) rather than
+  the hook-timing issue above: during a load, the game resubmits the
+  same buffer index for seconds at a time while still writing to it,
+  so it holds a fading intermediate fill (bright at first, decaying
+  toward black over the session) for most of the load. The pre-fix
+  sampler, reading the hook-reported slot, could land in that window.
+
+  Proof (`gowr.flk`, 818 passes, 28.8s, a GOWR load screen, `FLK1`
+  probe ported into this branch's `sample_thread.c` for the capture --
+  see that file's comment for the packet layout):
+  - The pipeline's own read (the slot this fix actually samples) was
+    `(0,0,0)` on **all 3,540 zone reads** across the whole capture.
+    Whole-strip output `deltaSum` was **0 for every one of the 818
+    passes** -- nothing was ever sent to the strip during the load.
+  - Independently re-reading all three buffer slots every pass (not
+    just the one the fix uses) turned up **33 transients**, up to
+    `(42,50,63)`, fading across the session -- the same decay shape as
+    the original bug report, just caught this time instead of shipped
+    to the strip.
+  - **In all 33 of the 33 events, the slot holding the transient was
+    the slot the flip hook had reported (the pre-fix read), and never
+    the slot this fix was actually sampling.** The two never
+    coincided once. That is the mechanism from the paragraph above,
+    caught live: the fix stays one flip behind exactly the buffer
+    that's still being overwritten.
+
+  This is direct, not inferred: it is not "the flicker went away and
+  we assume it's the same cause," it is "the transient was captured,
+  frame by frame, always in the slot this fix skips and never in the
+  slot it reads."
+
+  Re-captured after fixing a bug in the probe itself (`curIdx` was
+  first recovered from the already-fixed slot instead of the raw
+  hook-reported one, which silently defeats `flicker_capture.py`'s own
+  ring-lag math -- see the `sample_thread.c` comment above the packet
+  build). Second capture (`gowr2.flk`, 715 passes, 25.3s, same load
+  screen): pipeline's own read `(0,0,0)` on every zone read again,
+  `deltaSum` 0 for all 715 passes. 27 more transients found by direct
+  re-read, up to `(199,229,247)` -- the brightest caught so far, right
+  at the 0.2s mark. All 27 in the hook-reported slot, none in the slot
+  this fix reads. With the probe corrected, the tool's own numbers
+  agree without hand-checking: lag 0 (hook-reported) wrong on 0.5% of
+  zone reads, lag 1 (what the fix reads) wrong on 0%; the pipeline's
+  raw read matched lag 1's buffer on 100% of passes.
+
+  Across both captures: 60 of 60 transient events sat in the slot this
+  fix skips, 0 in the slot it reads.
+
 
   Root cause. All three flip hooks (`sceGnmSubmitAndFlipCommandBuffers`,
   `sceVideoOutSubmitFlip`, `...ForWorkload`) run when the game

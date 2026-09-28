@@ -223,10 +223,25 @@ void *ambient_sample_thread(void *args)
                 ambient_check_letterbox(&kParamsBase, liveBufferAddr, unpack);
 
                 uint8_t rgbTriplets[MAX_TOTAL_ZONES * 3];
+#if (__FINAL__) == 0
+                // FLK1 flicker/flash probe (v3.3): raw pipeline read for the 6
+                // fixed probe zones, captured here (before color processing)
+                // so the debug packet below can show what the pipeline itself
+                // saw, same as tools/flicker_capture.py expects. Trivial cost:
+                // 6 comparisons per zone, compiled out entirely in release.
+                uint8_t probeRaw[6][3];
+                uint32_t probeZoneIdx[6];
+                for (int pk = 0; pk < 6; pk++) probeZoneIdx[pk] = ((uint32_t)(2 * pk + 1) * g_numZones) / 12u;
+#endif
                 for (uint32_t i = 0; i < g_numZones; i++) {
                     uint8_t r, g, b;
                     sampleZoneAverage(&kParamsBase, liveBufferAddr, unpack,
                                        g_zoneX[i], g_zoneY[i], &r, &g, &b);
+#if (__FINAL__) == 0
+                    for (int pk = 0; pk < 6; pk++) {
+                        if (probeZoneIdx[pk] == i) { probeRaw[pk][0] = r; probeRaw[pk][1] = g; probeRaw[pk][2] = b; break; }
+                    }
+#endif
 
                     uint8_t processed[3];
                     applyColorProcessing(r, g, b, processed);
@@ -278,6 +293,103 @@ void *ambient_sample_thread(void *args)
                 }
                 g_smoothedRgbValid = true;
                 wled_send_rgb_zones(rgbTriplets, (int)g_numZones);
+
+#if (__FINAL__) == 0
+                // FLK1 probe (v3.3), decoded by tools/flicker_capture.py.
+                // Exists to answer "is this a slot-timing problem, and did
+                // the AMBIENT_SAMPLE_LAG fix close it" with a capture, not a
+                // guess: for 6 zones spread around the strip, sends the
+                // color actually output, the pipeline's raw read (from
+                // liveBufferAddr -- i.e. AFTER the lag-1 buffer selection
+                // above), AND the same zone re-read directly from buffer
+                // slots 0, 1 and 2 right now. If the slot this pass used
+                // (curIdx, adjusted by AMBIENT_SAMPLE_LAG) still disagrees
+                // with its own re-read, or a bright raw value has no
+                // matching bright slot anywhere, the fix did not close it.
+                // Layout matches flicker_capture.py's HDR_FMT/ZONE_FMT
+                // exactly; see that file's top comment for the byte map.
+                {
+                    static uint32_t s_probeSeq = 0;
+                    static uint8_t  s_prevOut[MAX_TOTAL_ZONES * 3];
+                    static bool     s_havePrevOut = false;
+
+                    uint32_t deltaSum = 0;
+                    uint32_t nBytes = g_numZones * 3;
+                    if (s_havePrevOut) {
+                        for (uint32_t k = 0; k < nBytes; k++) {
+                            int d = (int)rgbTriplets[k] - (int)s_prevOut[k];
+                            deltaSum += (uint32_t)(d < 0 ? -d : d);
+                        }
+                    }
+                    memcpy(s_prevOut, rgbTriplets, nBytes);
+                    s_havePrevOut = true;
+
+                    if (g_numZones >= 12) {
+                        uint8_t pkt[30 + 6 * 17];
+                        memset(pkt, 0, sizeof(pkt));
+                        uint32_t seq = s_probeSeq++;
+                        uint32_t tsUs = (uint32_t)((t0 * 1000000ULL) / tscFreq);
+                        uint32_t fmt = g_activeFormat;
+                        uint16_t flipTotal = (uint16_t)((g_flipHookCallCount + g_videoOutSubmitFlipHookCallCount +
+                                                         g_gnmForWorkloadHookCallCount) & 0xFFFFu);
+                        // curIdx: the RAW slot the flip hook reported (displayBufferIndex), not the
+                        // one this pass actually sampled. tools/flicker_capture.py's ring-lag math
+                        // is built around that: it walks the ring forward from curIdx to find which
+                        // lag is safe, and separately checks which lag the pipeline's own raw read
+                        // (probeRaw, below) actually matches -- so it can tell "AMBIENT_SAMPLE_LAG is
+                        // active and reading a clean slot" apart from "still reading the risky one",
+                        // exactly the same way it already does for the AC3 menu capture. Recovering
+                        // curIdx from liveBufferAddr instead (i.e. reporting the already-safe slot as
+                        // if it were the raw one) would make every capture with the fix built in look
+                        // identical to lag 0 always being clean, and silently drop the comparison this
+                        // probe exists to make.
+                        uint8_t curIdx = (displayBufferIndex < 255u) ? (uint8_t)displayBufferIndex : 0xFF;
+                        int32_t bc = g_bufferCount;
+                        uint8_t bufCount = (uint8_t)(bc < 0 ? 0 : (bc > 255 ? 255 : bc));
+                        uint8_t flags = 0;
+                        if (g_hdr2200IsHdr) flags |= 0x01;
+                        if (g_config.smoothingEnabled) flags |= 0x02;
+                        if (g_autoLetterboxTop || g_autoLetterboxRight || g_autoLetterboxBottom || g_autoLetterboxLeft) flags |= 0x04;
+                        if (fmt == 0x80002200u) flags |= 0x08;
+                        uint16_t nz = (uint16_t)g_numZones;
+
+                        uint8_t validMask = 0;
+                        uint8_t *zp = pkt + 30;
+                        for (int k = 0; k < 6; k++) {
+                            uint32_t zi = probeZoneIdx[k];
+                            uint16_t zi16 = (uint16_t)zi;
+                            memcpy(zp + 0, &zi16, 2);
+                            memcpy(zp + 2, &rgbTriplets[zi * 3], 3);
+                            memcpy(zp + 5, probeRaw[k], 3);
+                            for (int j = 0; j < 3; j++) {
+                                uint64_t baddr = (j < bc) ? g_bufferAddrs[j] : 0;
+                                if (baddr != 0) {
+                                    uint8_t br, bg, bb;
+                                    sampleZoneAverage(&kParamsBase, baddr, unpack,
+                                                       g_zoneX[zi], g_zoneY[zi], &br, &bg, &bb);
+                                    zp[8 + j * 3 + 0] = br; zp[8 + j * 3 + 1] = bg; zp[8 + j * 3 + 2] = bb;
+                                    validMask |= (uint8_t)(1u << j);
+                                }
+                            }
+                            zp += 17;
+                        }
+                        memcpy(pkt + 0, "FLK1", 4);
+                        memcpy(pkt + 4, &seq, 4);
+                        memcpy(pkt + 8, &tsUs, 4);
+                        memcpy(pkt + 12, &deltaSum, 4);
+                        memcpy(pkt + 16, &fmt, 4);
+                        memcpy(pkt + 20, &flipTotal, 2);
+                        pkt[22] = curIdx;
+                        pkt[23] = bufCount;
+                        pkt[24] = flags;
+                        pkt[25] = 6;
+                        pkt[26] = validMask | (uint8_t)(2u << 4); // slot ids trivial (0,1,2): buf2's slot id in bits 4-7
+                        pkt[27] = 0x10;                            // buf0 slot id = 0 (lo nibble), buf1 slot id = 1 (hi nibble)
+                        memcpy(pkt + 28, &nz, 2);
+                        debug_send_raw(pkt, (int)sizeof(pkt));
+                    }
+                }
+#endif
 
 #if (__FINAL__) == 0
                 // v2.2.4: gated behind __FINAL__==0 (make DEBUG=1), same

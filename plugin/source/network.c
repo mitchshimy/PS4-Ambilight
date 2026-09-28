@@ -103,8 +103,8 @@ void debug_send_raw(const uint8_t *data, int len)
     // 64 bytes and was never updated to match. Raised with headroom rather
     // than tuned to exactly 68, so the next packet that grows a few bytes
     // doesn't silently reintroduce the same class of bug.
-    uint8_t packet[DDP_HEADER_SIZE + 128];
-    if (len > 128) len = 128;
+    uint8_t packet[DDP_HEADER_SIZE + 192];
+    if (len > 192) len = 192; // was 128: the 132-byte FLK1 probe packet (sample_thread.c) would have been truncated, same bug class as the v2.7.6 zone-echo truncation
     packet[0] = 0x40 | 0x01;
     packet[1] = 0;
     packet[2] = 0x0B;

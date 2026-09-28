@@ -9,3 +9,4 @@ pkg.gp4
 x64/
 common/git_ver.h
 docs/spec-wled-heartbeat.md
+__pycache__/
