@@ -169,6 +169,22 @@ void *ambient_sample_thread(void *args)
         uint64_t liveBufferAddr = (displayBufferIndex != 0xFFFFFFFFu &&
                                     displayBufferIndex < (uint32_t)MAX_TRACKED_BUFFERS)
                                        ? g_bufferAddrs[displayBufferIndex] : 0;
+#if AMBIENT_SAMPLE_LAG >= 1
+        {
+            // Read the previously flipped slot, which the GPU has finished
+            // drawing; the slot the hook just reported may be mid-render.
+            // Falls back to the reported slot until a previous one is known.
+            // A blank/no-frame flip (index sentinel) keeps the old path
+            // (liveBufferAddr == 0 -> keepalive) instead of re-reading the
+            // last real slot.
+            uint32_t prevIdx = g_prevDisplayBufferIndex;
+            if (displayBufferIndex != 0xFFFFFFFFu &&
+                prevIdx != 0xFFFFFFFFu && prevIdx < (uint32_t)MAX_TRACKED_BUFFERS &&
+                g_bufferAddrs[prevIdx] != 0) {
+                liveBufferAddr = g_bufferAddrs[prevIdx];
+            }
+        }
+#endif
 
 #if (__FINAL__) == 0
         // v3.1: what actually found "this title never lights up" -- see

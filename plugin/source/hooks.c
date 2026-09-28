@@ -22,7 +22,12 @@
 attr_public const char *g_pluginName = "ps4_ambient_light";
 attr_public const char *g_pluginDesc = "Live per-frame ambient light: detiles the real scanout buffer and streams zone colors to WLED";
 attr_public const char *g_pluginAuth = "(null)";
-attr_public uint32_t g_pluginVersion = 0x00000302; // v3.1 -> v3.2:
+attr_public uint32_t g_pluginVersion = 0x00000303; // v3.2 -> v3.3:
+// Sampler reads the previous flip's buffer instead of the one the flip
+// hook just reported (g_prevDisplayBufferIndex, record_flip_index below),
+// fixing flicker from sampling a cleared / half-drawn frame. See
+// CHANGELOG.md v3.3 for the capture evidence.
+// v3.1 -> v3.2:
 // The v3.1 flip hooks above fire in EVERY process GoldHEN injects this
 // plugin into -- including this project's own companion app, which is
 // just another titleid (SHMY00091) as far as GoldHEN is concerned. Two
@@ -289,6 +294,23 @@ int32_t sceVideoOutRegisterBuffersPtr_hook(int32_t handle, int32_t startIndex,
 // worker thread below at its own pace.
 volatile uint32_t g_currentDisplayBufferIndex = 0xFFFFFFFFu; // sentinel: no flip seen yet
 
+// Slot of the flip BEFORE the current one (sentinel until two different
+// slots have been seen). The hooks fire at SUBMIT time, so the slot they
+// report is the one the GPU is about to render into: it can be cleared or
+// half drawn. The previous flip's slot has finished rendering. Only advanced
+// when the index actually changes, so the two flip hooks both firing for one
+// real flip (same index twice) don't overwrite it.
+volatile uint32_t g_prevDisplayBufferIndex = 0xFFFFFFFFu;
+
+static inline void record_flip_index(uint32_t idx)
+{
+    uint32_t cur = g_currentDisplayBufferIndex;
+    if (idx != cur) {
+        g_prevDisplayBufferIndex = cur; // may be the sentinel on the first flip; sampler falls back
+        g_currentDisplayBufferIndex = idx;
+    }
+}
+
 int32_t sceGnmSubmitAndFlipCommandBuffersPtr_hook(uint32_t count, void *dcbGpuAddrs[],
                                                    uint32_t *dcbSizesInBytes, void *ccbGpuAddrs[],
                                                    uint32_t *ccbSizesInBytes, uint32_t videoOutHandle,
@@ -296,7 +318,7 @@ int32_t sceGnmSubmitAndFlipCommandBuffersPtr_hook(uint32_t count, void *dcbGpuAd
                                                    int64_t flipArg)
 {
     g_flipHookCallCount++; // v3.1: diagnostic only -- see its declaration above
-    g_currentDisplayBufferIndex = displayBufferIndex; // single volatile write, near-zero cost
+    record_flip_index(displayBufferIndex); // near-zero cost
 
     return HOOK_CONTINUE(sceGnmSubmitAndFlipCommandBuffersPtr,
                           int32_t(*)(uint32_t, void **, uint32_t *, void **, uint32_t *, uint32_t, uint32_t, uint32_t, int64_t),
@@ -312,7 +334,7 @@ int32_t sceVideoOutSubmitFlipPtr_hook(int32_t handle, int32_t bufferIndex,
                                        int32_t flipMode, int64_t flipArg)
 {
     g_videoOutSubmitFlipHookCallCount++; // diagnostic only -- see its declaration above
-    g_currentDisplayBufferIndex = (uint32_t)bufferIndex; // (uint32_t)(-1) == the existing sentinel
+    record_flip_index((uint32_t)bufferIndex); // (uint32_t)(-1) == the existing sentinel
 
     return HOOK_CONTINUE(sceVideoOutSubmitFlipPtr,
                           int32_t(*)(int32_t, int32_t, int32_t, int64_t),
@@ -330,7 +352,7 @@ int32_t sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr_hook(uint32_t workload, 
                                                                uint32_t flipMode, int64_t flipArg)
 {
     g_gnmForWorkloadHookCallCount++; // diagnostic only -- see its declaration above
-    g_currentDisplayBufferIndex = displayBufferIndex; // single volatile write, near-zero cost
+    record_flip_index(displayBufferIndex); // near-zero cost
 
     return HOOK_CONTINUE(sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr,
                           int32_t(*)(uint32_t, uint32_t, void **, uint32_t *, void **, uint32_t *, uint32_t, uint32_t, uint32_t, int64_t),

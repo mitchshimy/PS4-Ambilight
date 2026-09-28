@@ -266,6 +266,13 @@ extern volatile int32_t  g_bufferCount;
 extern volatile uint32_t g_activeFormat;
 extern volatile int      g_haveValidFormat;
 extern volatile uint32_t g_currentDisplayBufferIndex;
+extern volatile uint32_t g_prevDisplayBufferIndex;
+
+// How many flips back the sampler reads. 0 = the slot the hook just reported
+// (can be cleared / half drawn: causes flicker), 1 = previous flip (finished).
+#ifndef AMBIENT_SAMPLE_LAG
+#define AMBIENT_SAMPLE_LAG 1
+#endif
 extern int32_t (*sceVideoOutRegisterBuffersPtr)(int32_t handle, int32_t startIndex,
                                           void *const *addresses, int32_t bufferNum,
                                           const OrbisVideoOutBufferAttribute *attribute);
