@@ -58,7 +58,10 @@ typedef enum { EDGE_LEFT, EDGE_TOP, EDGE_RIGHT, EDGE_BOTTOM } Edge;
 // it also protects the unsigned subtraction below (SCREEN_HEIGHT - 1 -
 // marginTop - marginBottom, etc.) from underflowing, which in
 // principle a bad detection on two opposite edges could still cause
-// without it.
+// without it. Detection itself is now bounded far tighter than this
+// (MAX_BAR_DEPTH_V/H in letterbox.c, screen/6), so in practice this
+// clamp is only a backstop against a bad value, not a limit that
+// detection ever gets close to.
 static inline uint32_t effMarginTop(void)
 {
     return g_autoLetterboxTop > (SCREEN_HEIGHT / 2 - 1) ? (SCREEN_HEIGHT / 2 - 1) : g_autoLetterboxTop;

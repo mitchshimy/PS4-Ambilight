@@ -162,16 +162,18 @@ Under `[layout]` (capture side) and `[color]`:
   bar).
 - **`auto_letterbox_threshold`** (0–255, default 18) -- a probed pixel counts as part of a black
   bar if every channel is below this.
-- **`auto_letterbox_stability_frames`** (default 3) -- how many consecutive matching detections
+- **`auto_letterbox_stability_frames`** (default 3, hand-edit only -- not shown in the companion
+  app) -- how many consecutive matching detections
   are required before a newly detected border is actually applied. Higher = slower to react to a
   real letterbox appearing, but more resistant to a one-frame flicker (a bright flash, a
   transient bad read) causing a visible snap in the LED geometry.
 - **`auto_letterbox_check_interval_frames`** (default 15, i.e. ~2x/sec at the default 30Hz
-  `update_frequency_hz`) -- how many sample-thread passes to wait between re-checks. Each check
+  `update_frequency_hz`; hand-edit only) -- how many sample-thread passes to wait between re-checks. Each check
   is a full per-edge screen probe, not free -- raise this if `update_frequency_hz` is high and
   CPU headroom is tight.
-- **`scan_depth`** -- sample radius per zone; each zone averages a `(2×scan_depth+1)²` pixel
-  block. Higher smooths out noise at the cost of more CPU per frame.
+- **`scan_depth`** (0-4, default 1) -- sample radius per zone; each zone averages a
+  `(2×scan_depth+1)²` pixel block. Higher smooths out noise at the cost of more CPU per frame.
+  Values above 4 are rejected and the default is kept.
 - **`brightness`** (0–255) -- global scale, 255 = unchanged.
 - **`gamma`** -- must be exactly one of `1.0 1.4 1.8 2.0 2.2 2.4 2.6 2.8` (precomputed lookup
   tables; no other value is accepted).

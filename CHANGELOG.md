@@ -7,6 +7,41 @@ companion app) are documented here, newest first.
 
 ## Plugin
 
+### Unreleased
+- Fixed a delay on dark screens with a small bright element in the
+  middle (a loading screen with centered text, for example). The
+  letterbox scan only checked 3 fixed points per line (25/50/75%), so
+  on a mostly-black frame all four edges scanned nearly to the search
+  limit before "finding" the text, and the plugin committed a huge
+  border around it. `buildZoneGeometry()` then pulled the edge zones in
+  to that margin, so when something flashed in from the real screen
+  edge nothing sampled there and the LEDs only reacted once it had
+  travelled in to the shrunken area, about a second late. Only showed
+  up on dark scenes because bright frames hit non-black on the first
+  row and never get that far.
+- Letterbox detection now sweeps `EDGE_NUM_SAMPLES` (10) points across
+  the whole row/column and only treats the line as bar if 85% of them
+  are black (`isRowBlack`/`isColBlack`). A few dozen pixels of text
+  only flip a couple of samples, so the scan walks past it to the real
+  edge. This is the same approach as `BorderProcessor.findBorderRgb` in
+  the Android project, which every real capture path there uses; the
+  3-point version this was ported from (`findBorderRgba`) turns out to
+  only be exercised by that project's unit tests.
+- Search depth is capped at `MAX_BAR_DEPTH_V`/`_H` (1/6 of the screen,
+  180px/320px) instead of half the screen. Console output is native
+  16:9, so the only bars are cutscenes mastered at a narrower ratio:
+  1.85:1 is ~21px per edge and 2.39:1 is ~138px on a 1080p frame. This
+  also caps how far a misdetection could ever inset the zones. Worst
+  case probe count is about the same as before (~10k vs ~9k) despite
+  the extra samples per line.
+- `scan_depth` had no upper bound in the plugin's ini loader (every
+  neighbouring key checked both ends). Added `SCAN_DEPTH_MAX` (4). Each
+  step is `(2*depth+1)^2` tiled reads per zone per pass, so the old
+  ceiling of 10 was roughly 54M tiled-offset computations/sec at 512
+  zones and 240Hz; 4 brings that to about 10M. A value above 4 in the
+  ini is now rejected and the default (1) is kept, same as the other
+  bounded keys.
+
 ### v3.2
 - Fixed a real crash: GoldHEN injects every plugin into every title's
   process, including this project's own companion app -- just another

@@ -67,11 +67,11 @@ typedef struct {
     bool autoLetterboxEnabled;
     uint32_t autoLetterboxThreshold;         // 0-255: a probed pixel counts as "black" if every channel is below this
     uint32_t autoLetterboxStabilityFrames;   // consecutive matching detections required before a new border is committed -- kills flicker across a scene cut
-    uint32_t autoLetterboxCheckIntervalFrames; // how many sample-thread iterations to wait between re-detections (this is a full up-to-half-screen probe, not free)
+    uint32_t autoLetterboxCheckIntervalFrames; // how many sample-thread iterations to wait between re-detections (each check is a bounded per-edge probe, up to MAX_BAR_DEPTH_V/H deep in letterbox.c, and every sample is a tiled read -- not free)
     // [color]
     uint32_t brightness;        // 0-255 global scale, applied after gamma
     uint32_t gammaLutIndex;     // index into kGammaLuts -- see NUM_GAMMA_LUTS below
-    int32_t saturation;         // -100 (grayscale) .. 0 (unchanged) .. 300 (4x boost, mostly clipped by then)
+    int32_t saturation;         // -100 (grayscale) .. 0 (unchanged) .. SATURATION_MAX (2x boost)
     ColorOrder colorOrder;
     uint32_t blackLevel;        // v2.1: 0-100, percent of 255 below which output clips to 0
     uint32_t whiteLevel;        // v2.1: 0-100, percent of 255 at/above which output clips to 255 (100 = no change)
@@ -84,7 +84,7 @@ typedef struct {
     // Percentages below use Android's own convention (100 = neutral),
     // NOT this file's usual "0 = neutral" convention -- documented
     // per-field in the generated ini template.
-    int32_t contrast;           // -100..300, 0 = unchanged (100=neutral Android pct minus 100, same convention as saturation above)
+    int32_t contrast;           // -100..CONTRAST_MAX, 0 = unchanged (100=neutral Android pct minus 100, same convention as saturation above)
     uint32_t brightnessR, brightnessG, brightnessB; // 0-500, 100 = unchanged. Multiplies with the global brightness above.
     uint32_t gammaR, gammaG, gammaB;                // 10-500, 100 = unchanged. Independent per-channel curves, applied PER SAMPLE
                                                      // before zone-averaging (see sampleZoneAverage) -- unlike every other
@@ -209,6 +209,33 @@ extern volatile int32_t g_hdr2200Countdown;
 // [zones] -- screen-edge sample points (zones.c)
 #define SCREEN_WIDTH  1920
 #define SCREEN_HEIGHT 1080
+// Upper bound for scanDepth (config's scan_depth). sampleZoneAverage in
+// zones.c reads (2*scanDepth+1)^2 pixels PER ZONE, PER SAMPLE-THREAD
+// PASS, each one a real getTiledElementByteOffset() tile-address
+// computation -- not a flat read. At the unclamped old ceiling of 10,
+// worst case is 512 zones (MAX_TOTAL_ZONES) x 441 samples x up to 240Hz
+// (update_frequency_hz's own max) =~ 54M tiled-offset computations/sec.
+// 4 caps that same worst case at 512 x 81 x 240 =~ 10M/sec -- still the
+// upper end, but roughly a 5x cut -- while leaving real headroom over
+// the default of 1 (9 samples) for anyone who actually wants a
+// noticeably smoother average. Enforced here (settings.c's ini loader)
+// so this holds regardless of how scan_depth got set -- a hand-edited
+// ini, not just the companion app's own UI, which mirrors this same
+// cap on its own Edge depth slider.
+#define SCAN_DEPTH_MAX 4
+// Upper bound for saturation and contrast (both -100..MAX, 0 = unchanged).
+// This used to be 300 (4x), but the result gets clamped to 0-255 per
+// channel at the end of the color chain, so most of that range just
+// clipped. Simulated over sample colors: at +100 (2x) about 84% of vivid
+// colors already have a channel clipped and each further +25 buys about
+// a third of the visible change the first steps did; at 300, 99.8% of
+// vivid colors clip. For contrast the same 2x factor already clips half
+// the tonal range (1 - 1/2), and 4x clips about 75%. Unlike scan_depth,
+// settings.c CLAMPS these two on load instead of rejecting an
+// out-of-range value: a saved saturation=175 should land on the cap, not
+// silently fall back to 0 (no saturation at all).
+#define SATURATION_MAX 100
+#define CONTRAST_MAX   100
 extern uint32_t g_zoneX[MAX_TOTAL_ZONES];
 extern uint32_t g_zoneY[MAX_TOTAL_ZONES];
 extern uint32_t g_numZones;

@@ -119,7 +119,9 @@ static void ambient_create_default_config(void)
         "; adjust this instead of led_start_corner/led_direction.\n" \
         "led_offset=0\n" \
         "; Sample radius per zone: (2*scan_depth+1)^2 pixels averaged.\n" \
-        "; Higher = smoother/less noisy but more CPU per frame.\n" \
+        "; Higher = smoother/less noisy but more CPU per frame. Capped\n" \
+        "; at 4 -- values above that are rejected and the previous\n" \
+        "; value is kept.\n" \
         "scan_depth=1\n" \
         "; Auto-detects black letterbox/pillarbox bars and insets\n" \
         "; sampling to stay off them, per edge independently (so e.g.\n" \
@@ -135,9 +137,11 @@ static void ambient_create_default_config(void)
         "; border is actually applied -- higher = slower to react but\n" \
         "; more resistant to flicker across a scene cut.\n" \
         "auto_letterbox_stability_frames=3\n" \
-        "; How many sample-thread passes to wait between re-checks.\n" \
-        "; This is a full per-edge screen probe, not free -- raise this\n" \
-        "; if update_frequency_hz is high and CPU headroom is tight.\n" \
+        "; How many sample-thread passes to wait between re-checks. Each\n" \
+        "; check probes every edge inward (up to 180px from top/bottom,\n" \
+        "; 320px from left/right) with several tiled reads per line, so\n" \
+        "; it isn't free -- raise this if update_frequency_hz is high and\n" \
+        "; CPU headroom is tight.\n" \
         "auto_letterbox_check_interval_frames=15\n" \
         "\n" \
         "[color]\n" \
@@ -146,10 +150,9 @@ static void ambient_create_default_config(void)
         "; Must be exactly one of: 1.0 1.4 1.8 2.0 2.2 2.4 2.6 2.8\n" \
         "; (precomputed lookup tables -- no other value is accepted).\n" \
         "gamma=1.0\n" \
-        "; -100 (grayscale) to 300 (4x color boost, mostly clipped by\n" \
-        "; then -- verified overflow-safe well beyond this, the cap is\n" \
-        "; just where it stops looking meaningfully different).\n" \
-        "; 0 = unchanged.\n" \
+        "; -100 (grayscale) to 100 (2x color boost). 0 = unchanged. Past\n" \
+        "; 100 most colors clip at 255/0 and stop looking different, so\n" \
+        "; values above 100 are clamped to 100.\n" \
         "saturation=0\n" \
         "; Match your strip's actual wiring. Valid values: RGB, RBG,\n" \
         "; GRB, GBR, BRG, BGR. Most WS2812B/NeoPixel strips are GRB.\n" \
@@ -170,9 +173,10 @@ static void ambient_create_default_config(void)
         "; per-channel color engine. NOTE THE DIFFERENT CONVENTION: these\n" \
         "; use Android's \"100 = unchanged\" percent scale, NOT this file's\n" \
         "; usual \"0 = unchanged\" scale used by saturation/brightness above.\n" \
-        "; Contrast: -100..300, 0 = unchanged (stretches/shrinks around\n" \
+        "; Contrast: -100..100, 0 = unchanged (stretches/shrinks around\n" \
         "; mid-grey 128, same math as saturation but around brightness\n" \
-        "; instead of hue).\n" \
+        "; instead of hue). At 100 (2x) half the tonal range already\n" \
+        "; clips to black/white, so values above 100 are clamped.\n" \
         "contrast=0\n" \
         "; Per-channel brightness, 0-500, 100 = unchanged. Multiplies with\n" \
         "; the single [color] brightness above rather than replacing it.\n" \
@@ -306,7 +310,7 @@ void ambient_load_config(void)
     g_config.direction = parse_direction(ini_table_get_entry(table, "layout", "led_direction"), g_config.direction);
     if (ini_table_get_entry_as_int(table, "layout", "led_offset", &iv))
         g_config.ledOffset = iv;
-    if (ini_table_get_entry_as_int(table, "layout", "scan_depth", &iv) && iv >= 0)
+    if (ini_table_get_entry_as_int(table, "layout", "scan_depth", &iv) && iv >= 0 && iv <= SCAN_DEPTH_MAX)
         g_config.scanDepth = (uint32_t)iv;
 
     if (ini_table_get_entry_as_bool(table, "layout", "auto_letterbox_enabled", &bv))
@@ -321,8 +325,8 @@ void ambient_load_config(void)
     if (ini_table_get_entry_as_int(table, "color", "brightness", &iv) && iv >= 0 && iv <= 255)
         g_config.brightness = (uint32_t)iv;
     g_config.gammaLutIndex = parse_gamma_index(ini_table_get_entry(table, "color", "gamma"), g_config.gammaLutIndex);
-    if (ini_table_get_entry_as_int(table, "color", "saturation", &iv) && iv >= -100 && iv <= 300)
-        g_config.saturation = iv;
+    if (ini_table_get_entry_as_int(table, "color", "saturation", &iv))
+        g_config.saturation = iv < -100 ? -100 : (iv > SATURATION_MAX ? SATURATION_MAX : iv);
     g_config.colorOrder = parse_color_order(ini_table_get_entry(table, "color", "color_order"), g_config.colorOrder);
     if (ini_table_get_entry_as_int(table, "color", "black_level", &iv) && iv >= 0 && iv <= 100)
         g_config.blackLevel = (uint32_t)iv;
@@ -334,8 +338,8 @@ void ambient_load_config(void)
     // v2.2: Android-ported per-channel color knobs (see AmbientConfig
     // struct comment for why these use a different 0-neutral-point
     // convention than the fields just above).
-    if (ini_table_get_entry_as_int(table, "color", "contrast", &iv) && iv >= -100 && iv <= 300)
-        g_config.contrast = iv;
+    if (ini_table_get_entry_as_int(table, "color", "contrast", &iv))
+        g_config.contrast = iv < -100 ? -100 : (iv > CONTRAST_MAX ? CONTRAST_MAX : iv);
     if (ini_table_get_entry_as_int(table, "color", "brightness_r", &iv) && iv >= 0 && iv <= 500)
         g_config.brightnessR = (uint32_t)iv;
     if (ini_table_get_entry_as_int(table, "color", "brightness_g", &iv) && iv >= 0 && iv <= 500)
