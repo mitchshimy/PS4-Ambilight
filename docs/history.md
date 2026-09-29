@@ -84,6 +84,12 @@ cutscenes. That alone caused loading-screen flashing, fixed by only applying
 a margin when both edges of an axis agree.
 [letterbox-placement](debugging/letterbox-placement.md).
 
+**v3.5.** YouTube with HDR on registers `0x88740000` but draws 8-bit ARGB into the
+buffer while it plays SDR video, and real PQ for HDR video, with no re-registration
+in between. The plugin now checks the alpha byte of 8 zone words on every pass and
+picks the unpack for that frame, so a switch shows no wrong colors.
+[youtube-hdr-8bit](debugging/youtube-hdr-8bit.md).
+
 Along the way `main.c` grew to 3,240 lines and was split into modules (Sep 23).
 It is `main.c` plus 11 files now, with the split described in
 [architecture](architecture.md).

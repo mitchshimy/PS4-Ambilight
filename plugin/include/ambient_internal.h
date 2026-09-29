@@ -17,6 +17,7 @@
 #include <stddef.h>
 #include <orbis/libkernel.h>
 #include <orbis/_types/video.h> // OrbisVideoOutBufferAttribute, used by the hook prototypes below
+#include "pq8bit_vote.h"        // v3.5, pure alpha-byte vote so a PC test can build it
 
 // ------------------------------------------------------------
 // [settings] -- AmbientConfig struct, g_config instance lives in
@@ -206,6 +207,11 @@ extern volatile int     g_hdr2200IsHdr;
 extern volatile int32_t g_hdr2200Streak;
 extern volatile int32_t g_hdr2200Countdown;
 
+// v3.5: 0x88740000 with 8-bit ARGB in the buffer (YouTube, SDR video, HDR on).
+// Set by zones.c's detectPq8bitMisregistration, read by pixel_formats.c's
+// getUnpackFnForFormat. The vote itself is in pq8bit_vote.h.
+extern volatile int     g_pq8bitMode;
+
 // [zones] -- screen-edge sample points (zones.c)
 #define SCREEN_WIDTH  1920
 #define SCREEN_HEIGHT 1080
@@ -241,6 +247,7 @@ extern uint32_t g_zoneY[MAX_TOTAL_ZONES];
 extern uint32_t g_numZones;
 void buildZoneGeometry(void); // called by main.c, settings.c (live layout reload), and letterbox.c (a committed auto-border changes effective margins)
 void detectHdr2200Format(uint64_t bufferAddr); // called by sample_thread.c
+void detectPq8bitMisregistration(uint64_t bufferAddr); // v3.5, called by sample_thread.c
 void sampleZoneAverage(const TileParams *p, uint64_t bufferAddr, PixelUnpackFn unpack,
                         uint32_t cx, uint32_t cy, uint8_t *outR, uint8_t *outG, uint8_t *outB); // called by sample_thread.c
 

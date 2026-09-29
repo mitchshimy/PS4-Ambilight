@@ -10,6 +10,8 @@ just the titles that taught something. Anything not here hasn't been captured, s
 | God of War Ragnarok | Dark loading screens flashed the strip until v3.3. The game resubmits the same buffer index for seconds while still writing to it. | [framebuffer-flicker](framebuffer-flicker.md#second-title-god-of-war-ragnarok-load-screens) |
 | Shadow of the Tomb Raider | Never lit the strip, in SDR (`0x80000000`) or HDR (`0x88740000`), until v3.1. It calls the `ForWorkload` flip entry point directly. Two swap-chain slots. | [videoout-hooks](videoout-hooks.md) |
 | HITMAN 3 | Reports `0x80002200`. That ID is A8B8G8R8 with HDR off and PQ data with HDR on, and it never re-registers. The plugin decides live, and in testing the first decision took about 43 s from boot. | [hdr-pixel-format](hdr-pixel-format.md) |
+| YouTube (the PS4 app) | With HDR on it registers `0x88740000`, but the buffer holds 8-bit ARGB while SDR video or its own UI is showing and real PQ for HDR video, with no re-registration between. Wrong colors on SDR content until v3.5. | [youtube-hdr-8bit](youtube-hdr-8bit.md) |
+| Netflix (the PS4 app) | Works in SDR and with the console's HDR on, with nothing title-specific in the plugin. That is from testing it, no capture of it is kept in the repo, so the formats it registers aren't recorded here. | none yet |
 | PS4 Ambilight companion app (`SHMY00091`) | Not a game, but GoldHEN loads the plugin into it too. The plugin skips it since v3.2. | [architecture](../architecture.md) |
 
 ## Patterns worth knowing
@@ -25,6 +27,10 @@ just the titles that taught something. Anything not here hasn't been captured, s
   registration looks normal, check for an unhooked flip entry point.
 - **Format IDs can be ambiguous.** Most titles re-register with a new ID when HDR
   turns on. HITMAN 3 doesn't.
+- **A registered format can be wrong about the content.** YouTube with HDR on keeps
+  `0x88740000` while it draws 8-bit ARGB for SDR video. If the raw words in a capture
+  look like plain `0xffRRGGBB` under a PQ format, check the alpha byte before
+  suspecting the decode.
 - **A black loading screen gives the HDR detector nothing to work with.** It just
   waits.
 

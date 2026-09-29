@@ -10,18 +10,25 @@ What has actually been used to check the plugin:
 
 - **Debug builds.** `make DEBUG=1` compiles in the telemetry (`__FINAL__==0`): the
   flip and register counters, the per-pass FLK1 flicker probe, format-change
-  logging, raw pixel dumps and HDR detection numbers. Release builds have none of it.
+  logging, raw pixel dumps, HDR detection numbers and the `PQ8C` packets from the
+  `0x88740000` 8-bit check. Release builds have none of it.
 - **The `[dev]` ini section.** Set `dev_ip` to the PC's address and `dev_logging=true`
   to send the telemetry there. Without it nothing is sent, and there is no hardcoded
   debug address.
 - **`tools/flicker_capture.py`.** Records the FLK1 stream and analyzes it. See
   [framebuffer-flicker](../debugging/framebuffer-flicker.md#methodology). Its
-  `selftest` runs the analyzer against 9 synthetic scenarios, which is the closest
+  `selftest` runs the analyzer against 10 synthetic scenarios, which is the closest
   thing to an automated test in the repo. It doesn't need a console.
 - **`tools/udp_ground_truth_listener.py`.** Prints raw packets, useful for checking
   what WLED would receive, for example that the heartbeat still arrives and that
   nothing is sent while suspended. Both tools use port 4048, so don't run them
-  together.
+  together. If the output is redirected from PowerShell with `>` the file is UTF-16
+  and a parser reads nothing from it. Convert it first (`iconv -f UTF-16 -t UTF-8`)
+  or use `Out-File -Encoding utf8`.
+- **`tools/test_pq8bit_vote.c`.** A host test for the alpha byte vote behind the
+  `0x88740000` check, on real words from captures and on generated PQ. The one piece
+  of plugin logic that is built and run on a PC, only because it lives in its own
+  header. See [tools](tools.md#test_pq8bit_votec).
 - **Offline replicas.** Several algorithms were run in Python first against real
   captures, then ported: the zone geometry for all 8 corner and direction
   combinations, the saturation formula, gamma tables, the dark threshold hysteresis,

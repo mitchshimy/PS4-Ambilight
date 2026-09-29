@@ -22,6 +22,8 @@ Packet ("FLK1", 132 bytes after the 10-byte DDP header) -- the probe is in
 plugin/source/sample_thread.c and only compiled into debug builds (make DEBUG=1):
     0 magic  4 seq  8 tsUs  12 deltaSum  16 activeFormat  20 flipTotal(u16)
     22 curIdx  23 bufCount  24 flags  25 nProbe  26 validMask(b0-2 valid, b4-7 slot of buf2)
+    (flags: b0 0x80002200 decoded as HDR, b1 smoothing, b2 letterbox margin, b3 fmt is 0x80002200,
+     b4 0x88740000 decoded as 8-bit ARGB)
     27 slotIds(lo nibble slot of buf0, hi nibble slot of buf1)  28 numZones(u16)
     30 x6: zoneIdx(u16) out[3] pipeRaw[3] buf0[3] buf1[3] buf2[3]
 """
@@ -192,6 +194,11 @@ def analyze(passes, others, csv_path=None, quiet=False):
     lb_flips = sum(1 for a, b in zip(passes, passes[1:]) if (a["flags"] & 4) != (b["flags"] & 4))
     P(f"HDR-decision changes during capture: {hdr_flips}   letterbox-margin on/off changes: {lb_flips}")
     F["hdr_flips"] = hdr_flips
+    # v3.5: 0x88740000 buffers that hold 8-bit ARGB (YouTube, SDR video, HDR on)
+    pq8_flips = sum(1 for a, b in zip(passes, passes[1:]) if (a["flags"] & 0x10) != (b["flags"] & 0x10))
+    if pq8_flips or any(p["flags"] & 0x10 for p in passes):
+        P(f"0x88740000 8-bit/PQ decode changes: {pq8_flips}   "
+          f"passes decoded as 8-bit: {sum(1 for p in passes if p['flags'] & 0x10)} of {n}")
 
     # ---- sampler timing -------------------------------------------------
     dts = [(b - a) * 1000 for a, b in zip(ts, ts[1:])]
@@ -563,7 +570,9 @@ def synth(scenario, n=300, seed=1):
         flags = 0x02
         hdr = 1 if (scenario == "hdrflip" and (i // 40) % 2) else 0
         flags |= hdr
-        pk = struct.pack(HDR_FMT, b"FLK1", i, ts & 0xFFFFFFFF, int(total), 0x80000000, flip & 0xFFFF,
+        if scenario == "pq8flip" and i >= n // 2:
+            flags |= 0x10  # 0x88740000 buffer switched to 8-bit decode half way through
+        pk = struct.pack(HDR_FMT, b"FLK1", i, ts & 0xFFFFFFFF, int(total), 0x88740000 if scenario == "pq8flip" else 0x80000000, flip & 0xFFFF,
                          cur, 3, flags, 6, 0b111 | (SL[2] << 4), SL[0] | (SL[1] << 4), 229)
         for k in range(6):
             pk += struct.pack(ZONE_FMT, 10 + k * 35, *out[k], *raw[k], *buffers[0][k], *buffers[1][k], *buffers[2][k])
@@ -578,6 +587,7 @@ def selftest():
         "tear": lambda F, txt: "IN-FLIGHT" in txt,
         "noise": lambda F, txt: "REAL CONTENT" in txt,
         "hdrflip": lambda F, txt: "HDR/SDR DECODE" in txt,
+        "pq8flip": lambda F, txt: "8-bit/PQ decode changes: 1" in txt and "passes decoded as 8-bit: 150 of 300" in txt,
         "stalls": lambda F, txt: "SAMPLER STALLS" in txt,
         "ring": lambda F, txt: "confirmed by ring lags" in txt and F["lag"] and F["lag"][0] > 3 and F["lag"][1] < 0.5 and F["lag"][2] < 0.5,
         # every buffer bad at once -> the tool must NOT claim a safe lag exists

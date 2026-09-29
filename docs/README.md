@@ -25,6 +25,8 @@ Investigations with the evidence and the wrong turns left in.
 - [black-screen-shows-color](debugging/black-screen-shows-color.md): the smoothing bug,
   and a guard that got reverted
 - [hdr-pixel-format](debugging/hdr-pixel-format.md): `0x80002200` and live HDR detection
+- [youtube-hdr-8bit](debugging/youtube-hdr-8bit.md): 8-bit pixels under the PQ format ID
+  with HDR on, and the per-frame alpha check
 - [letterbox-detection](debugging/letterbox-detection.md): black bar detection, v2.9 to v3.4
 - [letterbox-placement](debugging/letterbox-placement.md): zones sampling inside the bar,
   and the loading-screen flashes that the first fix caused

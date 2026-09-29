@@ -5,6 +5,32 @@ companion app) are documented here, newest first.
 
 ## Plugin
 
+### v3.5
+- Fixed wrong colors in YouTube when the console's HDR setting is on and it
+  plays SDR video: dark gray came out red, blue and green both magenta. HDR
+  video was fine. With HDR on the app registers `0x88740000`
+  (A2R10G10B10_BT2020_PQ), but for SDR video and its own UI the buffer holds
+  plain 8-bit A8R8G8B8 (`0xff212121` for its dark background, the same word it
+  writes with HDR off), and it goes back to real PQ for HDR video without
+  re-registering. The PQ unpack read `0xffRRGGBB` as red at 8,700 nits or more
+  and clipped it. `detectPq8bitMisregistration()` now reads the alpha byte of
+  8 zone words on every pass, before the unpack function is picked: 8-bit
+  content has `0xff` there on every pixel, and a real 10-bit word can't
+  without absurd red. So the frame being decoded gets the right decode, with
+  no streak and no delay, and a switch shows no wrong frame. **Confirmed on
+  real hardware**: nine switches between SDR and HDR video in a 3 minute
+  capture, each new decode landing on the same pass as the decision (0 to
+  13 ms), nothing seen wrong on the strip at any of them or at app launch.
+  Full investigation, including a first version that voted over 3 checks and
+  took about 0.75 s to switch:
+  [`docs/debugging/youtube-hdr-8bit.md`](docs/debugging/youtube-hdr-8bit.md).
+  Only YouTube tested, and the real-PQ side of the check is mostly generated
+  data, see that doc's "Not verified". HITMAN 3's `0x80002200` might have the
+  same tell, not checked.
+- Debug builds only: FLK1 flags bit `0x10` is set while the 8-bit decode is
+  active, and a 58 byte `PQ8C` packet goes out on every mode change and about
+  every 30 checks.
+
 ### v3.4
 - Letterbox zones now sit at the measured bar depth instead of the
   rounded-down value used for the stability gate, which had been leaving
@@ -497,12 +523,16 @@ color preview and a plugin self-updater.
   spacing, per-zone tear/disagreement between buffers, a ring-lag
   table showing which slot is safe to read, and which lag the pipeline
   actually read, so a working sample-lag fix is recognised), and
-  `selftest` runs the analyzer against 9 synthetic scenarios. Needs a debug build of the plugin
+  `selftest` runs the analyzer against 10 synthetic scenarios. Needs a debug build of the plugin
   (`make DEBUG=1`, the FLK1 probe is compiled out of release builds) with
   `[dev] dev_ip` and `dev_logging=true` set. Uses UDP port 4048, so it
   can't run alongside `udp_ground_truth_listener.py`. Its verdict
   thresholds are estimates; trust the printed numbers. Found the
-  cleared-buffer sampling bug described under Plugin > v3.3.
+  cleared-buffer sampling bug described under Plugin > v3.3. Also counts
+  how often the `0x88740000` 8-bit decode (FLK1 flags `0x10`) switched.
+- `tools/test_pq8bit_vote.c` -- host test for the alpha byte vote behind the
+  YouTube fix, run on words from real captures and on generated PQ. Builds
+  with plain `gcc`, no SDK. See Plugin > v3.5.
 
 ## CI
 

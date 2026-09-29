@@ -7,9 +7,11 @@
 Ambilight for a jailbroken PS4, driven by a real [WLED](https://kno.wled.ge/) strip. A
 [GoldHEN](https://github.com/GoldHEN/GoldHEN) plugin reads the console's own video output while
 you play and streams the edge colors to WLED over the network. No capture card, no PC.
+It also works in Netflix and YouTube, with nothing plugged in between the console and the TV
+and no camera pointed at it.
 
 ```
-PS4 game
+PS4 game or app (Netflix, YouTube, ...)
    |
 PS4-Ambilight plugin (GoldHEN)
    |   DDP over your network
@@ -33,9 +35,11 @@ LED strip
 - Samples colors from zones along each screen edge
 - Streams them to WLED over DDP every frame, on its own thread so the game isn't slowed down
 - Detects letterbox bars and SDR/HDR on its own
+- Works in streaming apps as well as games: Netflix and YouTube, in SDR and with the console's
+  HDR setting on
 
-There's no capture card, HDMI splitter, PC or camera involved. The only extra hardware is the WLED
-controller and the strip.
+There's no capture card, HDMI splitter, PC or camera involved, and that holds for the streaming
+apps too. The only extra hardware is the WLED controller and the strip.
 
 <p align="center">
   <img src="companion-app/assets/screenshots/home.jpg" alt="Companion app Home screen" width="45%">
@@ -233,7 +237,10 @@ and only decodes formats it has explicit unpack logic for -- an unrecognized for
 stops sending color for that title rather than guessing and showing wrong colors. Standard
 SDR formats have been supported since v1.0; HDR support (pixel format `0x80002200`,
 `A8B8G8R8_SRGB`) was added in two steps -- real decode support for the HDR-off case in v2.7,
-then live HDR/SDR auto-detection confirmed on real hardware in v2.7.2. If colors look
+then live HDR/SDR auto-detection confirmed on real hardware in v2.7.2. YouTube with HDR on
+registers the PQ format `0x88740000` but draws 8-bit ARGB while it plays SDR video; since v3.5
+the plugin checks the pixels every frame and picks the right decode, see
+[`docs/debugging/youtube-hdr-8bit.md`](docs/debugging/youtube-hdr-8bit.md). If colors look
 completely wrong (not just "a bit off") in a specific HDR title, updating to the latest plugin
 release is the first thing to try.
 

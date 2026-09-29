@@ -10,6 +10,7 @@ misbehaves.
 | `udp_ground_truth_listener.py` | print every raw UDP packet on port 4048 |
 | `decode_verification_dump.py` | decode the plugin's older raw debug packets offline |
 | `ps4_detile_2dthin.c` | standalone reference detiler, to cross-check the plugin's tiling |
+| `test_pq8bit_vote.c` | host test for the alpha byte vote that spots 8-bit ARGB under `0x88740000` |
 
 ## flicker_capture.py
 
@@ -31,7 +32,8 @@ python tools/flicker_capture.py selftest
 
 `analyze` reports output steadiness, sampler timing, flip rate, all-zero reads and
 burst spacing, per-zone disagreement between buffers, a ring-lag table showing which
-slot is safe to read, and which lag the pipeline actually read. Its verdict
+slot is safe to read, and which lag the pipeline actually read. It also counts how
+often the `0x88740000` 8-bit decode (flag `0x10`) switched. Its verdict
 thresholds were estimates made before there was real data, so read the numbers. How
 to read a report is in
 [framebuffer-flicker](../debugging/framebuffer-flicker.md#methodology).
@@ -43,7 +45,8 @@ payload looks like a solid color it prints the first LED's RGB. It's what you us
 confirm what WLED would actually receive: that the heartbeat arrives, that nothing
 arrives during suspend. See
 [wled-heartbeat](../debugging/wled-heartbeat.md#how-it-was-checked). Port 4048 is
-shared with `flicker_capture.py`.
+shared with `flicker_capture.py`. Redirecting its output from PowerShell with `>` gives
+a UTF-16 file, convert it before parsing.
 
 ## decode_verification_dump.py
 
@@ -67,3 +70,27 @@ known at the time whether the console was in Neo mode. Detiling a real capture w
 each and seeing which looks right settles it. The plugin's `tiling.c` uses the base
 parameters, and this file is the independent reference to compare against when
 touching that code. See also [sampling-zones](../sampling-zones.md#tiling).
+
+## test_pq8bit_vote.c
+
+Builds and runs on a PC, no console and no SDK:
+
+```
+gcc -Wall -o /tmp/test_pq8bit_vote tools/test_pq8bit_vote.c -lm
+/tmp/test_pq8bit_vote
+```
+
+It includes `plugin/include/pq8bit_vote.h` directly and runs `pq8bitVote()` on three
+kinds of input:
+
+- 8-word reads copied from `PQ8C` packets while YouTube played SDR video and HDR
+  video, and the words from the labeled solid color captures (3 sampled zones
+  repeated out to 8, since those packets only carry 3).
+- Generated real PQ (black, 203 / 1000 / 4000 nit white, a mixed frame), built from
+  nits with the ST 2084 curve. This is the false-positive side, and it is generated
+  because there is no capture of a truthful PQ title in the repo.
+- The hold band: 7, 6, 4 and 2 of 8 words with alpha byte `0xff`, and too few words.
+
+It prints the lowest red code whose word has alpha byte `0xff` as a sanity check on
+the reasoning (1008, about 8,700 nits). Why the vote works is in
+[youtube-hdr-8bit](../debugging/youtube-hdr-8bit.md).

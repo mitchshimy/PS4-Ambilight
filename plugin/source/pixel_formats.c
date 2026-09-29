@@ -648,13 +648,23 @@ volatile int     g_hdr2200IsHdr     = 0;  // current live decode choice for form
 volatile int32_t g_hdr2200Streak    = 0;  // hysteresis counter: + toward HDR, - toward SDR
 volatile int32_t g_hdr2200Countdown = 0;  // throttle: counts down to the next check
 
+// v3.5: 1 while a 0x88740000 buffer holds 8-bit A8R8G8B8 instead of real PQ.
+// Decided every pass by detectPq8bitMisregistration() in zones.c. Starts at 0
+// (real PQ, what the format ID says) and is cleared on a format change.
+volatile int     g_pq8bitMode       = 0;
+
 PixelUnpackFn getUnpackFnForFormat(uint32_t format)
 {
     switch (format) {
     case 0x88000000: case 0x88060000: // SDR A2R10G10B10 / A2R10G10B10_SRGB
         return unpackA2R10G10B10_to_rgb888;
     case 0x88740000: // A2R10G10B10_BT2020_PQ -- real PQ decode, not SDR truncation (was the bug)
-        return unpackA2R10G10B10_BT2020_PQ_to_rgb888;
+        // v3.5: YouTube registers this ID with HDR on but draws plain 8-bit
+        // ARGB into the buffer while it plays SDR video. Which one it is gets
+        // decided per frame by detectPq8bitMisregistration() (zones.c), called
+        // just before this from the sampling loop. Real HDR video stays PQ.
+        return g_pq8bitMode ? unpackA8R8G8B8_to_rgb888
+                            : unpackA2R10G10B10_BT2020_PQ_to_rgb888;
     case 0x80000000: // A8R8G8B8_SRGB -- confirmed live format on real hardware
         return unpackA8R8G8B8_to_rgb888;
     case 0x80002200: // A8B8G8R8_SRGB (HDR off) or A2R10G10B10_BT2020_PQ (HDR on) --

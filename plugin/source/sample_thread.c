@@ -212,6 +212,10 @@ void *ambient_sample_thread(void *args)
         if (liveBufferAddr != 0 && g_haveValidFormat) {
             if (g_activeFormat == 0x80002200) {
                 detectHdr2200Format(liveBufferAddr); // cheap, throttled -- see its own comment
+            } else if (g_activeFormat == 0x88740000) {
+                // v3.5: every pass, not throttled, and before the unpack
+                // function is picked below so this frame gets the right one
+                detectPq8bitMisregistration(liveBufferAddr);
             }
             PixelUnpackFn unpack = getUnpackFnForFormat(g_activeFormat);
             if (unpack != NULL) { // re-check -- format could have gone unknown since the last read
@@ -351,6 +355,7 @@ void *ambient_sample_thread(void *args)
                         if (g_config.smoothingEnabled) flags |= 0x02;
                         if (g_autoLetterboxTop || g_autoLetterboxRight || g_autoLetterboxBottom || g_autoLetterboxLeft) flags |= 0x04;
                         if (fmt == 0x80002200u) flags |= 0x08;
+                        if (g_pq8bitMode) flags |= 0x10; // v3.5: 0x88740000 decoded as 8-bit ARGB
                         uint16_t nz = (uint16_t)g_numZones;
 
                         uint8_t validMask = 0;

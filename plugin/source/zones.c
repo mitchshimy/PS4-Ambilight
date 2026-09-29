@@ -1,5 +1,5 @@
 // zones.c -- part of ps4_ambient_light, split out of the original
-// single-file main.c. Screen-edge zone geometry, HDR2200 live format auto-detect, zone sampling.
+// single-file main.c. Screen-edge zone geometry, HDR2200 live format auto-detect, 0x88740000 8-bit check, zone sampling.
 // See ambient_internal.h for the shared types/externs this file relies
 // on, and main.c's own top comment for this plugin's overall history.
 
@@ -273,6 +273,75 @@ void detectHdr2200Format(uint64_t bufferAddr)
         uint32_t isHdrU32 = (uint32_t)g_hdr2200IsHdr;
         memcpy(hdrDiagPacket + 12, &isHdrU32,       4);
         debug_send_raw(hdrDiagPacket, sizeof(hdrDiagPacket));
+    }
+#endif
+}
+
+// v3.5: YouTube (the PS4 app) registers 0x88740000 once HDR is on, but while
+// it plays SDR video, or shows its own UI, the buffer holds plain 8-bit
+// A8R8G8B8. It goes back to real 10-bit PQ for HDR video, and it never
+// re-registers in between, so the format ID can't be trusted here. The PQ
+// decode reads 0xffRRGGBB as R10 >= 1008 (over 8,700 nits) and clips, which
+// is where the red/yellow/magenta came from.
+//
+// The tell is the alpha byte: a real 10-bit word has alpha in bits 31:30, so
+// 0xff there would mean red at 8,700 nits or more. 8-bit content has it on
+// every pixel. Vote logic and the numbers behind it are in pq8bit_vote.h and
+// docs/debugging/youtube-hdr-8bit.md.
+//
+// Runs on EVERY pass, unthrottled, and before getUnpackFnForFormat() picks
+// the decode function, on the same liveBufferAddr the zone loop reads next,
+// so the mode is right for the frame it applies to. The first version waited
+// for 3 agreeing checks 10 passes apart, which took about 0.75 s to switch
+// and showed wrong colors the whole time, and there was no reason for it: it
+// is 8 four byte reads, nothing next to the zone loop.
+void detectPq8bitMisregistration(uint64_t bufferAddr)
+{
+    uint32_t nSamples = g_numZones < PQ8BIT_DETECT_SAMPLES ? g_numZones : PQ8BIT_DETECT_SAMPLES;
+    uint32_t words[PQ8BIT_DETECT_SAMPLES];
+    uint32_t got = 0;
+    for (uint32_t i = 0; i < nSamples; i++) {
+        uint64_t off = getTiledElementByteOffset(&kParamsBase, g_zoneX[i], g_zoneY[i]);
+        if (off + 4 > BASE_PADDED_BUFFER_BYTES) continue; // same safety check as detectHdr2200Format
+        memcpy(&words[got], (const void*)(bufferAddr + off), 4);
+        got++;
+    }
+
+    int vote = pq8bitVote(words, got);
+    int prevMode = g_pq8bitMode;
+    if (vote > 0)      g_pq8bitMode = 1;
+    else if (vote < 0) g_pq8bitMode = 0;
+    // vote == 0: leave the mode alone
+
+#if (__FINAL__) == 0
+    // Diagnostic-only, same debug_send_raw idiom as above. Sent when the mode
+    // changes and otherwise about once every 30 checks (a check per pass
+    // would be ~30 packets a second for nothing).
+    //   [0:4]   "PQ8C"
+    //   [4]     vote, int8: +1 / -1 / 0
+    //   [5]     words read
+    //   [6]     of those, how many had alpha byte 0xff
+    //   [7]     mode after this check
+    //   [8:40]  the 8 words, uint32 LE (unread slots are 0)
+    //   [40:44] g_numZones
+    //   [44:48] low 32 bits of bufferAddr
+    // 48 byte payload (58 on the wire) is a length nothing else uses.
+    static uint32_t s_pq8Count = 0;
+    if ((int)g_pq8bitMode != prevMode || (s_pq8Count++ % 30u) == 0) {
+        uint8_t pkt[48];
+        memset(pkt, 0, sizeof(pkt));
+        memcpy(pkt, "PQ8C", 4);
+        uint32_t ff = 0;
+        for (uint32_t i = 0; i < got; i++) if ((words[i] >> 24) == 0xFFu) ff++;
+        pkt[4] = (uint8_t)(int8_t)vote;
+        pkt[5] = (uint8_t)got;
+        pkt[6] = (uint8_t)ff;
+        pkt[7] = (uint8_t)g_pq8bitMode;
+        memcpy(pkt + 8, words, got * 4);
+        uint32_t nz = g_numZones, lo = (uint32_t)bufferAddr;
+        memcpy(pkt + 40, &nz, 4);
+        memcpy(pkt + 44, &lo, 4);
+        debug_send_raw(pkt, (int)sizeof(pkt));
     }
 #endif
 }

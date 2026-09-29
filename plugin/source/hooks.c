@@ -22,7 +22,12 @@
 attr_public const char *g_pluginName = "ps4_ambient_light";
 attr_public const char *g_pluginDesc = "Live per-frame ambient light: detiles the real scanout buffer and streams zone colors to WLED";
 attr_public const char *g_pluginAuth = "(null)";
-attr_public uint32_t g_pluginVersion = 0x00000304; // v3.3 -> v3.4:
+attr_public uint32_t g_pluginVersion = 0x00000305; // v3.4 -> v3.5:
+// Format 0x88740000 is decoded as 8-bit A8R8G8B8 on the frames where the
+// buffer holds that (YouTube playing SDR video with HDR on), decided every
+// pass from the alpha byte -- see detectPq8bitMisregistration in zones.c and
+// docs/debugging/youtube-hdr-8bit.md.
+// v3.3 -> v3.4:
 // Letterbox zones placed at the measured bar depth instead of the
 // quantized (rounded-down) one, and only when the axis's two edges
 // agree -- see docs/debugging/letterbox-placement.md.
@@ -250,6 +255,7 @@ int32_t sceVideoOutRegisterBuffersPtr_hook(int32_t handle, int32_t startIndex,
             uint32_t fmt = (uint32_t)attribute->format;
             bool wasValid = g_haveValidFormat;
             uint32_t prevFormat = g_activeFormat;
+            if (fmt != prevFormat) g_pq8bitMode = 0; // v3.5: HDR toggled or a new title, decide again from the pixels
             g_activeFormat = fmt;
             g_haveValidFormat = (getUnpackFnForFormat(fmt) != NULL);
 #if (__FINAL__) == 0

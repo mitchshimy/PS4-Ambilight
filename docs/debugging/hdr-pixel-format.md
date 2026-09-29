@@ -15,7 +15,7 @@ than guessing, which is deliberate. The formats it handles:
 |---|---|
 | `0x80000000` | A8R8G8B8_SRGB, the common SDR format |
 | `0x88000000`, `0x88060000` | SDR A2R10G10B10 and A2R10G10B10_SRGB |
-| `0x88740000` | A2R10G10B10_BT2020_PQ, decoded as real PQ (an earlier version truncated it as if it were SDR, which was a bug) |
+| `0x88740000` | A2R10G10B10_BT2020_PQ, decoded as real PQ (an earlier version truncated it as if it were SDR, which was a bug). YouTube also puts plain 8-bit ARGB under this ID, checked per frame since v3.5, see [youtube-hdr-8bit](youtube-hdr-8bit.md) |
 | `0x80002200` | A8B8G8R8_SRGB with HDR off, or A2R10G10B10_BT2020_PQ with HDR on, see below |
 
 ## v2.7: the format nobody handled
@@ -87,10 +87,24 @@ dark, busy scenes (down to about 2.3x apart, versus 15 to 40x on simple menu
 content) but never came close to reversing. That's real evidence but not proof for
 every scene.
 
+## v3.5: `0x88740000` can hold 8-bit data too
+
+The same kind of problem showed up the other way round in YouTube. With HDR on it
+registers `0x88740000`, real PQ, but while it plays SDR video the buffer holds
+8-bit A8R8G8B8, and it goes back to real PQ for HDR video without re-registering. The
+smoothness detector above wasn't used for it, since it skips flat frames like
+YouTube's dark UI and this one needed to decide on the frame being decoded, not a
+few seconds later. `detectPq8bitMisregistration()` reads the alpha byte of 8 zone
+words every pass instead: `0xff` cannot be a real 10-bit word without red at 8,700
+nits. Full write-up in [youtube-hdr-8bit](youtube-hdr-8bit.md).
+
 ## If colors look wrong in an HDR title
 
 - First check what format the title registered. The `[dev]` telemetry reports it on
   change (debug builds).
 - If it is `0x80002200`, wait a minute after boot before deciding it's broken.
+- If it is `0x88740000` and the colors are only wrong during SDR content, look at
+  FLK1 flags bit `0x10` and the `PQ8C` packets (debug builds). The bit should be on
+  while the buffer is 8-bit.
 - If it is a format that isn't in the table above, the plugin sends nothing on
   purpose, and it needs a new unpack function.
