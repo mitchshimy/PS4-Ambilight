@@ -5,6 +5,20 @@ companion app) are documented here, newest first.
 
 ## Plugin
 
+### v3.4
+- Letterbox zones now sit at the measured bar depth instead of the
+  rounded-down value used for the stability gate, which had been leaving
+  them a few pixels inside the bar on cutscenes whose depth isn't a
+  multiple of the quantize band (only trailers happened to land on one).
+  That alone caused loading screens to flash, since a UI layout can
+  locally look like a bar on several edges without them agreeing with
+  each other the way a real letterbox/pillarbox bar does -- a margin is
+  now only applied when both edges of an axis agree. **Confirmed on real
+  hardware**, both parts. Full investigation:
+  [`docs/debugging/letterbox-placement.md`](docs/debugging/letterbox-placement.md).
+  Still open: detection instability on the same cutscene, and only one
+  title tested -- see that doc's "Not verified".
+
 ### v3.3
 - Fixed steady LED flicker on static screens (AC3 Remastered menu) and
   flashes on all-black load screens (God of War Ragnarok). The sampler was

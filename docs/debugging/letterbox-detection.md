@@ -1,4 +1,4 @@
-# Letterbox detection (v2.9, v3.0, v3.3)
+# Letterbox detection (v2.9, v3.0, v3.3, v3.4)
 
 How the plugin finds black bars, why the first version was replaced, and what is
 still open.
@@ -78,8 +78,39 @@ faster" just brings the flicker back. The app doesn't show them, but still loads
 saves them, and clamps them itself (1 to 30 and 1 to 300) since they have no menu
 row to clamp against. They can still be edited in the ini.
 
+## v3.4: bars sampled inside the bar, then a loading-screen regression
+
+Symptom: with the v3.3 buffer fix in and detection stable, a gameplay
+cutscene's top/bottom LEDs went dark on the bars (no flicker) even though the
+same title's trailers letterboxed correctly.
+
+Cause: the committed margin is `quantize()`d down to a 33/60px band for
+stability, and the zones sit exactly on that rounded row. A bar depth that
+isn't a multiple of the band -- the trailer's 132px happened to be, the
+cutscene's 112/105px wasn't -- leaves the zones several pixels inside the
+black bar.
+
+Changes:
+
+- Zones are placed at the measured depth plus a small inset
+  (`placementMargin()`), not the rounded value. The stability gate still
+  compares the quantized rect, so jitter tolerance is unaffected.
+- That alone caused loading screens to flash: a loading screen's UI layout
+  can locally pass the per-edge black test on several edges without those
+  edges agreeing with each other, unlike a real letterbox/pillarbox bar,
+  which is always symmetric. `axisSymmetric()` now requires an axis's two
+  edges to be within 2 quantize bands of each other before a margin is
+  applied to either; otherwise both go to 0.
+
+**Confirmed on real hardware**, both parts, across repeated captures. Full
+investigation, captures and the loading-screen regression:
+[letterbox-placement](letterbox-placement.md).
+
 ## Still open
 
-The letterbox cutscene flicker in AC3. See "Still open" in
-[framebuffer-flicker](framebuffer-flicker.md#still-open). Retest with the v3.3
-buffer fix before assuming it's separate.
+- Detection instability on the AC3 cutscene: up to 8 distinct raw depths on
+  one edge in a single capture, without a visible symptom so far. See "Not
+  verified" in [letterbox-placement](letterbox-placement.md#not-verified).
+- Only one title has been captured for either the v3.3 or v3.4 letterbox
+  fixes. Single-sided HUD bars, pillarbox/ultrawide content, and fast motion
+  at a bar edge are all untested.

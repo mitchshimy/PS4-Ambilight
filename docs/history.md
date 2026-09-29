@@ -78,6 +78,12 @@ and the black-screen flashes. [framebuffer-flicker](debugging/framebuffer-flicke
 The same release tightened the letterbox scan and capped `scan_depth`,
 `saturation` and `contrast`.
 
+**v3.4.** Letterbox zones placed at the measured bar depth instead of the
+rounded-down one, which had been leaving them inside the bar on non-trailer
+cutscenes. That alone caused loading-screen flashing, fixed by only applying
+a margin when both edges of an axis agree.
+[letterbox-placement](debugging/letterbox-placement.md).
+
 Along the way `main.c` grew to 3,240 lines and was split into modules (Sep 23).
 It is `main.c` plus 11 files now, with the split described in
 [architecture](architecture.md).

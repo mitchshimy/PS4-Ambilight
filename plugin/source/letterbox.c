@@ -202,12 +202,31 @@ static bool probeNonBlack(const TileParams *p, uint64_t bufferAddr, PixelUnpackF
 // rectsEqual() fail forever and the stability gate never reach
 // autoLetterboxStabilityFrames. -1 (inconclusive/unknown) and exactly 0
 // pass through unchanged -- only a real positive depth gets banded.
+static uint32_t quantizeBand(uint32_t frameSize)
+{
+    uint32_t band = frameSize / 32;
+    return band < 1 ? 1 : band;
+}
+
 static int32_t quantize(int32_t value, uint32_t frameSize)
 {
     if (value <= 0) return value;
-    uint32_t band = frameSize / 32;
-    if (band < 1) band = 1;
+    uint32_t band = quantizeBand(frameSize);
     return (value / (int32_t)band) * (int32_t)band;
+}
+
+// Real letterbox/pillarbox bars come from cropping to a wider or taller
+// aspect ratio, so the two bars on an axis are always the same depth --
+// unlike a HUD element, a logo, or a loading-screen layout, which can
+// independently pass the per-row/column black test near just one edge.
+// Reject an axis whose two measured depths don't agree within 2 quantize
+// bands, or where only one side found a bar at all. See
+// docs/debugging/letterbox-placement.md for the capture this came from.
+static bool axisSymmetric(int32_t d1, int32_t d2, uint32_t frameSize)
+{
+    if (d1 <= 0 || d2 <= 0) return false; // one-sided: not a real crop bar
+    int32_t diff = d1 > d2 ? d1 - d2 : d2 - d1;
+    return (uint32_t)diff <= 2u * quantizeBand(frameSize);
 }
 
 // Sweeps EDGE_NUM_SAMPLES points across the full row y (x = 0..SCREEN_WIDTH-1)
@@ -255,7 +274,7 @@ static bool isColBlack(const TileParams *p, uint64_t bufferAddr, PixelUnpackFn u
 // edge", not "the whole search range is a border" (see this file's own
 // top comment and rectIsKnown below).
 static LetterboxRect detectRawBorder(const TileParams *p, uint64_t bufferAddr, PixelUnpackFn unpack,
-                                      uint32_t threshold)
+                                      uint32_t threshold, int32_t outUnq[4])
 {
     const uint32_t maxV = MAX_BAR_DEPTH_V;
     const uint32_t maxH = MAX_BAR_DEPTH_H;
@@ -279,6 +298,11 @@ static LetterboxRect detectRawBorder(const TileParams *p, uint64_t bufferAddr, P
         if (!isColBlack(p, bufferAddr, unpack, x, threshold)) { right = (int32_t)i; break; }
     }
 
+    // Unquantized depths (first non-bar row/col index; -1 = search limit hit).
+    // The stability gate compares the QUANTIZED rect below, but the margin
+    // actually applied to the LED zones is built from these -- see the
+    // commit block in ambient_check_letterbox.
+    outUnq[0] = top; outUnq[1] = right; outUnq[2] = bottom; outUnq[3] = left;
     LetterboxRect r;
     r.top = quantize(top, SCREEN_HEIGHT);
     r.right = quantize(right, SCREEN_WIDTH);
@@ -317,6 +341,22 @@ static void resetLetterboxState(void)
 // loop, so a border committed this pass is honored by THIS pass's own
 // g_zoneX/g_zoneY (buildZoneGeometry runs synchronously here, on commit,
 // before returning).
+// Margin the LED zones actually use for one edge, given that edge's
+// stability-gated depth and its real measured depth. quantize() rounds
+// DOWN to a band (33px vertical / 60px horizontal) so a pixel of jitter
+// can't break the stability gate -- right for the gate, wrong for
+// placement: a real 112px bar rounds to 99, and zones sitting at exactly
+// the margin row then sample 13px INSIDE the black bar. This places them
+// at the measured depth instead, plus a small inset so the sample box
+// clears the bar. If the measurement itself is shallow, this errs a few
+// px into the picture, never into the bar. See
+// docs/debugging/letterbox-placement.md.
+static uint32_t placementMargin(int32_t quantized, int32_t unq)
+{
+    if (quantized <= 0 || unq <= 0) return 0;
+    return (uint32_t)unq + g_config.scanDepth + 1u;
+}
+
 void ambient_check_letterbox(const TileParams *p, uint64_t bufferAddr, PixelUnpackFn unpack)
 {
     if (!g_config.autoLetterboxEnabled) {
@@ -330,7 +370,8 @@ void ambient_check_letterbox(const TileParams *p, uint64_t bufferAddr, PixelUnpa
     }
     g_frameCountdown = g_config.autoLetterboxCheckIntervalFrames;
 
-    LetterboxRect raw = detectRawBorder(p, bufferAddr, unpack, g_config.autoLetterboxThreshold);
+    int32_t rawUnq[4];
+    LetterboxRect raw = detectRawBorder(p, bufferAddr, unpack, g_config.autoLetterboxThreshold, rawUnq);
 
     if (!g_haveCandidate) {
         // First read of this enable just establishes a baseline -- see
@@ -366,10 +407,12 @@ void ambient_check_letterbox(const TileParams *p, uint64_t bufferAddr, PixelUnpa
 
     g_committed = desired;
     g_committedKnown = known;
-    g_autoLetterboxTop = (uint32_t)(desired.top > 0 ? desired.top : 0);
-    g_autoLetterboxRight = (uint32_t)(desired.right > 0 ? desired.right : 0);
-    g_autoLetterboxBottom = (uint32_t)(desired.bottom > 0 ? desired.bottom : 0);
-    g_autoLetterboxLeft = (uint32_t)(desired.left > 0 ? desired.left : 0);
+    bool vSym = axisSymmetric(rawUnq[0], rawUnq[2], SCREEN_HEIGHT);   // top vs bottom
+    bool hSym = axisSymmetric(rawUnq[3], rawUnq[1], SCREEN_WIDTH);    // left vs right
+    g_autoLetterboxTop = vSym ? placementMargin(desired.top, rawUnq[0]) : 0;
+    g_autoLetterboxBottom = vSym ? placementMargin(desired.bottom, rawUnq[2]) : 0;
+    g_autoLetterboxLeft = hSym ? placementMargin(desired.left, rawUnq[3]) : 0;
+    g_autoLetterboxRight = hSym ? placementMargin(desired.right, rawUnq[1]) : 0;
     buildZoneGeometry();
     g_smoothedRgbValid = false; // avoid smoothing across a hard cut in zone geometry, same as a live layout reload in settings.c
 }

@@ -22,7 +22,11 @@
 attr_public const char *g_pluginName = "ps4_ambient_light";
 attr_public const char *g_pluginDesc = "Live per-frame ambient light: detiles the real scanout buffer and streams zone colors to WLED";
 attr_public const char *g_pluginAuth = "(null)";
-attr_public uint32_t g_pluginVersion = 0x00000303; // v3.2 -> v3.3:
+attr_public uint32_t g_pluginVersion = 0x00000304; // v3.3 -> v3.4:
+// Letterbox zones placed at the measured bar depth instead of the
+// quantized (rounded-down) one, and only when the axis's two edges
+// agree -- see docs/debugging/letterbox-placement.md.
+// v3.2 -> v3.3:
 // Sampler reads the previous flip's buffer instead of the one the flip
 // hook just reported (g_prevDisplayBufferIndex, record_flip_index below),
 // fixing flicker from sampling a cleared / half-drawn frame. See
