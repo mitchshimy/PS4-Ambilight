@@ -211,7 +211,7 @@ void *ambient_sample_thread(void *args)
 
         if (liveBufferAddr != 0 && g_haveValidFormat) {
             if (g_activeFormat == 0x80002200) {
-                detectHdr2200Format(liveBufferAddr); // cheap, throttled -- see its own comment
+                detectHdr2200Format(liveBufferAddr); // v3.6: alpha byte vote every pass, then the throttled smoothness check on holds -- see zones.c
             } else if (g_activeFormat == 0x88740000) {
                 // v3.5: every pass, not throttled, and before the unpack
                 // function is picked below so this frame gets the right one

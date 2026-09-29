@@ -5,6 +5,44 @@ companion app) are documented here, newest first.
 
 ## Plugin
 
+### v3.6
+- HITMAN 3 and RDR2, both `0x80002200`, now switch to the HDR decode on the first
+  frame with picture data instead of after 53 s. That ID is A8B8G8R8 with the
+  console's HDR off and A2R10G10B10 PQ with it on, and the game never says which.
+  The smoothness detector had to decide, and on a real HDR-on HITMAN 3 capture it
+  took 53.45 s: about 46 s of dark frames under its noise floor, then 4 checks
+  2.2 s apart. The words in the buffer were PQ from the first packet, so the strip was
+  lit from SDR-decoded PQ the whole time (the sampled words read 80 to 125 out of
+  255 on average where the screen was 8 to 36). `detectHdr2200Fast()` now reads
+  the alpha byte of 8 zone words on every pass, before the unpack function is
+  picked, the same idea as the v3.5 check with the sides swapped: HDR-off words
+  have `0xff` there (97% in the capture), HDR-on words never do (top bytes `0xc0`
+  to `0xdd` in all 1554), so a black frame decides too, `0xc0000000` against
+  `0xff000000`. The smoothness detector still runs on the frames where this one
+  holds. **Confirmed on real hardware** in both games: the first frame with data
+  decided correctly in every capture (HITMAN 3 at 4.84 s HDR on and 4.38 s off,
+  RDR2 at 1.95 s and 0.34 s), no mode flips, and colors right in both modes.
+- A fade guard, because the first build had a flaw the hardware run showed: HITMAN 3
+  fades to and from black in SDR by writing a frame-wide alpha byte into the words
+  (`0x11` up to `0xfe` over about a second), and the 8 zones of one frame differed by
+  a few counts (`cc cb cb cb ca ca ca c8`). Those alphas look like PQ, so for about
+  0.22 s of a fade-in the strip was decoded as PQ and then a bright frame (`f90d0c0c`)
+  held it there. Top bytes within 4 of each other in `0xc1` to `0xfe` now hold the
+  mode instead of voting. The cost is that a dark, flat PQ frame seen while the mode
+  is still SDR holds until a frame with more variation arrives. Boot goes through
+  `0xc0` black, which is exempt, so it never happened in a capture.
+- Neither game applies an HDR change until it is restarted (toggled mid-game in
+  captures of 37 to 71 s, each way in RDR2 and on in HITMAN 3: the buffers never
+  changed), so a live switch isn't a case here. A title that does switch live would be.
+- The vote is in `plugin/include/hdr2200_vote.h` and built by
+  `tools/test_hdr2200_vote.c` (21 hand-written cases and 281 real frames from
+  `tools/data/hdr2200_frames.csv`, including the fade-in frames that fooled the first
+  build). Setting `HDR2200_FASTPATH` to 0 in that header brings back the v3.5 behavior.
+  Write-up: [`docs/debugging/hdr2200-alpha-detection.md`](docs/debugging/hdr2200-alpha-detection.md).
+- Debug builds only: a 58 byte `HDRV` packet goes out on every mode change and about
+  every 30 checks. No new FLK1 flag, `0x01` still means the HDR decode is active.
+- Not done: no release build was captured, and no title but these two was tried.
+
 ### v3.5
 - Fixed wrong colors in YouTube when the console's HDR setting is on and it
   plays SDR video: dark gray came out red, blue and green both magenta. HDR

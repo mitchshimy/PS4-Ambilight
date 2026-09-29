@@ -194,14 +194,87 @@ void buildZoneGeometry(void)
     }
 }
 
+// v3.6: per-pass alpha byte check for 0x80002200, tried before the smoothness
+// detector below. HITMAN 3 and RDR2 register this ID whether HDR is on or off,
+// and the smoothness detector took 53 s to flip on a real HDR-on capture
+// (about 46 s of dark frames under its noise floor, then 4 checks 2.2 s
+// apart), with the strip decoded as SDR the whole time. The words were PQ from
+// the first frame. Vote logic and the numbers behind it are in hdr2200_vote.h
+// and docs/debugging/hdr2200-alpha-detection.md.
+//
+// Same idea as detectPq8bitMisregistration() below, with the sides swapped:
+// here 0xff in the alpha byte means SDR and anything that looks like 0b11xxxxxx
+// without 0xff means PQ. Returns 1 if the vote was decisive, and then the mode
+// is already set for THIS frame and the smoothness detector is skipped. 0 means
+// hold, and the caller falls through to it.
+static int detectHdr2200Fast(uint64_t bufferAddr)
+{
+    uint32_t nSamples = g_numZones < HDR2200_VOTE_SAMPLES ? g_numZones : HDR2200_VOTE_SAMPLES;
+    uint32_t words[HDR2200_VOTE_SAMPLES];
+    uint32_t got = 0;
+    for (uint32_t i = 0; i < nSamples; i++) {
+        uint64_t off = getTiledElementByteOffset(&kParamsBase, g_zoneX[i], g_zoneY[i]);
+        if (off + 4 > BASE_PADDED_BUFFER_BYTES) continue; // same safety check as detectHdr2200Format
+        memcpy(&words[got], (const void*)(bufferAddr + off), 4);
+        got++;
+    }
+
+    int vote = hdr2200Vote(words, got);
+    int prevMode = g_hdr2200IsHdr;
+    if (vote != 0) {
+        g_hdr2200IsHdr = (vote > 0) ? 1 : 0;
+        g_hdr2200Streak = 0; // the slow detector's streak must not fight this verdict
+    }
+
+#if (__FINAL__) == 0
+    // Diagnostic-only, same debug_send_raw idiom as the PQ8C packet below. Sent
+    // when the mode changes and otherwise about once every 30 checks.
+    //   [0:4]   "HDRV"
+    //   [4]     vote, int8: +1 PQ / -1 SDR / 0 hold
+    //   [5]     words read
+    //   [6]     of those, how many had the PQ signature (top bits 11, top byte not 0xff)
+    //   [7]     mode after this check (1 = PQ)
+    //   [8:40]  the 8 words, uint32 LE (unread slots are 0)
+    //   [40:44] g_numZones
+    //   [44:48] low 32 bits of bufferAddr
+    // Same 48 byte payload as PQ8C, told apart by the magic.
+    static uint32_t s_hdrvCount = 0;
+    if ((int)g_hdr2200IsHdr != prevMode || (s_hdrvCount++ % 30u) == 0) {
+        uint8_t pkt[48];
+        memset(pkt, 0, sizeof(pkt));
+        memcpy(pkt, "HDRV", 4);
+        uint32_t pq = 0;
+        for (uint32_t i = 0; i < got; i++)
+            if ((words[i] >> 30) == 3u && (words[i] >> 24) != 0xFFu) pq++;
+        pkt[4] = (uint8_t)(int8_t)vote;
+        pkt[5] = (uint8_t)got;
+        pkt[6] = (uint8_t)pq;
+        pkt[7] = (uint8_t)g_hdr2200IsHdr;
+        memcpy(pkt + 8, words, got * 4);
+        uint32_t nz = g_numZones, lo = (uint32_t)bufferAddr;
+        memcpy(pkt + 40, &nz, 4);
+        memcpy(pkt + 44, &lo, 4);
+        debug_send_raw(pkt, (int)sizeof(pkt));
+    }
+#else
+    (void)prevMode;
+#endif
+    return vote != 0;
+}
+
 // See the big comment above g_hdr2200IsHdr for the full rationale.
 // Cheap by construction: at most HDR2200_DETECT_SAMPLES extra 4-byte
 // reads (8, capped regardless of how many zones are configured), only
 // every HDR2200_DETECT_INTERVAL sampling passes, and only while the
 // active format is the ambiguous 0x80002200 -- for every other format
 // (i.e. every other title) this function is never called at all.
+// v3.6: the per-pass alpha byte check above runs first, and this smoothness
+// check only gets a say on the frames where that one holds.
 void detectHdr2200Format(uint64_t bufferAddr)
 {
+#if HDR2200_FASTPATH
+    if (detectHdr2200Fast(bufferAddr)) return; // decisive: no streak, no throttle, no noise floor
+#endif
     if (g_hdr2200Countdown > 0) { g_hdr2200Countdown--; return; }
     g_hdr2200Countdown = HDR2200_DETECT_INTERVAL;
 

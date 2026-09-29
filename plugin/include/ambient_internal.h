@@ -18,6 +18,7 @@
 #include <orbis/libkernel.h>
 #include <orbis/_types/video.h> // OrbisVideoOutBufferAttribute, used by the hook prototypes below
 #include "pq8bit_vote.h"        // v3.5, pure alpha-byte vote so a PC test can build it
+#include "hdr2200_vote.h"      // v3.6, same idea for 0x80002200, also PC-buildable
 
 // ------------------------------------------------------------
 // [settings] -- AmbientConfig struct, g_config instance lives in

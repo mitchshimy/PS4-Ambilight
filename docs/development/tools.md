@@ -11,6 +11,8 @@ misbehaves.
 | `decode_verification_dump.py` | decode the plugin's older raw debug packets offline |
 | `ps4_detile_2dthin.c` | standalone reference detiler, to cross-check the plugin's tiling |
 | `test_pq8bit_vote.c` | host test for the alpha byte vote that spots 8-bit ARGB under `0x88740000` |
+| `test_hdr2200_vote.c` | host test for the alpha byte vote that picks HDR or SDR under `0x80002200` |
+| `data/hdr2200_frames.csv` | real 8-word frames from HITMAN 3 and RDR2, the recorded input for that test |
 
 ## flicker_capture.py
 
@@ -94,3 +96,26 @@ kinds of input:
 It prints the lowest red code whose word has alpha byte `0xff` as a sanity check on
 the reasoning (1008, about 8,700 nits). Why the vote works is in
 [youtube-hdr-8bit](../debugging/youtube-hdr-8bit.md).
+
+## test_hdr2200_vote.c
+
+Builds and runs on a PC from the repo root, no console and no SDK:
+
+```
+gcc -Wall -o /tmp/test_hdr2200_vote tools/test_hdr2200_vote.c
+/tmp/test_hdr2200_vote
+```
+
+It includes `plugin/include/hdr2200_vote.h` and runs `hdr2200Vote()` on:
+
+- Hand-written cases: SDR with alpha `0xff` and `0x00`, PQ black and dark and bright
+  frames, cleared buffers, too few words, the 75% and 25% edges, one saturated red
+  PQ word, and fade frames, including the ones from the first build's flaw.
+- `tools/data/hdr2200_frames.csv`, 281 8-word frames the plugin read on a PS4 (`HDRV`
+  packets, debug build): HITMAN 3 and RDR2 with HDR on and off, plus the first build's
+  captures. Each capture is replayed the way `zones.c` uses the vote, and it fails
+  if any frame votes the wrong way or leaves the mode wrong. Pass another CSV path as
+  the first argument to try new frames. The columns are `source,t_seconds,w0..w7`, and
+  a new source name has to be added to the test.
+
+Why the vote works is in [hdr2200-alpha-detection](../debugging/hdr2200-alpha-detection.md).

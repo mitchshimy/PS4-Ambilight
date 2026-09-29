@@ -10,8 +10,8 @@ What has actually been used to check the plugin:
 
 - **Debug builds.** `make DEBUG=1` compiles in the telemetry (`__FINAL__==0`): the
   flip and register counters, the per-pass FLK1 flicker probe, format-change
-  logging, raw pixel dumps, HDR detection numbers and the `PQ8C` packets from the
-  `0x88740000` 8-bit check. Release builds have none of it.
+  logging, raw pixel dumps, HDR detection numbers, the `PQ8C` packets from the
+  `0x88740000` 8-bit check and the `HDRV` packets from the `0x80002200` check. Release builds have none of it.
 - **The `[dev]` ini section.** Set `dev_ip` to the PC's address and `dev_logging=true`
   to send the telemetry there. Without it nothing is sent, and there is no hardcoded
   debug address.
@@ -29,6 +29,9 @@ What has actually been used to check the plugin:
   `0x88740000` check, on real words from captures and on generated PQ. The one piece
   of plugin logic that is built and run on a PC, only because it lives in its own
   header. See [tools](tools.md#test_pq8bit_votec).
+- **`tools/test_hdr2200_vote.c`.** The same kind of host test for the `0x80002200`
+  vote, on hand-written cases and 281 real frames from HITMAN 3 and RDR2 in
+  `tools/data/hdr2200_frames.csv`. See [tools](tools.md#test_hdr2200_votec).
 - **Offline replicas.** Several algorithms were run in Python first against real
   captures, then ported: the zone geometry for all 8 corner and direction
   combinations, the saturation formula, gamma tables, the dark threshold hysteresis,

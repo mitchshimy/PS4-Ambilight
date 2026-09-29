@@ -672,7 +672,8 @@ PixelUnpackFn getUnpackFnForFormat(uint32_t format)
         // on this title, decided live by detectHdr2200Format() (called
         // just before this from the main sampling loop). See that
         // function's own comment above g_hdr2200IsHdr for the full trail.
-        // UNTESTED WITH HDR ACTUALLY ON.
+        // v3.6: decided per frame from the alpha byte first, see zones.c and
+        // hdr2200_vote.h. Confirmed live with HDR on and off (HITMAN 3, RDR2).
         return g_hdr2200IsHdr ? unpackA2R10G10B10_BT2020_PQ_to_rgb888
                                : unpackA8B8G8R8_to_rgb888;
     default:

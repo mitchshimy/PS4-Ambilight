@@ -27,6 +27,8 @@ Investigations with the evidence and the wrong turns left in.
 - [hdr-pixel-format](debugging/hdr-pixel-format.md): `0x80002200` and live HDR detection
 - [youtube-hdr-8bit](debugging/youtube-hdr-8bit.md): 8-bit pixels under the PQ format ID
   with HDR on, and the per-frame alpha check
+- [hdr2200-alpha-detection](debugging/hdr2200-alpha-detection.md): HITMAN 3 and RDR2 HDR
+  or SDR from the alpha byte, 53 s down to the first frame
 - [letterbox-detection](debugging/letterbox-detection.md): black bar detection, v2.9 to v3.4
 - [letterbox-placement](debugging/letterbox-placement.md): zones sampling inside the bar,
   and the loading-screen flashes that the first fix caused

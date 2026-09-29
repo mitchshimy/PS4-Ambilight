@@ -90,6 +90,14 @@ in between. The plugin now checks the alpha byte of 8 zone words on every pass a
 picks the unpack for that frame, so a switch shows no wrong colors.
 [youtube-hdr-8bit](debugging/youtube-hdr-8bit.md).
 
+**v3.6.** HITMAN 3 and RDR2 register `0x80002200` with HDR on or off, and the
+smoothness detector took 53 s to notice HDR on a real capture, with the strip lit from
+the wrong decode until then. The alpha byte tells the two apart (HDR-on words never
+have `0xff` there, HDR-off words nearly always do), so the plugin now decides on the
+first frame with picture data. The first build voted PQ for about 0.2 s during a
+fade-in from black, which a hardware capture showed and a spread check on the top
+bytes fixed. [hdr2200-alpha-detection](debugging/hdr2200-alpha-detection.md).
+
 Along the way `main.c` grew to 3,240 lines and was split into modules (Sep 23).
 It is `main.c` plus 11 files now, with the split described in
 [architecture](architecture.md).

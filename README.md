@@ -240,7 +240,10 @@ SDR formats have been supported since v1.0; HDR support (pixel format `0x8000220
 then live HDR/SDR auto-detection confirmed on real hardware in v2.7.2. YouTube with HDR on
 registers the PQ format `0x88740000` but draws 8-bit ARGB while it plays SDR video; since v3.5
 the plugin checks the pixels every frame and picks the right decode, see
-[`docs/debugging/youtube-hdr-8bit.md`](docs/debugging/youtube-hdr-8bit.md). If colors look
+[`docs/debugging/youtube-hdr-8bit.md`](docs/debugging/youtube-hdr-8bit.md). HITMAN 3 and
+RDR2 use `0x80002200` for both HDR modes, and since v3.6 the plugin picks the decode from
+the first frame with picture data instead of after up to a minute, see
+[`docs/debugging/hdr2200-alpha-detection.md`](docs/debugging/hdr2200-alpha-detection.md). If colors look
 completely wrong (not just "a bit off") in a specific HDR title, updating to the latest plugin
 release is the first thing to try.
 

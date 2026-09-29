@@ -162,13 +162,12 @@ generated PQ, see [tools](../development/tools.md).
 - **A release build was not captured.** The decision is not inside the debug-only
   telemetry, but only debug builds were run.
 
-## HITMAN 3 might have the same tell
+## HITMAN 3 had the same tell
 
-`pixel_formats.c` says HDR on corrupts the buffer under `0x80002200`, "a
-garbage-looking alpha byte, among other things". If the SDR side (A8B8G8R8) always
-writes `0xff` there, the same test could replace the smoothness detector, and its 43
-seconds to decide. Nothing captured yet can say. The repo has no raw HITMAN words, and
-some 8-bit formats write an alpha of 0 anyway, which would break the idea.
-
-To find out: a debug build, `[dev]` telemetry on, and one capture with HDR off, then
-one with HDR on. The raw pixel packets carry the words. Look at the top byte.
+`pixel_formats.c` said HDR on corrupts the buffer under `0x80002200`, "a
+garbage-looking alpha byte, among other things". Captures of HITMAN 3 and RDR2 with
+HDR on and off showed it: HDR-on words never have `0xff` in the top byte, HDR-off words
+nearly always do, so the same test replaced the smoothness detector's 53 seconds in
+v3.6. It needed a guard that the YouTube check doesn't have, for the partial alpha
+bytes HITMAN 3 writes while it fades. See
+[hdr2200-alpha-detection](hdr2200-alpha-detection.md).

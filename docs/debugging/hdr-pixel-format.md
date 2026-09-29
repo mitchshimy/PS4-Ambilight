@@ -98,6 +98,17 @@ few seconds later. `detectPq8bitMisregistration()` reads the alpha byte of 8 zon
 words every pass instead: `0xff` cannot be a real 10-bit word without red at 8,700
 nits. Full write-up in [youtube-hdr-8bit](youtube-hdr-8bit.md).
 
+## v3.6: `0x80002200` decided the same way
+
+The 43 seconds above turned out to be 53 on a longer HDR-on HITMAN 3 capture, and the
+words were PQ from the first packet. The same alpha byte idea from v3.5 works here
+with the sides swapped: HDR-on words have `0b11` in the top two bits and never `0xff`
+in the top byte, HDR-off words have `0xff`. `detectHdr2200Fast()` reads 8 words on
+every pass and decides on the frame being decoded, and the smoothness detector on this
+page only decides on the frames where that check holds. HITMAN 3 and RDR2 now switch
+on the first frame with picture data. HITMAN 3's SDR fades needed a guard on top of the
+vote. Full write-up in [hdr2200-alpha-detection](hdr2200-alpha-detection.md).
+
 ## If colors look wrong in an HDR title
 
 - First check what format the title registered. The `[dev]` telemetry reports it on

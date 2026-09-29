@@ -22,7 +22,12 @@
 attr_public const char *g_pluginName = "ps4_ambient_light";
 attr_public const char *g_pluginDesc = "Live per-frame ambient light: detiles the real scanout buffer and streams zone colors to WLED";
 attr_public const char *g_pluginAuth = "(null)";
-attr_public uint32_t g_pluginVersion = 0x00000305; // v3.4 -> v3.5:
+attr_public uint32_t g_pluginVersion = 0x00000306; // v3.5 -> v3.6:
+// Format 0x80002200 (HITMAN 3, RDR2) is decided per frame from the alpha byte
+// of 8 zone words, before the older smoothness check gets a say -- see
+// detectHdr2200Fast in zones.c, hdr2200_vote.h and
+// docs/debugging/hdr2200-alpha-detection.md.
+// v3.4 -> v3.5:
 // Format 0x88740000 is decoded as 8-bit A8R8G8B8 on the frames where the
 // buffer holds that (YouTube playing SDR video with HDR on), decided every
 // pass from the alpha byte -- see detectPq8bitMisregistration in zones.c and
