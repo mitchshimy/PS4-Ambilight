@@ -330,6 +330,12 @@ color is resent once a second so WLED's realtime timeout doesn't fire. See
 **Debugging.** `tools/` has the capture and decode scripts. A debug plugin build (`make DEBUG=1`)
 sends telemetry to the `[dev]` address in the ini; the flicker write-up above shows how it's used.
 
+More detail is in [`docs/`](docs/README.md): [history](docs/history.md),
+[sampling zones](docs/sampling-zones.md), [HDR and pixel formats](docs/debugging/hdr-pixel-format.md),
+[letterbox detection](docs/debugging/letterbox-detection.md),
+[title notes](docs/debugging/title-compatibility.md), [testing](docs/development/testing.md),
+and [CI and releases](docs/development/ci-and-releases.md).
+
 ## Layout
 
 ```
@@ -344,7 +350,7 @@ PS4-Ambilight/
 │   ├── source/, include/, assets/, sce_sys/, sce_module/
 │   └── tests/           # isolated unit tests for settings/pipeline/layout logic
 ├── tools/               # PC-side Python/C helper scripts used for capture and verification
-├── docs/                # architecture and debugging write-ups
+├── docs/                # architecture, history, debugging write-ups, dev notes
 ├── patches/             # GoldHEN SDK fix the plugin needs to build (see below)
 ├── .github/workflows/CI.yml
 ├── CHANGELOG.md

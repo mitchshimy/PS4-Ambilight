@@ -257,6 +257,12 @@ companion app) are documented here, newest first.
   v3.3 flicker investigation, the v3.1 flip hook hunt and the v2.8
   heartbeat. The long investigation text that used to sit in the v3.3
   and v3.1 entries here moved there.
+- More `docs/`, written from this changelog and the git history: a
+  version history, notes on the sampling zones, the HDR format ID,
+  letterbox detection, the black-screen smoothing bug, the companion
+  app's updater, console gotchas, CI and the GoldHEN SDK patch,
+  testing, the tools, config changes by version and a per-title notes
+  page. Index in [`docs/README.md`](docs/README.md).
 - Removed an advanced opt-in networking comment from the default
   ini, matching the companion app's matching fix -- those settings
   are hand-edited-only and don't need documenting in the shipped
