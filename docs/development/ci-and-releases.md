@@ -90,12 +90,42 @@ locally. `CUR` is now a compound literal macro, matching how `CHAN_RED`,
 `CHAN_GREEN` and `CHAN_BLUE` in the same file already worked. It was a real bug, not a
 CI quirk.
 
-## What a release involves
+## Cutting a release
 
-As far as the repo shows:
+1. Bump `g_pluginVersion` in `plugin/source/hooks.c` and add the changelog entry.
+   The value is `0xMMmm`, major in the high byte and minor in the low one, so v3.5
+   is `0x00000305`. (Before v3.1 the number was an internal counter, `0x212` for
+   v2.7.2, and it sat at that value through v3.0. That is why the check below exists.)
+2. Commit and push.
+3. Tag it and push the tag:
+   ```
+   git tag v3.5.0
+   git push origin v3.5.0
+   ```
+4. CI builds both artifacts and publishes. Check that the release has the `.prx`,
+   the `.sha256` and the `.pkg`.
 
-1. Bump `g_pluginVersion` in `hooks.c` and add the changelog entry. The version had
-   drifted before, sitting at the v2.7.2 value through v3.0, so it's worth doing
-   alongside the changelog.
-2. Tag and push. CI builds both artifacts and publishes.
-3. Check the release has the `.prx`, the `.sha256` and the `.pkg`.
+Don't move or re-push an old tag to re-release. Tag the next version instead. Every
+tag stays as its own release, and the companion app's updater just follows `latest`.
+
+### The tag check
+
+The first step of `build_prx` runs on tag pushes and compares the tag with
+`g_pluginVersion`. Only major and minor are compared, so `v3.4.0` and `v3.4.1` both
+pass while the plugin says 3.4. The tag has to look like `v3.4` or `v3.4.0`, so
+`v3.4.0-rc1` or `test` fail on purpose rather than publish something.
+
+It fails before the SDK checkout and builds, and `publish` needs `build_prx`, so a
+mismatch produces no release. The error names both versions. To fix it, correct
+whichever side is wrong, then:
+
+```
+git tag -d v3.5.0
+git push origin :refs/tags/v3.5.0
+git tag v3.5.0
+git push origin v3.5.0
+```
+
+The check only exists in the workflow file at the tagged commit. Tags on commits
+from before it was added, and manual runs of the workflow on those tags, don't have
+it and are unaffected.

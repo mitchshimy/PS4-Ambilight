@@ -506,6 +506,12 @@ color preview and a plugin self-updater.
 
 ## CI
 
+- A tag push now fails early if the tag doesn't match `g_pluginVersion`
+  (major.minor only, the tag's patch part is free). It's the first step
+  of `build_prx`, and `publish` needs that job, so a mismatched tag such
+  as `v3.5.0` on a plugin that still says 3.4 produces no release.
+  Non-version tags like `v3.4.0-rc1` are rejected too. See
+  [`docs/development/ci-and-releases.md`](docs/development/ci-and-releases.md).
 - Tagged-release builds now also build and package the companion app
   (`build_pkg` job: compiles `companion-app/source/*.c` against the
   same OpenOrbis toolchain the plugin job uses, via its Linux
