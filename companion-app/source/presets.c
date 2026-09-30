@@ -13,15 +13,8 @@ static PresetValues s_slot[PRESET_COUNT];
 static int  s_active = PRESET_GAME;
 static bool s_resetArmed = false;
 
-// A preset holds every real Customization row. "ui" rows (the preset
-// selector, reset button, smoothing shortcut) are views/actions, not
-// values -- the smoothing shortcut in particular aliases two fields that
-// are already captured on their own.
-static bool is_preset_item(const MenuItem *it)
-{
-    return it->screen == MENU_SCREEN_CUSTOMIZE && strcmp(it->section, "ui") != 0
-        && it->type != FIELD_STRING && it->type != FIELD_ACTION;
-}
+// A preset holds every real Customization row -- see settings_item_is_preset_owned.
+static bool is_preset_item(const MenuItem *it) { return settings_item_is_preset_owned(it); }
 
 int preset_field_count(void)
 {
@@ -59,7 +52,7 @@ void preset_apply(AmbientConfig *cfg, const PresetValues *in)
 //   saturation           +35%      +25%      -- Movie lower: skin tones dominate
 //   gamma                2.2       2.4       -- game-mode vs cinema-mode display
 //   black level          0%        1%        -- Movie: stops the strip toggling on grainy dark scenes
-//   smoothing            on, 50ms  on, 300ms
+//   smoothing            on, 50ms  on, 200ms
 //
 // Gamma here stacks with WLED's own gamma if that's enabled for realtime
 // data, so WLED's colour gamma should be off.
@@ -84,7 +77,7 @@ static const PresetDefault kMovieDefaults[] = {
     { "gamma",             GAMMA_2_4 },
     { "black_level",       1 },
     { "smoothing_enabled", 1 },
-    { "settling_time_ms",  300 },
+    { "settling_time_ms",  200 },
 };
 
 static void apply_defaults(AmbientConfig *cfg, const PresetDefault *d, int n)
@@ -154,6 +147,9 @@ void presets_init(AmbientConfig *cfg, const char *path)
     s_active = PRESET_GAME;
     s_resetArmed = false;
 
+    // What settings_load left in cfg for the preset-owned fields: the old flat
+    // keys from an ini that predates presets, or the plugin defaults if the
+    // file has none. Only used to migrate an old ini (below).
     PresetValues flat;
     preset_capture(cfg, &flat);
 
@@ -178,11 +174,10 @@ void presets_init(AmbientConfig *cfg, const char *path)
             // Nothing has ever been customised: start from the shipped presets.
             preset_factory(PRESET_GAME,  &s_slot[PRESET_GAME]);
             preset_factory(PRESET_MOVIE, &s_slot[PRESET_MOVIE]);
-            preset_apply(cfg, &s_slot[PRESET_GAME]);
         } else {
             // An existing, tuned setup: it becomes Game exactly as it is, and
-            // Movie starts as a copy of it with Movie's shipped smoothing -- so nobody
-            // loses their colour calibration by updating.
+            // Movie starts as a copy of it with Movie's shipped smoothing -- so
+            // nobody loses their colour calibration by updating.
             s_slot[PRESET_GAME] = flat;
             PresetValues movieFactory; AmbientConfig movieDefs, movie = *cfg;
             preset_factory(PRESET_MOVIE, &movieFactory);
@@ -193,15 +188,17 @@ void presets_init(AmbientConfig *cfg, const char *path)
             preset_capture(&movie, &s_slot[PRESET_MOVIE]);
         }
     } else {
+        // The ini has presets, and from here on the plugin reads ONLY those for
+        // these values (any flat leftovers are ignored), so this must too. A
+        // preset section that's missing entirely starts from its shipped values.
         for (int p = 0; p < PRESET_COUNT; p++) {
             preset_factory((PresetId)p, &s_slot[p]);
             if (have[p]) parse_section(t, kPresetSection[p], &s_slot[p]);
         }
-        // The flat keys are what the plugin actually runs, so if they were
-        // hand-edited since the last save they win for the active preset.
-        s_slot[s_active] = flat;
     }
     if (t) ini_table_destroy(t);
+
+    preset_apply(cfg, &s_slot[s_active]);   // cfg shows the active preset
 }
 
 int preset_active(void) { return s_active; }
@@ -234,7 +231,11 @@ bool presets_save(const AmbientConfig *cfg, const char *path)
 
     ini_table_s *t = ini_table_create();
     if (t == NULL) return false;
-    ini_table_read_from_file(t, path);   // merge, same as settings_save
+    ini_table_read_from_file(t, path);   // merge, so [dev], relay keys and comments survive
+
+    // Setup values into their own sections; the preset-owned keys leave their old
+    // flat sections (a file from before presets still has them there).
+    settings_fill_table(t, cfg, false);
 
     ini_table_create_entry(t, "presets", "active", kPresetIniName[s_active]);
     for (int p = 0; p < PRESET_COUNT; p++) {

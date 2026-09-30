@@ -119,3 +119,25 @@ It includes `plugin/include/hdr2200_vote.h` and runs `hdr2200Vote()` on:
   a new source name has to be added to the test.
 
 Why the vote works is in [hdr2200-alpha-detection](../debugging/hdr2200-alpha-detection.md).
+
+## test_plugin_config.c
+
+Builds and runs on a PC from the repo root, no console and no SDK:
+
+```
+gcc -Wall -Wl,--wrap=stat -Itools/host_stubs -Iplugin/include -Icommon -o /tmp/test_plugin_config tools/test_plugin_config.c plugin/source/settings.c plugin/source/config.c
+/tmp/test_plugin_config
+```
+
+It links the plugin's real `settings.c` and `config.c`, so it runs the actual
+`ambient_load_config()`. The console calls the ini code makes (`sceKernelOpen` and friends,
+`stat`, `klog`) are stand-ins that read and write `/tmp/test_plugin_config.ini`, and the
+small headers in `tools/host_stubs` only exist so the plugin's own headers parse without
+the SDK. It checks the ini the plugin generates on first run, that `active=movie` and each
+title in `media_titles.h` pick the Movie section, that games and unknown titles don't
+(`CUSA05682` is Horizon Zero Dawn and is checked by name), that an ini from before v3.8
+still reads as it did, that leftover flat keys are ignored once a preset exists, the
+fallbacks between presets, a live reload from one preset to the other, and the bad-value
+handling. The last case loads `tools/data/preset_ini_golden.ini`, the file the companion
+app writes for a fresh setup. `companion-app/tests/test_presets.c` compares the app's output
+to that same file, so the app's writer and the plugin's reader can't drift apart unnoticed.

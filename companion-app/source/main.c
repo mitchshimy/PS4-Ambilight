@@ -1619,12 +1619,10 @@ static void handle_home_input(bool up, bool down, bool left, bool right, bool cr
 #define SAVE_CONFIRM_DURATION_MS 1600u
 static uint32_t g_saveConfirmUntilMs = 0;
 
-// The flat ini keys the plugin reads (written by settings_save) hold the
-// active preset; presets_save then adds both presets' full values on top.
-// Every place that persists g_cfg goes through this so the two never diverge.
+// Every place that persists g_cfg goes through here. presets_save writes the
+// whole ini in one pass (setup values, [presets] and both preset sections).
 static bool save_config(void)
 {
-    if (!settings_save(&g_cfg, AMBIENT_CONFIG_PATH)) return false;
     return presets_save(&g_cfg, AMBIENT_CONFIG_PATH);
 }
 

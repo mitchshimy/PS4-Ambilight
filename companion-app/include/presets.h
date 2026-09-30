@@ -5,13 +5,12 @@
 // address, LED layout, colour order, update rate) are never part of a
 // preset.
 //
-// HOW IT STAYS COMPATIBLE WITH THE PLUGIN: the flat ini keys the plugin
-// already reads ([color], [timing], [layout]) always hold the ACTIVE
-// preset's values, so an unmodified plugin just runs whichever preset
-// was last saved. The full set of both presets is also written to
-// [preset_game] / [preset_movie] (same key names, same value formats as
-// the flat keys) plus [presets] active=game|movie, ready for a plugin
-// that wants to pick a preset per title.
+// HOW IT'S STORED: the ini holds [presets] active=game|movie and the full set of
+// each preset's values in [preset_game] / [preset_movie] (same key names and value
+// formats the plugin has always used). The plugin (v3.8+) reads the active preset's
+// section itself, so those keys are NOT also written to [layout] / [color] / [timing]
+// -- those sections keep only setup values (LED layout, colour order, update rate...).
+// Loading an ini from before presets still works: its flat values become Game.
 //
 // Editing a field edits the active preset -- there is no Custom mode.
 // Switching presets stashes the current values into their slot first,
@@ -40,7 +39,9 @@ void preset_factory(PresetId id, PresetValues *out);             // the shipped 
 // ---- the live preset set (module state) ----
 // Call once after settings_load(). Reads the preset sections from `path`
 // (missing file / sections are fine), migrates an ini written before
-// presets existed, and leaves `cfg` showing the active preset.
+// presets existed, and leaves `cfg` showing the active preset. Once an ini has
+// preset sections they are the only source: leftover flat values are ignored,
+// exactly as the plugin ignores them.
 void presets_init(AmbientConfig *cfg, const char *path);
 int  preset_active(void);
 void preset_select(AmbientConfig *cfg, int id);
@@ -52,8 +53,10 @@ bool preset_reset_is_armed(void);
 void preset_reset_arm(void);
 void preset_reset_disarm(void);
 
-// Stashes cfg into the active slot, then merges [presets] and both
-// preset sections into the ini at `path`. Call AFTER settings_save().
+// Stashes cfg into the active slot, then writes the whole ini in one pass: setup
+// values in their own sections, [presets], and both preset sections, merged into
+// what's already at `path` so anything else in the file survives. This replaces
+// settings_save() for the app; it removes the old flat copies of preset values.
 bool presets_save(const AmbientConfig *cfg, const char *path);
 
 #endif // PRESETS_H

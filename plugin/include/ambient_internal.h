@@ -113,6 +113,7 @@ typedef struct {
 } AmbientConfig;
 
 extern AmbientConfig g_config; // defined in settings.c
+extern char g_titleId[16];     // defined in settings.c; set by plugin_load, picks the preset (media_titles.h)
 
 // [gamma] -- kGammaLuts is the fixed 8-preset table (gamma.c); the
 // per-channel g_gammaLutR/G/B are the continuous, config-driven ones

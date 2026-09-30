@@ -5,6 +5,41 @@ companion app) are documented here, newest first.
 
 ## Plugin
 
+### v3.8
+- Added Game and Movie presets to the ini. `[presets] active=game|movie` picks one, and
+  `[preset_game]` and `[preset_movie]` each hold a complete set of the values a preset owns:
+  `scan_depth`, the letterbox settings, `brightness`, `saturation`, `gamma`, `black_level`,
+  `white_level`, `contrast`, `dark_threshold`, the per-channel brightness and gamma, and
+  `smoothing_enabled` / `settling_time_ms`. Setup values (`[network]`, the LED layout,
+  `color_order`, `update_frequency_hz`, `config_reload_check_seconds`) stay in their own
+  sections and are never part of a preset. A preset section that exists is used as it is, so
+  the values are stored once and `[layout]`, `[color]` and `[timing]` shrink to setup only. A
+  preset that lacks a key keeps the plugin's built-in default for it, and a preset with no
+  section at all falls back to the other one.
+- An ini from before v3.8 reads exactly as it did: with no preset section the same keys are
+  read from `[layout]`, `[color]` and `[timing]`. Once a preset section exists those old
+  keys are ignored, so a hand-edited leftover can't override a preset.
+- The plugin now runs Movie by itself for Netflix and YouTube, whatever `active` says. It
+  matches the running title ID against `plugin/include/media_titles.h` (Netflix `CUSA00129`,
+  `CUSA00127`, `CUSA02988`; YouTube `CUSA01015`, `CUSA01116`, `CUSA01065`, `CUSA01034`), so
+  nobody has to open the companion app to switch. Everything else runs the preset `active` names. Only IDs
+  confirmed against independent sources are listed, because a listed ID forces Movie
+  (sampling depth 4, 200 ms smoothing) on whatever runs under it. One ID that circulates as
+  a YouTube one, `CUSA05682`, is Horizon Zero Dawn, and a test keeps it off the list.
+- The shipped `ps4_ambient_light.ini` and the file the plugin writes when none exists are now
+  the short version with both presets, and the two are one string (`default_ini.h`) so they
+  can't drift. Game is `scan_depth=2`, saturation 35, gamma 2.2, smoothing on at 50 ms.
+  Movie is `scan_depth=4`, brightness 204, saturation 25, gamma 2.4, black level 1,
+  smoothing on at 200 ms. The gammas assume WLED isn't applying its own gamma to the DDP
+  stream.
+- **The companion app and the plugin have to be updated together.** The app now writes the
+  presets and no longer writes the old flat copies of those values, so an older plugin
+  would find none of them and run its built-in defaults.
+- Checked on a PC against the plugin's real `ambient_load_config()`
+  (`tools/test_plugin_config.c`): the generated ini, both presets, the media titles,
+  pre-v3.8 inis, a live switch between presets, out-of-range values, and the exact file the
+  app writes (`tools/data/preset_ini_golden.ini`). Not yet run on a console.
+
 ### v3.7
 - Fixed flicker and flashes of unrelated colors in Red Dead Redemption (about 58 fps, the
   same with the console's HDR setting on or off). `AMBIENT_SAMPLE_LAG` had only ever been tested as `>= 1`, so setting it
@@ -409,6 +444,18 @@ The companion app is a standalone PS4 homebrew UI (not a GoldHEN
 plugin) for editing the plugin's ini config on-console, with a live
 color preview and a plugin self-updater.
 
+- The app now writes the short ini and needs plugin v3.8. Both presets are saved in full to
+  `[preset_game]` and `[preset_movie]` with `[presets] active=`, and the old flat copies of
+  those values are removed from `[layout]`, `[color]` and `[timing]`, which keep setup values
+  only. This replaces the arrangement in the next entry, where the flat keys held the active
+  preset for a plugin that didn't read the preset sections. An ini that still has the old
+  flat keys loads as before (they become Game) and is converted on the first save. Once an
+  ini has preset sections the app ignores any flat leftovers, the same as the plugin.
+  `auto_letterbox_stability_frames` and `auto_letterbox_check_interval_frames`, which have no
+  row in the app, are only written when they differ from their defaults. One save call now
+  writes the whole file (`presets_save`). `tests/test_presets.c` also checks that the plugin's
+  shipped ini agrees with the app's shipped presets, and that the app's output matches
+  `tools/data/preset_ini_golden.ini`, which the plugin's own test loads.
 - Added Game and Movie presets to Customization. A Preset card at the top
   switches between them (D-Pad or L1/R1), and every value below it belongs
   to the preset showing, so switching never overwrites the other one's
