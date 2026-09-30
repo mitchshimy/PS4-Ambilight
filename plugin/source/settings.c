@@ -19,11 +19,18 @@
 #include "plugin_common.h"
 #include "ambient_internal.h"
 #include "config.h"
+#include "default_ini.h"
+#include "preset_select.h"
+#include "media_titles.h"
 
 
 // Defaults match v1.3's hardcoded behavior exactly -- upgrading from a
 // build with no ini file present should look identical to before,
 // not silently change anything.
+// The running title (e.g. "CUSA00129"), set by plugin_load before the first
+// ambient_load_config(); empty if GoldHEN could not say. Only used to pick a preset.
+char g_titleId[16] = "";
+
 AmbientConfig g_config = {
     // wledHost intentionally blank, not pre-filled with this project's
     // own controller's IP -- a build anyone else uses shouldn't ship
@@ -86,134 +93,10 @@ static bool ambient_file_exists(const char *filename)
 // rediscovering that the hard way here.
 static void ambient_create_default_config(void)
 {
-    #define AMBIENT_DEFAULT_INI \
-        "[network]\n" \
-        "; The real WLED controller's IP -- NOT this PC's own IP.\n" \
-        "wled_host=\n" \
-        "wled_port=4048\n" \
-        "; Advanced/optional: only relevant if you're also running the\n" \
-        "; wled-relay companion project and want this plugin to tell it\n" \
-        "; when it's driving the TV backlight WLED controller above\n" \
-        "; directly, so that project's own audio-reactive effects don't\n" \
-        "; fight this plugin for the same strip during a real game. OFF\n" \
-        "; by default -- most users don't run that project and don't\n" \
-        "; need this. Not part of this default file at all -- add\n" \
-        "; relay_signal_enabled/relay_host/relay_port yourself, here in\n" \
-        "; [network], only if you're actually running wled-relay.\n" \
-        "\n" \
-        "[layout]\n" \
-        "; Physical LED counts per screen edge. Defaults match this\n" \
-        "; project's own measured strip (73/41/73/42 = 229 total).\n" \
-        "led_count_top=73\n" \
-        "led_count_right=41\n" \
-        "led_count_bottom=73\n" \
-        "led_count_left=42\n" \
-        "; Which corner physical LED index 0 sits at, and which way the\n" \
-        "; strip runs from there. Valid led_start_corner: bottom_left,\n" \
-        "; bottom_right, top_left, top_right. Valid led_direction:\n" \
-        "; clockwise, counterclockwise.\n" \
-        "led_start_corner=bottom_left\n" \
-        "led_direction=clockwise\n" \
-        "; If the light show is correct but rotated around the border\n" \
-        "; (e.g. everything is one LED off from where it should be),\n" \
-        "; adjust this instead of led_start_corner/led_direction.\n" \
-        "led_offset=0\n" \
-        "; Sample radius per zone: (2*scan_depth+1)^2 pixels averaged.\n" \
-        "; Higher = smoother/less noisy but more CPU per frame. Capped\n" \
-        "; at 4 -- values above that are rejected and the previous\n" \
-        "; value is kept.\n" \
-        "scan_depth=1\n" \
-        "; Auto-detects black letterbox/pillarbox bars and insets\n" \
-        "; sampling to stay off them, per edge independently (so e.g.\n" \
-        "; a status bar only on top is handled correctly). This is the\n" \
-        "; ONLY sampling inset the plugin applies -- there's no manual\n" \
-        "; margin setting -- so leave this on unless you have a\n" \
-        "; specific reason to sample every pixel unconditionally.\n" \
-        "auto_letterbox_enabled=true\n" \
-        "; A probed pixel counts as part of a black bar if every\n" \
-        "; channel is below this (0-255).\n" \
-        "auto_letterbox_threshold=18\n" \
-        "; How many consecutive detections must agree before a new\n" \
-        "; border is actually applied -- higher = slower to react but\n" \
-        "; more resistant to flicker across a scene cut.\n" \
-        "auto_letterbox_stability_frames=3\n" \
-        "; How many sample-thread passes to wait between re-checks. Each\n" \
-        "; check probes every edge inward (up to 180px from top/bottom,\n" \
-        "; 320px from left/right) with several tiled reads per line, so\n" \
-        "; it isn't free -- raise this if update_frequency_hz is high and\n" \
-        "; CPU headroom is tight.\n" \
-        "auto_letterbox_check_interval_frames=15\n" \
-        "\n" \
-        "[color]\n" \
-        "; Global brightness scale, 0-255. 255 = no change.\n" \
-        "brightness=255\n" \
-        "; Must be exactly one of: 1.0 1.4 1.8 2.0 2.2 2.4 2.6 2.8\n" \
-        "; (precomputed lookup tables -- no other value is accepted).\n" \
-        "gamma=1.0\n" \
-        "; -100 (grayscale) to 100 (2x color boost). 0 = unchanged. Past\n" \
-        "; 100 most colors clip at 255/0 and stop looking different, so\n" \
-        "; values above 100 are clamped to 100.\n" \
-        "saturation=0\n" \
-        "; Match your strip's actual wiring. Valid values: RGB, RBG,\n" \
-        "; GRB, GBR, BRG, BGR. Most WS2812B/NeoPixel strips are GRB.\n" \
-        "color_order=RGB\n" \
-        "; Levels adjustment (0-100, percent of the 0-255 range).\n" \
-        "; Anything at/below black_level becomes 0; anything at/above\n" \
-        "; white_level becomes 255; the rest stretches to fill the gap.\n" \
-        "; Defaults (0, 100) are a no-op.\n" \
-        "black_level=0\n" \
-        "white_level=100\n" \
-        "; If a zone's brightest channel drops below this (0-255), that\n" \
-        "; zone is forced fully black instead of showing a faint/noisy\n" \
-        "; near-black color. Has built-in hysteresis (must rise 10 above\n" \
-        "; this value again before turning back on) so it won't flicker\n" \
-        "; on scenes hovering right at the threshold. 0 = disabled.\n" \
-        "dark_threshold=0\n" \
-        "; --- Below this line: ported from the Android version's own\n" \
-        "; per-channel color engine. NOTE THE DIFFERENT CONVENTION: these\n" \
-        "; use Android's \"100 = unchanged\" percent scale, NOT this file's\n" \
-        "; usual \"0 = unchanged\" scale used by saturation/brightness above.\n" \
-        "; Contrast: -100..100, 0 = unchanged (stretches/shrinks around\n" \
-        "; mid-grey 128, same math as saturation but around brightness\n" \
-        "; instead of hue). At 100 (2x) half the tonal range already\n" \
-        "; clips to black/white, so values above 100 are clamped.\n" \
-        "contrast=0\n" \
-        "; Per-channel brightness, 0-500, 100 = unchanged. Multiplies with\n" \
-        "; the single [color] brightness above rather than replacing it.\n" \
-        "brightness_r=100\n" \
-        "brightness_g=100\n" \
-        "brightness_b=100\n" \
-        "; Per-channel gamma, 10-500, 100 = unchanged. Unlike the fixed\n" \
-        "; gamma= list above (8 preset curves, shared across all 3\n" \
-        "; channels), these accept ANY value in range and are independent\n" \
-        "; per channel. Applied PER SAMPLE PIXEL before zone-averaging,\n" \
-        "; not to the already-averaged zone color -- matches how the\n" \
-        "; Android version does it, and avoids a single stray bright\n" \
-        "; pixel in an otherwise-dark zone getting averaged in BEFORE\n" \
-        "; being gamma-crushed.\n" \
-        "gamma_r=100\n" \
-        "gamma_g=100\n" \
-        "gamma_b=100\n" \
-        "\n" \
-        "[timing]\n" \
-        "; How many times per second to sample and send color.\n" \
-        "update_frequency_hz=30\n" \
-        "; Blend each new sample with the previous one over roughly\n" \
-        "; settling_time_ms, instead of snapping instantly -- reduces\n" \
-        "; flicker on fast scene cuts. false = send raw samples as-is.\n" \
-        "smoothing_enabled=false\n" \
-        "settling_time_ms=200\n" \
-        "; How often (seconds) to check this file for changes WHILE\n" \
-        "; RUNNING and apply them live -- no need to close/reopen the\n" \
-        "; game. 0 = only read this file once, at plugin load (the\n" \
-        "; original v2.0 behavior).\n" \
-        "config_reload_check_seconds=2\n"
-
     int32_t f = sceKernelOpen(AMBIENT_CONFIG_PATH, 0x200 | 0x001, 0777);
     if (f < 0) return; // no write access or path issue -- defaults above still apply in memory
     sceKernelWrite(f, AMBIENT_DEFAULT_INI, strlen(AMBIENT_DEFAULT_INI));
     sceKernelClose(f);
-    #undef AMBIENT_DEFAULT_INI
 }
 
 static ColorOrder parse_color_order(const char *s, ColorOrder fallback)
@@ -261,6 +144,22 @@ static uint32_t parse_gamma_index(const char *s, uint32_t fallback)
     return fallback; // unrecognized string -- keep default rather than guess
 }
 
+// True if `section` holds at least one preset-owned key, i.e. the ini really
+// has that preset. Checked by key rather than by section name so an empty or
+// stray "[preset_movie]" line doesn't count as a preset.
+static bool preset_section_has_keys(ini_table_s *table, const char *section)
+{
+    static const char *const kPresetKeys[] = {
+        "scan_depth", "auto_letterbox_enabled", "auto_letterbox_threshold",
+        "brightness", "saturation", "gamma", "black_level", "white_level", "contrast",
+        "smoothing_enabled", "settling_time_ms", "dark_threshold",
+        "brightness_r", "brightness_g", "brightness_b", "gamma_r", "gamma_g", "gamma_b",
+    };
+    for (unsigned i = 0; i < sizeof(kPresetKeys) / sizeof(kPresetKeys[0]); i++)
+        if (ini_table_check_entry(table, section, kPresetKeys[i])) return true;
+    return false;
+}
+
 void ambient_load_config(void)
 {
     if (!ambient_file_exists(AMBIENT_CONFIG_PATH)) {
@@ -281,6 +180,22 @@ void ambient_load_config(void)
 
     const char *v;
     int iv; bool bv;
+
+    // v3.8: the settings a preset owns (sampling depth, letterbox, colour,
+    // smoothing, RGB balance) are read from the chosen [preset_*] section.
+    // NULL means an ini from before presets, which still has them in
+    // [layout]/[color]/[timing]; it reads exactly as it always did. Setup
+    // values (network, LED layout, colour order, update rate, reload check)
+    // are never part of a preset and always come from their own sections.
+    // A key missing from the chosen section is treated like any other missing
+    // key here: the value it already has stands.
+    const char *ps = preset_section_pick(ini_table_get_entry(table, "presets", "active"),
+                                         media_title_is_movie(g_titleId),
+                                         preset_section_has_keys(table, PRESET_SECTION_GAME),
+                                         preset_section_has_keys(table, PRESET_SECTION_MOVIE));
+    const char *sLayout = ps ? ps : "layout";
+    const char *sColor  = ps ? ps : "color";
+    const char *sTiming = ps ? ps : "timing";
 
     if ((v = ini_table_get_entry(table, "network", "wled_host")) != NULL) {
         strncpy(g_config.wledHost, v, sizeof(g_config.wledHost) - 1);
@@ -310,47 +225,47 @@ void ambient_load_config(void)
     g_config.direction = parse_direction(ini_table_get_entry(table, "layout", "led_direction"), g_config.direction);
     if (ini_table_get_entry_as_int(table, "layout", "led_offset", &iv))
         g_config.ledOffset = iv;
-    if (ini_table_get_entry_as_int(table, "layout", "scan_depth", &iv) && iv >= 0 && iv <= SCAN_DEPTH_MAX)
+    if (ini_table_get_entry_as_int(table, sLayout, "scan_depth", &iv) && iv >= 0 && iv <= SCAN_DEPTH_MAX)
         g_config.scanDepth = (uint32_t)iv;
 
-    if (ini_table_get_entry_as_bool(table, "layout", "auto_letterbox_enabled", &bv))
+    if (ini_table_get_entry_as_bool(table, sLayout, "auto_letterbox_enabled", &bv))
         g_config.autoLetterboxEnabled = bv;
-    if (ini_table_get_entry_as_int(table, "layout", "auto_letterbox_threshold", &iv) && iv >= 0 && iv <= 255)
+    if (ini_table_get_entry_as_int(table, sLayout, "auto_letterbox_threshold", &iv) && iv >= 0 && iv <= 255)
         g_config.autoLetterboxThreshold = (uint32_t)iv;
     if (ini_table_get_entry_as_int(table, "layout", "auto_letterbox_stability_frames", &iv) && iv >= 1)
         g_config.autoLetterboxStabilityFrames = (uint32_t)iv;
     if (ini_table_get_entry_as_int(table, "layout", "auto_letterbox_check_interval_frames", &iv) && iv >= 1)
         g_config.autoLetterboxCheckIntervalFrames = (uint32_t)iv;
 
-    if (ini_table_get_entry_as_int(table, "color", "brightness", &iv) && iv >= 0 && iv <= 255)
+    if (ini_table_get_entry_as_int(table, sColor, "brightness", &iv) && iv >= 0 && iv <= 255)
         g_config.brightness = (uint32_t)iv;
-    g_config.gammaLutIndex = parse_gamma_index(ini_table_get_entry(table, "color", "gamma"), g_config.gammaLutIndex);
-    if (ini_table_get_entry_as_int(table, "color", "saturation", &iv))
+    g_config.gammaLutIndex = parse_gamma_index(ini_table_get_entry(table, sColor, "gamma"), g_config.gammaLutIndex);
+    if (ini_table_get_entry_as_int(table, sColor, "saturation", &iv))
         g_config.saturation = iv < -100 ? -100 : (iv > SATURATION_MAX ? SATURATION_MAX : iv);
     g_config.colorOrder = parse_color_order(ini_table_get_entry(table, "color", "color_order"), g_config.colorOrder);
-    if (ini_table_get_entry_as_int(table, "color", "black_level", &iv) && iv >= 0 && iv <= 100)
+    if (ini_table_get_entry_as_int(table, sColor, "black_level", &iv) && iv >= 0 && iv <= 100)
         g_config.blackLevel = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "color", "white_level", &iv) && iv >= 0 && iv <= 100)
+    if (ini_table_get_entry_as_int(table, sColor, "white_level", &iv) && iv >= 0 && iv <= 100)
         g_config.whiteLevel = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "color", "dark_threshold", &iv) && iv >= 0 && iv <= 255)
+    if (ini_table_get_entry_as_int(table, sColor, "dark_threshold", &iv) && iv >= 0 && iv <= 255)
         g_config.darkThreshold = (uint32_t)iv;
 
     // v2.2: Android-ported per-channel color knobs (see AmbientConfig
     // struct comment for why these use a different 0-neutral-point
     // convention than the fields just above).
-    if (ini_table_get_entry_as_int(table, "color", "contrast", &iv))
+    if (ini_table_get_entry_as_int(table, sColor, "contrast", &iv))
         g_config.contrast = iv < -100 ? -100 : (iv > CONTRAST_MAX ? CONTRAST_MAX : iv);
-    if (ini_table_get_entry_as_int(table, "color", "brightness_r", &iv) && iv >= 0 && iv <= 500)
+    if (ini_table_get_entry_as_int(table, sColor, "brightness_r", &iv) && iv >= 0 && iv <= 500)
         g_config.brightnessR = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "color", "brightness_g", &iv) && iv >= 0 && iv <= 500)
+    if (ini_table_get_entry_as_int(table, sColor, "brightness_g", &iv) && iv >= 0 && iv <= 500)
         g_config.brightnessG = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "color", "brightness_b", &iv) && iv >= 0 && iv <= 500)
+    if (ini_table_get_entry_as_int(table, sColor, "brightness_b", &iv) && iv >= 0 && iv <= 500)
         g_config.brightnessB = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "color", "gamma_r", &iv) && iv >= 10 && iv <= 500)
+    if (ini_table_get_entry_as_int(table, sColor, "gamma_r", &iv) && iv >= 10 && iv <= 500)
         g_config.gammaR = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "color", "gamma_g", &iv) && iv >= 10 && iv <= 500)
+    if (ini_table_get_entry_as_int(table, sColor, "gamma_g", &iv) && iv >= 10 && iv <= 500)
         g_config.gammaG = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "color", "gamma_b", &iv) && iv >= 10 && iv <= 500)
+    if (ini_table_get_entry_as_int(table, sColor, "gamma_b", &iv) && iv >= 10 && iv <= 500)
         g_config.gammaB = (uint32_t)iv;
     ambient_rebuild_perchannel_gamma_luts();
 
@@ -373,9 +288,9 @@ void ambient_load_config(void)
 
     if (ini_table_get_entry_as_int(table, "timing", "update_frequency_hz", &iv) && iv > 0 && iv <= 240)
         g_config.updateFrequencyHz = (uint32_t)iv;
-    if (ini_table_get_entry_as_bool(table, "timing", "smoothing_enabled", &bv))
+    if (ini_table_get_entry_as_bool(table, sTiming, "smoothing_enabled", &bv))
         g_config.smoothingEnabled = bv ? 1 : 0;
-    if (ini_table_get_entry_as_int(table, "timing", "settling_time_ms", &iv) && iv >= 0)
+    if (ini_table_get_entry_as_int(table, sTiming, "settling_time_ms", &iv) && iv >= 0)
         g_config.settlingTimeMs = (uint32_t)iv;
     if (ini_table_get_entry_as_int(table, "timing", "config_reload_check_seconds", &iv) && iv >= 0)
         g_config.configReloadCheckSeconds = (uint32_t)iv;

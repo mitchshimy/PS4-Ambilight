@@ -125,6 +125,12 @@ int32_t attr_public plugin_load(int32_t argc, const char* argv[])
     if (sys_sdk_proc_info(&procInfo) == 0 && strcmp(procInfo.titleid, "SHMY00091") == 0) {
         return 0;
     }
+    // v3.8: the title picks the preset (see media_titles.h). Left empty if
+    // sys_sdk_proc_info failed, which just means no title matches.
+    if (procInfo.titleid[0] != '\0') {
+        strncpy(g_titleId, procInfo.titleid, sizeof(g_titleId) - 1);
+        g_titleId[sizeof(g_titleId) - 1] = '\0';
+    }
 
     ambient_load_config(); // v2.0: read /data/ps4_ambient_light.ini, or write a default template if absent
     buildZoneGeometry();   // fill g_zoneX/g_zoneY (now config-driven counts/corner/direction/offset/margins)

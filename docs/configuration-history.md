@@ -21,6 +21,7 @@ one exception is a removed key, which is ignored, not migrated.
 | v2.9 | `auto_letterbox_enabled` (off), `auto_letterbox_threshold`, `auto_letterbox_stability_frames`, `auto_letterbox_check_interval_frames`. |
 | v3.0 | **`capture_margin_*` removed.** Old values are ignored. `auto_letterbox_enabled` now defaults to `true`. |
 | v3.3 | `scan_depth` is limited to 0 to 4, and a value above 4 is **rejected** and the default (1) is kept. `saturation` and `contrast` are limited to 100 and clamped on load, so an old `saturation=175` becomes 100 rather than resetting. |
+| v3.8 | **Presets.** `[presets] active=` and two complete sections, `[preset_game]` and `[preset_movie]`, hold `scan_depth`, the letterbox threshold and enable, brightness, gamma, saturation, black and white level, contrast, `dark_threshold`, the per-channel brightness and gamma, `smoothing_enabled` and `settling_time_ms`. With a preset section present those keys are read only from it, and the old flat copies in `[layout]`, `[color]` and `[timing]` are ignored. An ini with no preset section still reads those flat keys. Apps in `media_titles.h` always run the movie preset. The two letterbox timing keys and the setup keys stay where they were. |
 
 ## Defaults that moved
 
@@ -51,10 +52,10 @@ The app also hides `auto_letterbox_stability_frames` and
 [letterbox-detection](debugging/letterbox-detection.md#why-stability-and-recheck-are-hidden-in-the-app).
 It clamps them itself when loading (1 to 30 and 1 to 300).
 
-The app also writes `[presets] active=` and the full set of Customization values for its
-Game and Movie presets to `[preset_game]` and `[preset_movie]`, with the same key names and
-value formats as the flat keys. The plugin doesn't read those sections. The flat `[color]`,
-`[timing]` and `[layout]` keys always hold the active preset's values, and that is what
-the plugin runs.
+From v3.8 the app saves the presets and no longer writes the flat `[color]`, `[timing]` and
+`[layout]` copies of their values, and it removes the ones an older file had on the first
+save. It also drops the two hidden letterbox timing keys when they equal their defaults. The
+app's ini reader has never kept comments, so a save also strips the comments the plugin
+generated.
 
 The app's Edge depth, Saturation and Contrast ranges follow the plugin's v3.3 caps.

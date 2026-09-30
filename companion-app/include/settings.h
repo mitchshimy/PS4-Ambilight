@@ -2,6 +2,7 @@
 #define SETTINGS_H
 
 #include "color_pipeline.h"
+#include "config.h"
 #include <stdbool.h>
 #include <stddef.h>
 
@@ -93,6 +94,20 @@ bool settings_load(AmbientConfig *cfg, const char *path);
 // this always produces a fresh, canonical layout. Returns false on
 // write failure (path unwritable, etc.).
 bool settings_save(const AmbientConfig *cfg, const char *path);
+
+// True for the values a preset owns: every real row on the Customization screen
+// (not the "ui" rows -- the preset selector, its reset button, the smoothing
+// shortcut -- and not text or button rows). Setup values are never preset-owned.
+bool settings_item_is_preset_owned(const MenuItem *item);
+
+// Puts the setup keys (and, if `presetKeys`, the flat preset-owned keys too) into
+// `table`, which should already hold the current file so unknown sections survive.
+// With presetKeys == false the preset-owned keys are REMOVED from their old flat
+// sections, and the two hidden letterbox timing keys are only kept if they differ
+// from their defaults. That is
+// the concise layout presets_save writes; settings_save (presetKeys == true) is the
+// old all-flat layout.
+void settings_fill_table(ini_table_s *table, const AmbientConfig *cfg, bool presetKeys);
 
 // Generic get/set through a MenuItem's offset -- used by the UI so
 // navigation/adjustment code is written once, not per-field.

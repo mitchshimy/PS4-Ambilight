@@ -22,7 +22,12 @@
 attr_public const char *g_pluginName = "ps4_ambient_light";
 attr_public const char *g_pluginDesc = "Live per-frame ambient light: detiles the real scanout buffer and streams zone colors to WLED";
 attr_public const char *g_pluginAuth = "(null)";
-attr_public uint32_t g_pluginVersion = 0x00000307; // v3.6 -> v3.7:
+attr_public uint32_t g_pluginVersion = 0x00000308; // v3.7 -> v3.8:
+// Game and Movie presets. The ini holds two complete presets and the plugin
+// reads the one [presets] active= names, or Movie for a title in
+// media_titles.h. An ini from before v3.8 reads as it always did -- see
+// preset_select.h and settings.c.
+// v3.6 -> v3.7:
 // AMBIENT_SAMPLE_LAG defaults to 2 (two flips back), which needs a second
 // tracked slot, g_prevPrevDisplayBufferIndex below. The sampler no longer
 // reads the hook-reported slot while that history fills in, and re-reads

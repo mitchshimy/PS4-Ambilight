@@ -107,6 +107,17 @@ changes while it is read. A filter that only trusted a change after two passes w
 tried first and removed, since a stale slot stays stale.
 [sample-lag-and-boot-flash](debugging/sample-lag-and-boot-flash.md).
 
+**v3.8.** Game and movie content wanted different smoothing (Netflix looked best with
+about 200 ms, a shooter with the responsive setting), and changing it by hand each time was
+the annoyance. The ini now
+holds two complete presets, and Netflix and YouTube pick Movie by their title ID. The first
+version of this kept the flat keys in step with the active preset so an unchanged plugin
+kept working, which stored every value twice. Once the plugin read the presets itself the
+copies were dropped, at the cost of the app and plugin having to be updated together. One
+of the five title IDs that were suggested for the list, `CUSA05682`, turned out to be
+Horizon Zero Dawn, which would have put a game on the movie preset. The list now holds only
+IDs confirmed against independent sources.
+
 Along the way `main.c` grew to 3,240 lines and was split into modules (Sep 23).
 It is `main.c` plus 11 files now, with the split described in
 [architecture](architecture.md).

@@ -162,7 +162,9 @@ guessing at a combination.
 
 ### Screen sampling & picture tuning
 
-Under `[layout]` (capture side) and `[color]`:
+These belong to a preset (see below), so they sit in `[preset_game]` and `[preset_movie]`.
+`color_order` is the exception: it describes your strip, so it stays under `[color]`.
+An ini from before v3.8 has them under `[layout]` and `[color]` and still works.
 
 - **`auto_letterbox_enabled`** (default `true`) -- detects black letterbox/pillarbox bars and
   insets sampling to stay off them, per edge independently (so e.g. a status bar rendered only
@@ -217,7 +219,9 @@ in the ini -- it's called out explicitly in the shipped default file too.
 
 ### Timing
 
-Under `[timing]`:
+`update_frequency_hz` and `config_reload_check_seconds` are under `[timing]`.
+`smoothing_enabled` and `settling_time_ms` belong to a preset (see below) and sit in
+`[preset_game]` and `[preset_movie]`:
 
 - **`update_frequency_hz`** -- how many times per second to sample and send color (default 30).
 - **`smoothing_enabled`** / **`settling_time_ms`** -- blends each new sample with the previous
@@ -226,14 +230,26 @@ Under `[timing]`:
   screen also offers a **Smoothing preset** picker (Off/Responsive/Balanced/Smooth) as a
   convenience over these two -- it's a UI-only shortcut that just writes canonical values into
   them (50/50/200/500ms), not a separate ini key of its own.
-  Separately, Customization has **Game / Movie presets**: each holds its own full set of
-  Customization values (smoothing included), so switching between them doesn't disturb either.
-  The plugin only ever reads the flat keys, which the app keeps set to the active preset; both
-  presets are also stored under `[preset_game]` / `[preset_movie]` (with `[presets] active=`)
-  for the app's own use.
 - **`config_reload_check_seconds`** -- how often, in seconds, the plugin re-reads the ini file
   *while a game is running* and applies changes live. `0` reverts to the original v2.0 behavior
   of reading the file once, at plugin load, only.
+
+### Game and Movie presets
+
+The ini holds two complete sets of picture and motion settings, `[preset_game]` and
+`[preset_movie]`, and `[presets] active=` says which one runs. Movie is tuned for film: sampling
+depth 4, 80% brightness, gamma 2.4 and 200 ms of smoothing, where Game uses depth 2, gamma 2.2
+and 50 ms so flashes and camera moves aren't dulled. Netflix and YouTube run Movie by
+themselves whatever `active` says, matched by title ID against
+`plugin/include/media_titles.h` (to add an app, put its ID there and rebuild the plugin). The
+companion app's Customization screen edits whichever preset is selected, and its Reset button
+puts that preset back to its shipped values.
+
+A preset is everything the Customization screen shows. It never includes the WLED address, LED
+layout, color order, update rate or reload interval. Those are stored once, in `[network]`,
+`[layout]`, `[color]` and `[timing]`. Turn WLED's own color gamma off for the DDP stream, or it
+stacks with the preset's gamma. The plugin and companion app go together: app and plugin
+from v3.8 on both use this layout, and an older plugin doesn't read the presets.
 
 ### HDR / pixel format handling
 

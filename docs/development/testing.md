@@ -32,6 +32,11 @@ What has actually been used to check the plugin:
 - **`tools/test_hdr2200_vote.c`.** The same kind of host test for the `0x80002200`
   vote, on hand-written cases and 281 real frames from HITMAN 3 and RDR2 in
   `tools/data/hdr2200_frames.csv`. See [tools](tools.md#test_hdr2200_votec).
+- **`tools/test_plugin_config.c`.** Runs the plugin's real `ambient_load_config()` on a PC
+  against sample inis: the generated default, both presets, the media title list, an ini
+  from before presets, a live switch between presets, and the exact file the companion app
+  writes (`tools/data/preset_ini_golden.ini`). Only the console calls it makes are stand-ins.
+  See [tools](tools.md#test_plugin_configc).
 - **Offline replicas.** Several algorithms were run in Python first against real
   captures, then ported: the zone geometry for all 8 corner and direction
   combinations, the saturation formula, gamma tables, the dark threshold hysteresis,
@@ -72,6 +77,9 @@ int sceKernelClose(int32_t);
 H
 
 cd companion-app
+gcc -w -I. -Iinclude -I../plugin/include -I/tmp/stub -o /tmp/test_presets tests/test_presets.c \
+    source/settings.c source/presets.c source/config.c tests/test_sce_stubs.c
+/tmp/test_presets   # needs ../plugin and ../tools, so run it from companion-app/
 gcc -w -I. -Iinclude -I/tmp/stub -o /tmp/test_pipeline tests/test_pipeline.c \
     source/settings.c source/config.c source/color_pipeline.c source/layout.c \
     source/sha256.c tests/test_sce_stubs.c

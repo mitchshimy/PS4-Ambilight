@@ -10,6 +10,7 @@
 #include "presets.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 static const char *kStartCornerNames[] = { "bottom_left", "bottom_right", "top_left", "top_right" };
 static const char *kDirectionNames[]   = { "clockwise", "counterclockwise" };
@@ -359,11 +360,33 @@ bool settings_load(AmbientConfig *cfg, const char *path)
     return true;
 }
 
-bool settings_save(const AmbientConfig *cfg, const char *path)
+bool settings_item_is_preset_owned(const MenuItem *item)
 {
-    ini_table_s *table = ini_table_create();
-    if (table == NULL) return false;
+    return item->screen == MENU_SCREEN_CUSTOMIZE && strcmp(item->section, "ui") != 0
+        && item->type != FIELD_STRING && item->type != FIELD_ACTION;
+}
 
+// Removes `key` from `section`. ini_table_s is a plain struct (see config.h), so this
+// edits it directly. (Comment lines never get here: ini_table_read_from_file drops
+// them, which is why an app save has always stripped the plugin's generated comments.)
+static void ini_remove_entry(ini_table_s *table, const char *section, const char *key)
+{
+    for (int i = 0; i < table->size; i++) {
+        ini_section_s *sec = &table->section[i];
+        if (strcmp(sec->name, section) != 0) continue;
+        for (int q = 0; q < sec->size; q++) {
+            if (strcmp(sec->entry[q].key, key) != 0) continue;
+            free(sec->entry[q].key);
+            free(sec->entry[q].value);
+            memmove(&sec->entry[q], &sec->entry[q + 1], (size_t)(sec->size - q - 1) * sizeof(ini_entry_s));
+            sec->size--;
+            return;
+        }
+    }
+}
+
+void settings_fill_table(ini_table_s *table, const AmbientConfig *cfg, bool presetKeys)
+{
     // MERGE FIX (reapplied -- this line of work still hasn't picked it
     // up as of v16): this used to start from a blank table containing
     // ONLY the fields this app knows about, then write that out --
@@ -372,8 +395,9 @@ bool settings_save(const AmbientConfig *cfg, const char *path)
     // light v2.2.5, confirmed working on real hardware). Loading the
     // existing file into the same table FIRST, then upserting just the
     // known fields on top of it via the same ini_table_create_entry
-    // calls already below, preserves everything else untouched.
-    ini_table_read_from_file(table, path);
+    // calls already below, preserves everything else untouched. (The
+    // read happens in the callers now: settings_save and presets_save
+    // load the file into `table` before calling this.)
 
     // BUG FIX: relay_host/relay_port/relay_signal_enabled have no
     // settings-UI row (by design -- this app doesn't manage them), so
@@ -440,6 +464,29 @@ bool settings_save(const AmbientConfig *cfg, const char *path)
 
     #undef SET_INT
 
+    if (!presetKeys) {
+        // Concise layout: what a preset owns lives in its [preset_*] section only.
+        for (int i = 0; i < kMenuItemCount; i++)
+            if (settings_item_is_preset_owned(&kMenuItems[i]))
+                ini_remove_entry(table, kMenuItems[i].section, kMenuItems[i].key);
+
+        // The two letterbox timings have no row in the app and are tuned together with
+        // the plugin's detection scan, so a file only carries them if someone changed them.
+        AmbientConfig d;
+        settings_set_defaults(&d);
+        if (cfg->autoLetterboxStabilityFrames == d.autoLetterboxStabilityFrames)
+            ini_remove_entry(table, "layout", "auto_letterbox_stability_frames");
+        if (cfg->autoLetterboxCheckIntervalFrames == d.autoLetterboxCheckIntervalFrames)
+            ini_remove_entry(table, "layout", "auto_letterbox_check_interval_frames");
+    }
+}
+
+bool settings_save(const AmbientConfig *cfg, const char *path)
+{
+    ini_table_s *table = ini_table_create();
+    if (table == NULL) return false;
+    ini_table_read_from_file(table, path);   // merge into the existing file, see settings_fill_table
+    settings_fill_table(table, cfg, true);
     bool ok = ini_table_write_to_file(table, path);
     ini_table_destroy(table);
     return ok;
