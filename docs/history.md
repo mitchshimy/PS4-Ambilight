@@ -98,6 +98,15 @@ first frame with picture data. The first build voted PQ for about 0.2 s during a
 fade-in from black, which a hardware capture showed and a spread check on the top
 bytes fixed. [hdr2200-alpha-detection](debugging/hdr2200-alpha-detection.md).
 
+**v3.7.** Red Dead Redemption flickered at about 58 fps with the v3.3 fix, and going
+to two flips back needed a second tracked slot, because setting the lag to 2 had
+compiled to the same code as 1. Lag 2 then showed a flash at game boot in God of War
+Ragnarok, from the sampler reading the not yet finished slot before it had any history.
+It now waits for the history, and re-reads a zone that jumps to catch a buffer that
+changes while it is read. A filter that only trusted a change after two passes was
+tried first and removed, since a stale slot stays stale.
+[sample-lag-and-boot-flash](debugging/sample-lag-and-boot-flash.md).
+
 Along the way `main.c` grew to 3,240 lines and was split into modules (Sep 23).
 It is `main.c` plus 11 files now, with the split described in
 [architecture](architecture.md).

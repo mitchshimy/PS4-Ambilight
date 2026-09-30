@@ -7,7 +7,8 @@ just the titles that taught something. Anything not here hasn't been captured, s
 | Title | What was seen | Where to read more |
 |---|---|---|
 | Assassin's Creed III Remastered (CUSA11711) | SDR `0x80000000`, 3-slot swap chain, about 30 fps. Static menu flickered until v3.3. A letterboxed cutscene still flickers (open). | [framebuffer-flicker](framebuffer-flicker.md) |
-| God of War Ragnarok | Dark loading screens flashed the strip until v3.3. The game resubmits the same buffer index for seconds while still writing to it. | [framebuffer-flicker](framebuffer-flicker.md#second-title-god-of-war-ragnarok-load-screens) |
+| God of War Ragnarok | Dark loading screens flashed the strip until v3.3. The game resubmits the same buffer index for seconds while still writing to it. At lag 2 the first pass after game boot could read a half-drawn slot and flash, one launch in seven; fixed in v3.7 by waiting for the lag history. | [framebuffer-flicker](framebuffer-flicker.md#second-title-god-of-war-ragnarok-load-screens), [sample-lag-and-boot-flash](sample-lag-and-boot-flash.md) |
+| Red Dead Redemption | About 58 fps, registers `0x80002200`. Flickered and flashed unrelated colors with the console's HDR setting on or off, the same both ways. The HDR vote stayed on SDR for the whole capture (alpha byte `0xff` on every check, no mode change), so the format detection was ruled out. One flip of lag (v3.3) was not enough, the buffer was still being written; lag 2 fixed it in v3.7. | [sample-lag-and-boot-flash](sample-lag-and-boot-flash.md) |
 | Shadow of the Tomb Raider | Never lit the strip, in SDR (`0x80000000`) or HDR (`0x88740000`), until v3.1. It calls the `ForWorkload` flip entry point directly. Two swap-chain slots. | [videoout-hooks](videoout-hooks.md) |
 | HITMAN 3 | Reports `0x80002200`. That ID is A8B8G8R8 with HDR off and PQ data with HDR on, and it never re-registers. The smoothness detector took 43 to 53 s from boot to decide. Since v3.6 the alpha byte decides on the first frame with data (4.4 to 4.8 s in captures, the game's own loading time). Fades to and from black in SDR write partial alpha bytes, which the vote holds on. HDR changes only apply after a restart. | [hdr2200-alpha-detection](hdr2200-alpha-detection.md), [hdr-pixel-format](hdr-pixel-format.md) |
 | Red Dead Redemption 2 | Same `0x80002200` behavior as HITMAN 3, HDR on or off, no re-registration. Decided on the first frame with data since v3.6 (1.95 s with HDR on, 0.34 s off). HDR on is very dark, nearly every word has a top byte of `0xc0` to `0xc4`. An HDR change only applies after a restart. | [hdr2200-alpha-detection](hdr2200-alpha-detection.md) |
@@ -21,9 +22,13 @@ just the titles that taught something. Anything not here hasn't been captured, s
   timeout on flip gaps. The v2.7.3 guard did and made idle screens flicker, see
   [black-screen-shows-color](black-screen-shows-color.md).
 - **Some titles re-submit the same buffer index** for a long stretch while still
-  drawing into it (GOWR loads). The previous-slot read in
+  drawing into it (GOWR loads). The lagged-slot read in
   [buffer-selection](buffer-selection.md) exists because of this, and it is also the
   reason a title that resubmits without alternating is listed there as untested.
+- **How many flips of lag is enough depends on the frame rate and the GPU load.** One
+  was enough at 30 fps and not for RDR1 at about 58. If a title flickers and the
+  analyzer's pipeline read matches a lag it shouldn't, check the build's
+  `AMBIENT_SAMPLE_LAG` before blaming the title.
 - **A title can skip the flip wrapper.** If the flip count stays at 0 while
   registration looks normal, check for an unhooked flip entry point.
 - **Format IDs can be ambiguous.** Most titles re-register with a new ID when HDR

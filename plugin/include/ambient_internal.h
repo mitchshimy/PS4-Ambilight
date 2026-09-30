@@ -275,11 +275,19 @@ extern volatile uint32_t g_activeFormat;
 extern volatile int      g_haveValidFormat;
 extern volatile uint32_t g_currentDisplayBufferIndex;
 extern volatile uint32_t g_prevDisplayBufferIndex;
+extern volatile uint32_t g_prevPrevDisplayBufferIndex;
 
 // How many flips back the sampler reads. 0 = the slot the hook just reported
-// (can be cleared / half drawn: causes flicker), 1 = previous flip (finished).
+// (can be cleared / half drawn: causes flicker), 1 = previous flip (finished),
+// 2 = two flips back. sample_thread.c reads g_prevDisplayBufferIndex or
+// g_prevPrevDisplayBufferIndex accordingly -- each level needs its own
+// tracked variable, there's no way to derive "N flips back" from just the
+// current index. Default 2: at about 60 fps one flip back was not enough for
+// the GPU to finish the slot (Red Dead Redemption), and a value above 1 did
+// nothing at all before v3.7. Values above 2 behave as 2.
+// See docs/debugging/sample-lag-and-boot-flash.md.
 #ifndef AMBIENT_SAMPLE_LAG
-#define AMBIENT_SAMPLE_LAG 1
+#define AMBIENT_SAMPLE_LAG 2
 #endif
 extern int32_t (*sceVideoOutRegisterBuffersPtr)(int32_t handle, int32_t startIndex,
                                           void *const *addresses, int32_t bufferNum,

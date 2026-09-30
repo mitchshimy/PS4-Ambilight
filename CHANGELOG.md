@@ -5,6 +5,56 @@ companion app) are documented here, newest first.
 
 ## Plugin
 
+### v3.7
+- Fixed flicker and flashes of unrelated colors in Red Dead Redemption (about 58 fps, the
+  same with the console's HDR setting on or off). `AMBIENT_SAMPLE_LAG` had only ever been tested as `>= 1`, so setting it
+  to 2 compiled to exactly the behavior of 1: nothing tracked a second step back. At 30 fps
+  one flip of lag was enough for the GPU to finish the slot, at 58 fps it wasn't. Three
+  captures taken at "lag 2" before this were byte-identical to the lag 1 ones, which is how
+  the no-op showed. `hooks.c` now tracks `g_prevPrevDisplayBufferIndex` (two real flips
+  back, same only-on-a-real-change rule as the first) and the default is 2. **Confirmed on
+  real hardware**: the largest output jump in the same RDR1 scene went from 18,670 to
+  1,319, the analyzer's verdict went from "output is not steady" to "output is steady",
+  the pipeline's read matched the lag 2 slot on 100% of passes, and the flashes were gone
+  by eye. Costs one more flip of latency than v3.3: about 33 ms at 60 fps, 66 ms at 30.
+- Fixed a flash at game boot that showed up in God of War Ragnarok once the default went
+  to 2. Until the lag history exists (three different buffer indices at lag 2) the sampler
+  used to fall back to the slot the hook had just reported, which is the one the GPU is
+  about to draw into, and that first read also seeds the smoothing with nothing to fall
+  back to. In the capture that caught it, the first pass after boot (`seq` 0, flip counter
+  4) read a bright value in one zone while all three buffers re-read black in the same
+  pass, and the output then decayed over about 8 passes; a second capture showed the same
+  decay from its first pass. The sampler now reads no frame until the history exists and
+  the strip stays as it was. A title that never changes slot gets the old fallback after
+  30 passes (about 1 s at 30 Hz), so it isn't left dark for the whole game. The flash was
+  intermittent (it showed in one launch out of seven), so this rests on the mechanism in
+  the captures and on the result: 7 launches in a row without a flash, and a 5.7 s capture
+  from the first pass with no output change on any of its 155 passes. The strip lights a
+  few passes later at game start (estimated at about 100 ms at GOWR's flip rate, not
+  measured).
+- A zone whose new read jumps by more than 8 (per channel, 0 to 255) is now read again
+  from the same buffer after the rest of the pass, and if the two reads disagree the new
+  value is dropped and the last accepted one kept, for at most 3 passes in a row per
+  zone. That catches a buffer that changes while it is being read, whatever lag it was
+  picked with, and costs nothing on a static screen (no zone is flagged) or on a real
+  change (a stable buffer agrees with itself, so it is accepted on the first pass).
+  Color processing and the dark threshold now run once, after this, on the value that
+  was accepted, so a dropped read never moves their hysteresis. A stale slot that is not
+  being written during the pass reads the same twice and is not caught. A persistence
+  gate (trust a change only after it holds for 2 passes) was tried first and removed: a
+  stale slot that stays stale holds, so it let the GOWR flash through, and it delayed
+  every real change by a pass.
+- Write-up, including the wrong turns:
+  [`docs/debugging/sample-lag-and-boot-flash.md`](docs/debugging/sample-lag-and-boot-flash.md).
+  `buffer-selection.md` is updated for the second tracked slot.
+- Debug builds only: no new packets. FLK1's `curIdx` is still the slot the hook reported,
+  so the analyzer's ring-lag columns line up. Nothing in the ini changed.
+- Not done: no release build was captured. RDR1 is the only 60 fps title captured. The
+  first frame after a reset (boot, a letterbox commit, a settings reload) is accepted
+  without the re-read, since there is no earlier value to keep. The cost of the second
+  read on a frame where the whole scene changes was not measured. Single-buffer swap
+  chains only ever hit the 30 pass fallback in the logic, no real title was seen doing it.
+
 ### v3.6
 - HITMAN 3 and RDR2, both `0x80002200`, now switch to the HDR decode on the first
   frame with picture data instead of after 53 s. That ID is A8B8G8R8 with the

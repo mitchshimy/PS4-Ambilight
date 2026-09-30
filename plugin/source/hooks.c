@@ -22,7 +22,13 @@
 attr_public const char *g_pluginName = "ps4_ambient_light";
 attr_public const char *g_pluginDesc = "Live per-frame ambient light: detiles the real scanout buffer and streams zone colors to WLED";
 attr_public const char *g_pluginAuth = "(null)";
-attr_public uint32_t g_pluginVersion = 0x00000306; // v3.5 -> v3.6:
+attr_public uint32_t g_pluginVersion = 0x00000307; // v3.6 -> v3.7:
+// AMBIENT_SAMPLE_LAG defaults to 2 (two flips back), which needs a second
+// tracked slot, g_prevPrevDisplayBufferIndex below. The sampler no longer
+// reads the hook-reported slot while that history fills in, and re-reads
+// zones that jump to catch a buffer that changes mid-read -- see
+// sample_thread.c and docs/debugging/sample-lag-and-boot-flash.md.
+// v3.5 -> v3.6:
 // Format 0x80002200 (HITMAN 3, RDR2) is decided per frame from the alpha byte
 // of 8 zone words, before the older smoothness check gets a say -- see
 // detectHdr2200Fast in zones.c, hdr2200_vote.h and
@@ -317,11 +323,21 @@ volatile uint32_t g_currentDisplayBufferIndex = 0xFFFFFFFFu; // sentinel: no fli
 // real flip (same index twice) don't overwrite it.
 volatile uint32_t g_prevDisplayBufferIndex = 0xFFFFFFFFu;
 
+// Slot of the flip before THAT one (two real flips back). Same sentinel and
+// same only-on-a-real-change rule as g_prevDisplayBufferIndex above. Before
+// v3.7 AMBIENT_SAMPLE_LAG was only ever tested as ">= 1", so a build set to 2
+// compiled to exactly the same behaviour as 1: nothing tracked a second step
+// back. Red Dead Redemption (about 58 fps) still flickered at lag 1, and
+// three captures taken at "lag 2" were byte-identical to the lag 1 ones.
+// See docs/debugging/sample-lag-and-boot-flash.md.
+volatile uint32_t g_prevPrevDisplayBufferIndex = 0xFFFFFFFFu;
+
 static inline void record_flip_index(uint32_t idx)
 {
     uint32_t cur = g_currentDisplayBufferIndex;
     if (idx != cur) {
-        g_prevDisplayBufferIndex = cur; // may be the sentinel on the first flip; sampler falls back
+        g_prevPrevDisplayBufferIndex = g_prevDisplayBufferIndex;
+        g_prevDisplayBufferIndex = cur; // may be the sentinel on the first flip; the sampler waits for history (see sample_thread.c)
         g_currentDisplayBufferIndex = idx;
     }
 }

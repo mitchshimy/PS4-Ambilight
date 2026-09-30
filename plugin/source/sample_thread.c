@@ -66,6 +66,34 @@
 // = 200" should be read as "roughly", not as a precise guarantee.
 static uint8_t g_smoothedRgb[MAX_TOTAL_ZONES][3];
 bool g_smoothedRgbValid = false; // false until the first real frame, so startup doesn't fade in from black
+
+// v3.7 read-verify. A zone whose new read differs a lot from the last accepted
+// one is re-read from the SAME buffer once the whole pass has finished
+// sampling; if the two reads of one buffer disagree, the buffer was still
+// being written (or cleared) while we looked, so the new value is discarded
+// and the last accepted one is kept.
+// This is title-agnostic: it never asks "which buffer / how many flips back",
+// only "did this buffer hold still for the length of one pass".
+//
+// Tried first and dropped: a gate that only trusted a change once it held for
+// 2 passes. A stale slot that stays stale repeats, so it "persists" and gets
+// trusted, and every real transition paid an extra pass of delay for it (a GOWR
+// capture showed the flash get through). Read-verify costs nothing on static
+// content (no zone is flagged) and adds no delay to a real change: a stable
+// buffer reads the same twice, so it is accepted on the first pass.
+//
+// Known limit: a stale slot that is genuinely not being touched during the
+// pass reads identically twice and is accepted; only a buffer that changes
+// under the sampler is caught. The hold is capped (VERIFY_MAX_HOLD passes per
+// zone) so a title that rewrites its buffer continuously cannot freeze the
+// lights. State resets with g_smoothedRgbValid (first frame, letterbox commit,
+// live settings reload) so a deliberate hard cut is accepted immediately.
+#define VERIFY_TOLERANCE 8   // raw 0-255 per channel: below this, a change isn't worth re-reading
+#define VERIFY_MAX_HOLD  3   // consecutive passes one zone may be held before the new read is accepted anyway
+static uint8_t g_acceptedRawRgb[MAX_TOTAL_ZONES][3]; // last verified RAW read per zone (pre color-processing)
+static uint8_t g_verifyHold[MAX_TOTAL_ZONES];        // consecutive passes this zone has been held
+static uint8_t s_rawFirst[MAX_TOTAL_ZONES][3];       // this pass's first read
+static uint8_t s_suspect[MAX_TOTAL_ZONES];           // 1 = differs a lot from accepted, needs the re-read
 #if (__FINAL__) == 0
 static uint32_t s_rawDiagFrameCounter = 0; // v2.2.2: throttles the raw-pixel diagnostic packet to ~1x/sec (debug-only, see v2.2.4 gating note at its use site)
 #endif
@@ -171,17 +199,50 @@ void *ambient_sample_thread(void *args)
                                        ? g_bufferAddrs[displayBufferIndex] : 0;
 #if AMBIENT_SAMPLE_LAG >= 1
         {
-            // Read the previously flipped slot, which the GPU has finished
-            // drawing; the slot the hook just reported may be mid-render.
-            // Falls back to the reported slot until a previous one is known.
-            // A blank/no-frame flip (index sentinel) keeps the old path
-            // (liveBufferAddr == 0 -> keepalive) instead of re-reading the
-            // last real slot.
+            // Read a slot N flips back, which the GPU has had longer to
+            // finish drawing; the slot the hook just reported may be
+            // mid-render. Waits (see the v3.7 note below) until enough history
+            // is known. A blank/no-frame flip (index sentinel) keeps
+            // the old path (liveBufferAddr == 0 -> keepalive) instead of
+            // re-reading a real slot.
+            //
+            // AMBIENT_SAMPLE_LAG only selects WHICH tracked variable to read
+            // -- there is no way to derive "N flips back" from the current
+            // index alone, so each level needs hooks.c to track its own
+            // variable (g_prevDisplayBufferIndex for 1,
+            // g_prevPrevDisplayBufferIndex for 2). A value of 2 used to
+            // silently read the same slot as 1, since the old `>= 1` check
+            // is also true for 2 and nothing tracked a second step back --
+            // confirmed by three RDR1 captures at "lag 2" that were
+            // byte-identical to lag 1. See docs/debugging/sample-lag-and-boot-flash.md.
+#if AMBIENT_SAMPLE_LAG >= 2
+            uint32_t prevIdx = g_prevPrevDisplayBufferIndex;
+#else
             uint32_t prevIdx = g_prevDisplayBufferIndex;
-            if (displayBufferIndex != 0xFFFFFFFFu &&
-                prevIdx != 0xFFFFFFFFu && prevIdx < (uint32_t)MAX_TRACKED_BUFFERS &&
-                g_bufferAddrs[prevIdx] != 0) {
-                liveBufferAddr = g_bufferAddrs[prevIdx];
+#endif
+            // v3.7: until the lag history exists, do NOT fall back to the
+            // slot the hook just reported -- that is exactly the slot the
+            // GPU is about to render into. Two GOWR captures (seq 0, flip
+            // counter 4, i.e. the first pass after game boot) showed a
+            // bright raw read there while all three buffers re-read black in
+            // the same pass; that first read also seeds smoothing with no
+            // prior value to fall back to, so it decayed on the strip as a
+            // visible flash. No frame is sampled (liveBufferAddr = 0, the
+            // existing keepalive path) for up to LAG_HISTORY_WAIT_PASSES
+            // passes; a title that really never changes slot (single
+            // buffer) then gets the old behaviour instead of staying dark.
+#define LAG_HISTORY_WAIT_PASSES 30 // ~1 s at 30 Hz
+            static uint32_t s_noHistoryPasses = 0;
+            if (displayBufferIndex != 0xFFFFFFFFu) {
+                if (prevIdx != 0xFFFFFFFFu && prevIdx < (uint32_t)MAX_TRACKED_BUFFERS &&
+                    g_bufferAddrs[prevIdx] != 0) {
+                    liveBufferAddr = g_bufferAddrs[prevIdx];
+                    s_noHistoryPasses = 0;
+                } else if (s_noHistoryPasses < LAG_HISTORY_WAIT_PASSES) {
+                    s_noHistoryPasses++;
+                    liveBufferAddr = 0;
+                }
+                // else: waited long enough -- keep the reported slot (old fallback)
             }
         }
 #endif
@@ -237,6 +298,10 @@ void *ambient_sample_thread(void *args)
                 uint32_t probeZoneIdx[6];
                 for (int pk = 0; pk < 6; pk++) probeZoneIdx[pk] = ((uint32_t)(2 * pk + 1) * g_numZones) / 12u;
 #endif
+                // Pass 1: sample every zone from the chosen buffer. Nothing
+                // stateful (color processing, dark threshold) runs yet, so a
+                // read that later gets rejected leaves no trace.
+                bool anySuspect = false;
                 for (uint32_t i = 0; i < g_numZones; i++) {
                     uint8_t r, g, b;
                     sampleZoneAverage(&kParamsBase, liveBufferAddr, unpack,
@@ -246,20 +311,72 @@ void *ambient_sample_thread(void *args)
                         if (probeZoneIdx[pk] == i) { probeRaw[pk][0] = r; probeRaw[pk][1] = g; probeRaw[pk][2] = b; break; }
                     }
 #endif
+                    s_rawFirst[i][0] = r; s_rawFirst[i][1] = g; s_rawFirst[i][2] = b;
+                    s_suspect[i] = 0;
+                    if (g_smoothedRgbValid) {
+                        for (int c = 0; c < 3; c++) {
+                            int32_t d = (int32_t)s_rawFirst[i][c] - (int32_t)g_acceptedRawRgb[i][c];
+                            if (d < 0) d = -d;
+                            if (d > VERIFY_TOLERANCE) { s_suspect[i] = 1; anySuspect = true; break; }
+                        }
+                    }
+                    if (!s_suspect[i]) g_verifyHold[i] = 0; // quiet zone: hold streak ends (a suspect zone keeps its count across passes)
+                }
 
-                    uint8_t processed[3];
-                    applyColorProcessing(r, g, b, processed);
-                    applyDarkThreshold(i, &processed[0], &processed[1], &processed[2]);
+                // Pass 2: only zones that moved a lot are re-read, from the
+                // same buffer, now that the rest of the pass has elapsed. Two
+                // reads of one buffer that disagree mean it was mid-write.
+                // (When a whole scene really changes every zone is re-read
+                // once -- a stable buffer just agrees with itself.)
+                if (anySuspect) {
+                    for (uint32_t i = 0; i < g_numZones; i++) {
+                        if (!s_suspect[i]) { g_verifyHold[i] = 0; continue; }
+                        uint8_t r2, g2, b2;
+                        sampleZoneAverage(&kParamsBase, liveBufferAddr, unpack,
+                                           g_zoneX[i], g_zoneY[i], &r2, &g2, &b2);
+                        bool torn = false;
+                        int32_t d0 = (int32_t)r2 - (int32_t)s_rawFirst[i][0];
+                        int32_t d1 = (int32_t)g2 - (int32_t)s_rawFirst[i][1];
+                        int32_t d2 = (int32_t)b2 - (int32_t)s_rawFirst[i][2];
+                        if (d0 < 0) d0 = -d0;
+                        if (d1 < 0) d1 = -d1;
+                        if (d2 < 0) d2 = -d2;
+                        if (d0 > VERIFY_TOLERANCE || d1 > VERIFY_TOLERANCE || d2 > VERIFY_TOLERANCE) torn = true;
+                        if (torn && g_verifyHold[i] < VERIFY_MAX_HOLD) {
+                            g_verifyHold[i]++;
+                            // discard: keep the last accepted value for this zone
+                            s_rawFirst[i][0] = g_acceptedRawRgb[i][0];
+                            s_rawFirst[i][1] = g_acceptedRawRgb[i][1];
+                            s_rawFirst[i][2] = g_acceptedRawRgb[i][2];
+                        } else {
+                            g_verifyHold[i] = 0; // stable, or held long enough: accept
+                            if (torn) { s_rawFirst[i][0] = r2; s_rawFirst[i][1] = g2; s_rawFirst[i][2] = b2; } // cap hit: newest read wins
+                        }
+                    }
+                }
+
+                // Pass 3: color processing, smoothing and output on the
+                // verified value. Color processing/dark-threshold hysteresis
+                // therefore runs exactly once per zone per pass, on a value
+                // that was actually accepted.
+                for (uint32_t i = 0; i < g_numZones; i++) {
+                    g_acceptedRawRgb[i][0] = s_rawFirst[i][0];
+                    g_acceptedRawRgb[i][1] = s_rawFirst[i][1];
+                    g_acceptedRawRgb[i][2] = s_rawFirst[i][2];
+
+                    uint8_t verified[3];
+                    applyColorProcessing(s_rawFirst[i][0], s_rawFirst[i][1], s_rawFirst[i][2], verified);
+                    applyDarkThreshold(i, &verified[0], &verified[1], &verified[2]);
 
                     if (g_config.smoothingEnabled) {
                         if (!g_smoothedRgbValid) {
-                            g_smoothedRgb[i][0] = processed[0];
-                            g_smoothedRgb[i][1] = processed[1];
-                            g_smoothedRgb[i][2] = processed[2];
+                            g_smoothedRgb[i][0] = verified[0];
+                            g_smoothedRgb[i][1] = verified[1];
+                            g_smoothedRgb[i][2] = verified[2];
                         } else {
                             for (int c = 0; c < 3; c++) {
                                 int32_t prev = g_smoothedRgb[i][c];
-                                int32_t raw = processed[c];
+                                int32_t raw = verified[c];
                                 int32_t delta = ((raw - prev) * (int32_t)smoothingAlpha) / 256;
                                 // v2.7.5: C's / truncates toward zero, not
                                 // toward -infinity -- so once |raw-prev| is
@@ -290,9 +407,9 @@ void *ambient_sample_thread(void *args)
                         rgbTriplets[i*3+1] = g_smoothedRgb[i][1];
                         rgbTriplets[i*3+2] = g_smoothedRgb[i][2];
                     } else {
-                        rgbTriplets[i*3+0] = processed[0];
-                        rgbTriplets[i*3+1] = processed[1];
-                        rgbTriplets[i*3+2] = processed[2];
+                        rgbTriplets[i*3+0] = verified[0];
+                        rgbTriplets[i*3+1] = verified[1];
+                        rgbTriplets[i*3+2] = verified[2];
                     }
                 }
                 g_smoothedRgbValid = true;
@@ -397,7 +514,7 @@ void *ambient_sample_thread(void *args)
 #endif
 
 #if (__FINAL__) == 0
-                // v2.2.4: gated behind __FINAL__==0 (make DEBUG=1), same
+                // v2.2.4: verified behind __FINAL__==0 (make DEBUG=1), same
                 // idiom frame_logger/force_1080p_display already use in
                 // this repo. As written through v2.2.3, this ran
                 // unconditionally on every real release build for every

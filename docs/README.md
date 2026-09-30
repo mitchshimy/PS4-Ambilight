@@ -16,8 +16,10 @@ Investigations with the evidence and the wrong turns left in.
 
 - [framebuffer-flicker](debugging/framebuffer-flicker.md): the v3.3 flicker and
   load-screen flashes
-- [buffer-selection](debugging/buffer-selection.md): why the previous flip's slot is
-  read
+- [buffer-selection](debugging/buffer-selection.md): why a slot from one or two flips back
+  is read
+- [sample-lag-and-boot-flash](debugging/sample-lag-and-boot-flash.md): Red Dead
+  Redemption at 58 fps, a lag setting that did nothing, and the boot flash lag 2 showed
 - [videoout-hooks](debugging/videoout-hooks.md): the three flip hooks, and the title
   that never lit up
 - [wled-heartbeat](debugging/wled-heartbeat.md): WLED's realtime timeout and the

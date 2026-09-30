@@ -322,9 +322,12 @@ tracks which buffer slot is which. See
 [`docs/debugging/videoout-hooks.md`](docs/debugging/videoout-hooks.md).
 
 **Buffer selection.** The flip hooks fire at submit time, so the slot they report can be
-half-drawn. The sampler reads the previous flip's slot instead. See
-[`docs/debugging/buffer-selection.md`](docs/debugging/buffer-selection.md) and the investigation
-behind it in [`framebuffer-flicker.md`](docs/debugging/framebuffer-flicker.md).
+half-drawn. The sampler reads the slot from two flips back instead (one was enough at 30 fps,
+not at 58), waits for that history to exist before it samples anything, and re-reads a zone that
+jumps in case the buffer changed under it. See
+[`docs/debugging/buffer-selection.md`](docs/debugging/buffer-selection.md) and the investigations
+behind it in [`framebuffer-flicker.md`](docs/debugging/framebuffer-flicker.md) and
+[`sample-lag-and-boot-flash.md`](docs/debugging/sample-lag-and-boot-flash.md).
 
 **Pixel formats and tiling.** It reads the console's active pixel format at runtime and only
 decodes formats it has explicit unpack code for, including the console's tiled memory layout. See

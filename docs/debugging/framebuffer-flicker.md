@@ -7,7 +7,9 @@ the captures and the wrong turns kept in.
 
 The fix itself (read the previous flip's slot) is written up in
 [buffer-selection.md](buffer-selection.md). Why the hook-reported slot is unsafe
-is in [videoout-hooks.md](videoout-hooks.md).
+is in [videoout-hooks.md](videoout-hooks.md). One flip back turned out not to be
+enough at about 58 fps, and the default went to two in v3.7, see
+[sample-lag-and-boot-flash.md](sample-lag-and-boot-flash.md).
 
 ## Symptom
 
