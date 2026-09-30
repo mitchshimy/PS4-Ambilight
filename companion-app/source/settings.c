@@ -7,12 +7,17 @@
 
 #include "settings.h"
 #include "config.h"
+#include "presets.h"
 #include <string.h>
 #include <stdio.h>
 
 static const char *kStartCornerNames[] = { "bottom_left", "bottom_right", "top_left", "top_right" };
 static const char *kDirectionNames[]   = { "clockwise", "counterclockwise" };
 static const char *kColorOrderNames[]  = { "RGB", "RBG", "GRB", "GBR", "BRG", "BGR" };
+const char *kGammaNames[8] = { "1.0", "1.4", "1.8", "2.0", "2.2", "2.4", "2.6", "2.8" };
+// Lives here, not in presets.c, because the Preset row in kMenuItems points at it:
+// anything that links settings.c (the isolation tests, mostly) must not also need presets.c.
+const char *kPresetNames[PRESET_COUNT] = { "Game", "Movie" };
 
 // v2.9: smoothing presets, ported from the Android "inspiration"
 // project's own ColorSmoothing.kt (applyPreset) -- the ms values are
@@ -117,6 +122,15 @@ const MenuItem kMenuItems[] = {
     // ======================== Customize ========================
     // Capped at 4, not the plugin's old ceiling of 10 -- each step here
     // is (2*scan_depth+1)^2 real tiled-memory reads PER ZONE, PER
+    // Preset selector + reset button. Both are section "ui": neither is an ini key,
+    // and their offsets are dummies (same trick as smoothing_preset below) -- presets.c
+    // owns the real state, main.c's nudge_field / input code dispatch on `key`, and
+    // presets.c's own field walk skips every "ui" row.
+    { "Preset",   "ui", "preset",       FIELD_ENUM,   OFF(smoothingEnabled), 0, PRESET_COUNT - 1, 1, kPresetNames, PRESET_COUNT,
+      MENU_SCREEN_CUSTOMIZE, "Preset", "Game and Movie each keep their own settings. Everything below edits the preset shown here, so switching never overwrites the other one." },
+    { "Defaults", "ui", "preset_reset", FIELD_ACTION, OFF(smoothingEnabled), 0, 0, 1, NULL, 0,
+      MENU_SCREEN_CUSTOMIZE, "Preset", NULL },
+
     // SAMPLE-THREAD PASS (see letterbox.c's own probeNonBlack comment
     // on why a tiled read isn't a free array index). 4 still gives a
     // clearly smoother average than the default of 1 without the
@@ -321,8 +335,7 @@ bool settings_load(AmbientConfig *cfg, const char *path)
     // representation, so a file this app writes still loads correctly
     // in the real plugin.
     if ((v = ini_table_get_entry(table, "color", "gamma")) != NULL) {
-        static const char *kGammaStrings[8] = {"1.0","1.4","1.8","2.0","2.2","2.4","2.6","2.8"};
-        for (int i = 0; i < 8; i++) if (!strcmp(v, kGammaStrings[i])) { cfg->gammaLutIndex = (uint32_t)i; break; }
+        for (int i = 0; i < 8; i++) if (!strcmp(v, kGammaNames[i])) { cfg->gammaLutIndex = (uint32_t)i; break; }
     }
     if (ini_table_get_entry_as_int(table, "color", "saturation", &iv)) cfg->saturation = clamp_to_schema("color", "saturation", iv);
     cfg->colorOrder = parse_color_order(ini_table_get_entry(table, "color", "color_order"), cfg->colorOrder);
@@ -404,9 +417,8 @@ bool settings_save(const AmbientConfig *cfg, const char *path)
 
     SET_INT("color", "brightness", cfg->brightness);
     {
-        static const char *kGammaStrings[8] = {"1.0","1.4","1.8","2.0","2.2","2.4","2.6","2.8"};
         uint32_t gi = cfg->gammaLutIndex < 8 ? cfg->gammaLutIndex : 0;
-        ini_table_create_entry(table, "color", "gamma", kGammaStrings[gi]);
+        ini_table_create_entry(table, "color", "gamma", kGammaNames[gi]);
     }
     SET_INT("color", "saturation", cfg->saturation);
     ini_table_create_entry(table, "color", "color_order", kColorOrderNames[cfg->colorOrder]);

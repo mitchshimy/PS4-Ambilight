@@ -49,6 +49,7 @@ submit time, and a title that skips the flip wrapper.
 | File | Checks |
 |---|---|
 | `test_settings.c` | menu item count, ini save and load round trip |
+| `test_presets.c` | Game and Movie shipped values, switching and reset, save and reload, migrating an ini from before presets, other ini sections surviving a save |
 | `test_display_units.c` | percent display conversion, and the load time bounds on the hidden letterbox keys |
 | `test_pipeline.c` | color order remap, gamma against known values |
 | `test_layout.c` | zone layout and offset behavior |
@@ -77,10 +78,10 @@ gcc -w -I. -Iinclude -I/tmp/stub -o /tmp/test_pipeline tests/test_pipeline.c \
 /tmp/test_pipeline
 ```
 
-Current state: `test_display_units`, `test_pipeline`, `test_layout` and `test_sha256`
-pass. `test_settings` still fails at the `relayHost` round trip. That failure
+Current state: `test_display_units`, `test_pipeline`, `test_layout`, `test_sha256` and
+`test_presets` pass. `test_settings` still fails at the `relayHost` round trip. That failure
 predates the current work and is noted in the changelog. Its menu item assert
-(31) was a stale number that got corrected.
+is 33 (it was a stale 31; the two Preset card rows are the difference).
 
 CI doesn't run these, see [ci-and-releases](ci-and-releases.md). Nothing in the
 workflow calls them, so run them yourself before a release if you touched `settings.c`,

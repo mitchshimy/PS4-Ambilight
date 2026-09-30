@@ -10,6 +10,7 @@
 #include "ui_icons.h"
 #include "led_frame.h"
 #include "help_qr.h"
+#include "presets.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -89,6 +90,8 @@ static UiIconId icon_for_key(const char *key)
     if (!strcmp(key, "black_level"))                                     return ICON_MOON;
     if (!strcmp(key, "white_level"))                                     return ICON_SUN_FILLED;
     if (!strcmp(key, "contrast"))                                        return ICON_SPLIT;
+    if (!strcmp(key, "preset"))                                          return ICON_LEVELS;
+    if (!strcmp(key, "preset_reset"))                                    return ICON_REFRESH;
     if (!strcmp(key, "smoothing_enabled"))                               return ICON_WAVES;
     if (!strcmp(key, "smoothing_preset"))                                return ICON_WAVES;
     if (!strcmp(key, "settling_time_ms"))                                return ICON_CLOCK;
@@ -115,7 +118,7 @@ static UiColor label_color_for_key(const char *key)
 // not "every enum is a pill".
 static bool is_pill_enum(const char *key)
 {
-    return !strcmp(key, "led_start_corner") || !strcmp(key, "led_direction");
+    return !strcmp(key, "led_start_corner") || !strcmp(key, "led_direction") || !strcmp(key, "preset");
 }
 
 // Fields the blueprint gives a fixed column width instead of letting
@@ -143,6 +146,7 @@ static const char *format_value(const MenuItem *item, const AmbientConfig *cfg, 
         if (!strcmp(item->key, "led_direction"))     return kDirLabels[v & 1];
         if (!strcmp(item->key, "color_order"))       return kOrderLabels[v % 6];
         if (!strcmp(item->key, "smoothing_preset"))  return kSmoothingPresetNames[smoothing_preset_index(cfg)];
+        if (!strcmp(item->key, "preset"))            return kPresetNames[preset_active() % PRESET_COUNT];
         return (v >= 0 && v < item->enumCount) ? item->enumNames[v] : "?";
     }
     if (!strcmp(item->key, "gamma")) {
@@ -175,6 +179,7 @@ typedef struct {
 } GroupLayout;
 
 static const GroupLayout kGroupLayouts[] = {
+    { "Preset",              ICON_LEVELS,      {2},    1, 0.0f,  false },
     { "WLED connection",     ICON_WIFI,        {3},    1, 0.0f,  false },
     { "LED strip layout",    ICON_LED_STRIP,   {4,4},  2, 0.0f,  true  },
     { "Live reload",         ICON_REFRESH,     {1},    1, 0.0f,  false },
@@ -282,6 +287,18 @@ static int build_group_cards(MenuScreen screen, const AmbientConfig *cfg, int fo
                 if (item->type == FIELD_BOOL) {
                     field.kind = UI_FIELD_TOGGLE;
                     field.toggleOn = settings_get_i32(cfg, item) != 0;
+                } else if (item->type == FIELD_ACTION) {
+                    // Only action today is the preset reset. Its text says which
+                    // preset it will reset, and what the next press will do.
+                    field.kind = UI_FIELD_BUTTON;
+                    field.valueIcon = field.labelIcon;
+                    field.armed = preset_reset_is_armed();
+                    if (vb->n < 24) {
+                        char *d = vb->s[vb->n++];
+                        if (field.armed) snprintf(d, 40, "Press again to confirm");
+                        else             snprintf(d, 40, "Reset %s", kPresetNames[preset_active() % PRESET_COUNT]);
+                        field.value = d;
+                    }
                 } else if (item->type == FIELD_ENUM && is_pill_enum(item->key)) {
                     field.kind = UI_FIELD_PILL;
                     field.value = format_value(item, cfg, vb);
@@ -567,7 +584,7 @@ float ui_screen_content_height(const UiFonts *f, const AmbientConfig *cfg, UiScr
 {
     if (screen == UI_SCREEN_HELP) return help_content_height(f);
 
-    UiCard cards[6]; UiField fields[32]; UiFieldRow rows[10];
+    UiCard cards[8]; UiField fields[32]; UiFieldRow rows[12];
     ValueBuf vb; vb.n = 0;
     UiState st; memset(&st, 0, sizeof(st)); st.focusField = -1;
 
@@ -589,7 +606,7 @@ bool ui_screen_focus_bounds(const UiFonts *f, const AmbientConfig *cfg, UiScreen
 {
     if (fieldIndex < 0) return false;
 
-    UiCard cards[6]; UiField fields[32]; UiFieldRow rows[10];
+    UiCard cards[8]; UiField fields[32]; UiFieldRow rows[12];
     ValueBuf vb; vb.n = 0;
     UiState st; memset(&st, 0, sizeof(st)); st.focusField = -1; st.screen = screen;
 
@@ -619,7 +636,7 @@ static void render_settings_screen(UiCanvas *c, const UiFonts *f, const AmbientC
     ui_draw_scene(c);
     ui_page_header(c, f, title, subtitle);
 
-    UiCard cards[6]; UiField fields[32]; UiFieldRow rows[10];
+    UiCard cards[8]; UiField fields[32]; UiFieldRow rows[12];
     ValueBuf vb; vb.n = 0;
     int n = build_cards(cfg, st, st->screen, &vb, cards, fields, rows);
 
@@ -708,6 +725,8 @@ static void render_settings_screen(UiCanvas *c, const UiFonts *f, const AmbientC
 // ---------------------------------------------------------------
 // Home
 // ---------------------------------------------------------------
+
+static void render_home_credit(UiCanvas *c, const UiFonts *f);
 
 void ui_render_home_static(UiCanvas *c, const UiFonts *f, const AmbientConfig *cfg, const UiState *st)
 {
@@ -896,6 +915,39 @@ void ui_render_home_static(UiCanvas *c, const UiFonts *f, const AmbientConfig *c
                           st->statusIsError ? COL_WARN : COL_TEXT_LABEL);
         }
     }
+
+    render_home_credit(c, f);
+}
+
+// "by Shimy", bottom-right of Home. Right-aligned to the same 144px
+// margin as the page content, a small amber bar on its left (the same
+// accent every card carries), "by" in the muted label colour and the
+// name itself in amber display type so it reads as a signature rather
+// than another hint. The Test Strip's edge ticks sit within ~22px of
+// the screen edge at the deepest scan setting, so this stays well
+// clear of them.
+static void render_home_credit(UiCanvas *c, const UiFonts *f)
+{
+    UiFont *nameFont = f->credit ? f->credit : f->cta;   // Michroma, or Space Grotesk if that file is missing
+    const char *by   = "by";
+    const char *name = "Shimy";
+
+    const float gapBarText = 14.0f, gapByName = 12.0f, barW = 3.0f;
+    float nameW = ui_text_width(nameFont, name);
+    float byW   = ui_text_width(f->pageSub, by);
+
+    float right = PAGE_W - PAGE_MARGIN_X;
+    float nameX = right - nameW;
+    float byX   = nameX - gapByName - byW;
+    float barX  = byX - gapBarText - barW;
+
+    float baseline = PAGE_H - 60.0f;
+    float lineH = ui_font_line_normal(nameFont);
+    float barTop = baseline - lineH * 0.78f;
+    ui_fill_rect(c, ui_rect(barX, barTop, barW, lineH * 0.78f), COL_AMBER);
+
+    ui_text_draw(c, f->pageSub, byX, baseline, by, COL_TEXT_LABEL);
+    ui_text_draw(c, nameFont, nameX, baseline, name, COL_AMBER);
 }
 
 // Thin wrapper matching this function's old combined behavior, used

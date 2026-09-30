@@ -73,6 +73,8 @@ typedef struct {
     UiFont *monoBanner;     // 400 / 15px
     UiFont *monoStatus;     // 400 / 14px
     UiFont *monoKeycap;     // 500 / 12px
+
+    UiFont *credit;         // Michroma 400 / 30px -- the "by Shimy" mark on Home (display face, not in the blueprint)
 } UiFonts;
 
 // fontDir is the directory holding the bundled .ttf files, with no

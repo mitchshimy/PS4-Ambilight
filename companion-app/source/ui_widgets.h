@@ -32,7 +32,8 @@
 typedef enum {
     UI_FIELD_INPUT,   // .input   -- dark box, mono value
     UI_FIELD_PILL,    // .pill    -- raised box, leading icon, mono value
-    UI_FIELD_TOGGLE   // the inline toggle-row used by Smoothing
+    UI_FIELD_TOGGLE,  // the inline toggle-row used by Smoothing
+    UI_FIELD_BUTTON   // an action, drawn like a pill; `armed` swaps it to the amber "press again" look
 } UiFieldKind;
 
 typedef struct {
@@ -44,6 +45,7 @@ typedef struct {
     const char *value;
     UiIconId valueIcon;    // .pill only
     bool toggleOn;         // UI_FIELD_TOGGLE only
+    bool armed;            // UI_FIELD_BUTTON only -- waiting on a confirming second press
 
     bool focused;          // draws the bracket focus marks
 

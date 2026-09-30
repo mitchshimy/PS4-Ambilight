@@ -409,6 +409,24 @@ The companion app is a standalone PS4 homebrew UI (not a GoldHEN
 plugin) for editing the plugin's ini config on-console, with a live
 color preview and a plugin self-updater.
 
+- Added Game and Movie presets to Customization. A Preset card at the top
+  switches between them (D-Pad or L1/R1), and every value below it belongs
+  to the preset showing, so switching never overwrites the other one's
+  tweaks. There is no Custom mode: editing a field edits the preset you're
+  in, and Reset (X twice) puts just that preset back to its shipped values.
+  Game ships at edge depth 2, brightness 100%, saturation +35%, gamma 2.2,
+  black level 0% and smoothing on at 50 ms. Movie ships at edge depth 4,
+  brightness 80%, saturation +25%, gamma 2.4, black level 1% and smoothing
+  on at 300 ms. Everything else stays at the plugin default. The gammas
+  assume WLED isn't applying its own gamma to the DDP stream. Setup values
+  are never part of a preset. The plugin isn't changed: the flat `[color]`,
+  `[timing]` and `[layout]` keys it reads always hold the active preset,
+  and both presets are also written in full to `[preset_game]` and
+  `[preset_movie]` with `[presets] active=`. An ini from before presets
+  keeps its tuning as Game and Movie starts as a copy with Movie's
+  smoothing. New `source/presets.c` and `tests/test_presets.c`.
+- Added a "by Shimy" credit at the bottom right of Home, in Michroma (SIL
+  OFL, licence in `assets/fonts`).
 - Fixed the Save button losing its focus highlight on Customize. The
   screen field counts were hardcoded (`SETUP_FIELD_COUNT` 12,
   `CUST_FIELD_COUNT` 20), so once rows were hidden from the schema the

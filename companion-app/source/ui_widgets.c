@@ -201,6 +201,7 @@ static float field_control_height(const UiFonts *f, const UiField *fd)
 {
     switch (fd->kind) {
         case UI_FIELD_PILL:
+        case UI_FIELD_BUTTON:
             return 2 * INPUT_BORDER + 2 * PILL_PAD_Y
                  + fmaxf2(PILL_ICON, ui_font_line_normal(f->monoPill));
         case UI_FIELD_TOGGLE:
@@ -314,20 +315,23 @@ static void draw_input(UiCanvas *c, const UiFonts *f, UiRect r, const char *valu
 
 static void draw_pill(UiCanvas *c, const UiFonts *f, UiRect r, const UiField *fd)
 {
-    ui_fill_round_rect(c, r, ui_radius_all(RADIUS_INPUT), COL_PANEL_BG_RAISED);
-    ui_stroke_round_rect(c, r, ui_radius_all(RADIUS_INPUT), INPUT_BORDER, COL_INPUT_BORDER);
+    // A button waiting on its confirming press gets the amber treatment so
+    // it can't be mistaken for a plain resting one.
+    bool armed = (fd->kind == UI_FIELD_BUTTON) && fd->armed;
+    ui_fill_round_rect(c, r, ui_radius_all(RADIUS_INPUT), armed ? COL_AMBER_DIM : COL_PANEL_BG_RAISED);
+    ui_stroke_round_rect(c, r, ui_radius_all(RADIUS_INPUT), INPUT_BORDER, armed ? COL_AMBER : COL_INPUT_BORDER);
 
     float lineH = fmaxf2(PILL_ICON, ui_font_line_normal(f->monoPill));
     float contentTop = r.y + INPUT_BORDER + PILL_PAD_Y;
     float x = r.x + INPUT_BORDER + PILL_PAD_X;
 
     if (fd->valueIcon != ICON_NONE) {
-        ui_icon_draw(c, fd->valueIcon, x, contentTop + (lineH - PILL_ICON) * 0.5f, PILL_ICON, COL_TEXT_LABEL);
+        ui_icon_draw(c, fd->valueIcon, x, contentTop + (lineH - PILL_ICON) * 0.5f, PILL_ICON, armed ? COL_AMBER : COL_TEXT_LABEL);
         x += PILL_ICON + PILL_GAP;
     }
     float baseline = ui_text_baseline_for_box(f->monoPill,
                                                contentTop + (lineH - ui_font_line_normal(f->monoPill)) * 0.5f, 0.0f);
-    ui_text_draw(c, f->monoPill, x, baseline, fd->value ? fd->value : "", COL_TEXT_VALUE);
+    ui_text_draw(c, f->monoPill, x, baseline, fd->value ? fd->value : "", armed ? COL_AMBER : COL_TEXT_VALUE);
 
     if (fd->focused) ui_focus_brackets(c, r, COL_AMBER);
 }
@@ -383,7 +387,8 @@ static void draw_field(UiCanvas *c, const UiFonts *f, const UiField *fd, float x
     UiRect r = ui_rect(x, cy, w, field_control_height(f, fd));
 
     switch (fd->kind) {
-        case UI_FIELD_PILL:   draw_pill(c, f, r, fd); break;
+        case UI_FIELD_PILL:
+        case UI_FIELD_BUTTON: draw_pill(c, f, r, fd); break;
         case UI_FIELD_TOGGLE: draw_toggle(c, f, r, fd); break;
         case UI_FIELD_INPUT:
         default:              draw_input(c, f, r, fd->value, fd->focused); break;

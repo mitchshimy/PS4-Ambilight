@@ -96,8 +96,9 @@ build.bat <intermediate_dir> ps4_ambient_light_companion <output_dir>
 - `source/settings.c` / `include/settings.h` -- ini schema + load/save
 - `source/color_pipeline.c` / `include/color_pipeline.h` -- live preview math (mirrors the plugin)
 - `source/ddp.c` / `include/ddp.h` -- WLED UDP sender (mirrors the plugin)
+- `source/presets.c` / `include/presets.h` -- Game / Movie presets: shipped values, per-preset storage, switching, reset
 - `source/config.c` / `include/config.h` -- ini_table parser (shared with the plugin)
 - `source/layout.c` / `include/layout.h` -- full-strip LED layout geometry (physical wire order + on-screen position)
 - `source/help_qr.c` / `include/help_qr.h` -- builds and caches the Help screen's QR bitmap (points at this repo's README `## Help` section)
 - `source/qrcodegen.c` / `include/qrcodegen.h` -- vendored, unmodified: [Project Nayuki's QR Code generator library](https://github.com/nayuki/QR-Code-generator) (C edition, MIT license)
-- `tests/test_settings.c`, `tests/test_pipeline.c`, `tests/test_display_units.c` -- isolation tests; `gcc -Iinclude -o test_x test_x.c source/x.c source/config.c tests/test_sce_stubs.c` to rerun
+- `tests/test_settings.c`, `tests/test_pipeline.c`, `tests/test_display_units.c`, `tests/test_presets.c` -- isolation tests; `gcc -Iinclude -o test_x test_x.c source/x.c source/config.c tests/test_sce_stubs.c` to rerun

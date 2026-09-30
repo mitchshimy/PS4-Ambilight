@@ -54,6 +54,7 @@
 #include <orbis/SystemService.h>
 
 #include "settings.h"
+#include "presets.h"
 #include "color_pipeline.h"
 #include "ddp.h"
 #include "relay_signal.h"
@@ -1618,9 +1619,18 @@ static void handle_home_input(bool up, bool down, bool left, bool right, bool cr
 #define SAVE_CONFIRM_DURATION_MS 1600u
 static uint32_t g_saveConfirmUntilMs = 0;
 
+// The flat ini keys the plugin reads (written by settings_save) hold the
+// active preset; presets_save then adds both presets' full values on top.
+// Every place that persists g_cfg goes through this so the two never diverge.
+static bool save_config(void)
+{
+    if (!settings_save(&g_cfg, AMBIENT_CONFIG_PATH)) return false;
+    return presets_save(&g_cfg, AMBIENT_CONFIG_PATH);
+}
+
 static void do_save(void)
 {
-    if (settings_save(&g_cfg, AMBIENT_CONFIG_PATH)) {
+    if (save_config()) {
         snprintf(g_state.statusLine, sizeof(g_state.statusLine),
                  "%s -- the plugin picks this up on its own reload check.", AMBIENT_CONFIG_PATH);
         g_state.statusIsSaved = true;
@@ -1652,6 +1662,20 @@ static void do_save(void)
 static void nudge_field(const MenuItem *item, int dir)
 {
     if (item->type == FIELD_STRING) return; // no numeric nudge for an IP
+
+    if (!strcmp(item->key, "preset")) {
+        // Game <-> Movie. presets.c stashes the values we're leaving and loads
+        // the other preset's into g_cfg, so nothing is lost either way.
+        int next = (preset_active() + (dir < 0 ? PRESET_COUNT - 1 : 1)) % PRESET_COUNT;
+        preset_select(&g_cfg, next);
+        colorpipeline_rebuild_perchannel_gamma_luts(&g_cfg);
+        char msg[128];
+        snprintf(msg, sizeof(msg), "Preset: %s.", kPresetNames[next]);
+        set_status(msg, false);
+        return;
+    }
+
+    if (item->type == FIELD_ACTION) return; // buttons are pressed (cross), not nudged
 
     if (!strcmp(item->key, "smoothing_preset")) {
         // Not a real field -- see settings.h/settings.c -- so it can't
@@ -1712,6 +1736,9 @@ static void handle_settings_input(bool up, bool down, bool left, bool right,
 
     if (moved) { scroll_to_focus(g_fonts, fieldCount); g_dirty = true; }
 
+    // Anything other than the confirming press itself cancels a pending reset.
+    if (moved || l1 || r1 || circle) { preset_reset_disarm(); g_dirty = true; }
+
     bool onSaveButton = (g_state.focusField >= fieldCount);
 
     if (cross) {
@@ -1719,7 +1746,21 @@ static void handle_settings_input(bool up, bool down, bool left, bool right,
             do_save();
         } else {
             const MenuItem *item = &kMenuItems[start + g_state.focusField];
-            if (item->type == FIELD_BOOL) nudge_field(item, +1);
+            if (item->type == FIELD_ACTION) {
+                // Reset preset: first press arms, second press does it.
+                if (!preset_reset_is_armed()) {
+                    preset_reset_arm();
+                    char msg[128];
+                    snprintf(msg, sizeof(msg), "Press X again to reset %s to its defaults.", kPresetNames[preset_active()]);
+                    set_status(msg, false);
+                } else {
+                    preset_reset_active(&g_cfg);
+                    colorpipeline_rebuild_perchannel_gamma_luts(&g_cfg);
+                    char msg[128];
+                    snprintf(msg, sizeof(msg), "%s reset to its defaults -- save to keep it.", kPresetNames[preset_active()]);
+                    set_status(msg, false);
+                }
+            } else if (item->type == FIELD_BOOL) nudge_field(item, +1);
             else if (item->type == FIELD_ENUM) nudge_field(item, +1);
             else open_field_ime_dialog(start + g_state.focusField);
         }
@@ -1797,6 +1838,9 @@ int main(void)
         settings_set_defaults(&g_cfg);
         printf("[main] no config at %s -- using defaults\n", AMBIENT_CONFIG_PATH);
     }
+    // After settings_load/defaults: reads the Game/Movie presets, migrates an
+    // ini from before presets existed, and leaves g_cfg showing the active one.
+    presets_init(&g_cfg, AMBIENT_CONFIG_PATH);
     colorpipeline_rebuild_perchannel_gamma_luts(&g_cfg);
 
     // Not SDL_INIT_JOYSTICK: input comes from the native scePad API
@@ -2069,7 +2113,7 @@ int main(void)
     // from the Save button, just without that function's UI feedback
     // (status line / "Saved!" confirmation) since the app is already
     // on its way out.
-    settings_save(&g_cfg, AMBIENT_CONFIG_PATH);
+    save_config();
 
     if (g_imeDialogOpen) sceImeDialogTerm();
     // Defensive final "off" if the signal was last left on -- this app

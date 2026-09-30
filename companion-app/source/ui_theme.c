@@ -52,6 +52,11 @@ bool ui_fonts_load(UiFonts *o, const char *dir)
     o->monoStatus = load(dir, JB_R, 14);
     o->monoKeycap = load(dir, JB_M, 12);
 
+    // Not part of the blueprint's type system, and deliberately optional:
+    // if the file's missing the Home credit falls back to Space Grotesk
+    // (see render_home_credit) rather than failing startup over a signature.
+    o->credit     = load(dir, "Michroma-Regular.ttf", 30);
+
     // Space Grotesk has no glyph for the circle/cross used in the
     // controller hints ("Press ○ to go back", the ✕ keycap). The
     // browser silently falls back for those two characters; do the

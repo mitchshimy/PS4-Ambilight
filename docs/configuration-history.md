@@ -51,4 +51,10 @@ The app also hides `auto_letterbox_stability_frames` and
 [letterbox-detection](debugging/letterbox-detection.md#why-stability-and-recheck-are-hidden-in-the-app).
 It clamps them itself when loading (1 to 30 and 1 to 300).
 
+The app also writes `[presets] active=` and the full set of Customization values for its
+Game and Movie presets to `[preset_game]` and `[preset_movie]`, with the same key names and
+value formats as the flat keys. The plugin doesn't read those sections. The flat `[color]`,
+`[timing]` and `[layout]` keys always hold the active preset's values, and that is what
+the plugin runs.
+
 The app's Edge depth, Saturation and Contrast ranges follow the plugin's v3.3 caps.

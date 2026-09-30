@@ -226,6 +226,11 @@ Under `[timing]`:
   screen also offers a **Smoothing preset** picker (Off/Responsive/Balanced/Smooth) as a
   convenience over these two -- it's a UI-only shortcut that just writes canonical values into
   them (50/50/200/500ms), not a separate ini key of its own.
+  Separately, Customization has **Game / Movie presets**: each holds its own full set of
+  Customization values (smoothing included), so switching between them doesn't disturb either.
+  The plugin only ever reads the flat keys, which the app keeps set to the active preset; both
+  presets are also stored under `[preset_game]` / `[preset_movie]` (with `[presets] active=`)
+  for the app's own use.
 - **`config_reload_check_seconds`** -- how often, in seconds, the plugin re-reads the ini file
   *while a game is running* and applies changes live. `0` reverts to the original v2.0 behavior
   of reading the file once, at plugin load, only.

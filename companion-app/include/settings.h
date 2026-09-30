@@ -16,6 +16,8 @@ typedef enum {
     FIELD_BOOL,    // smoothingEnabled
     FIELD_STRING,  // wledHost -- edited via on-screen keyboard (see ime.h)
     FIELD_ENUM,    // startCorner / direction / colorOrder -- cycled via a string list
+    FIELD_ACTION,  // a button, not a value (Customization's "reset preset") -- has no
+                   // storage; get/set are no-ops and main.c's input code dispatches on `key`
 } FieldType;
 
 // Which of the two settings screens (Set Up / Customisation) an item
@@ -113,6 +115,11 @@ void settings_set_i32(AmbientConfig *cfg, const MenuItem *item, int32_t value);
 // field. The kMenuItems row for this uses section "ui" (not a real ini
 // section) precisely so it's never mistaken for one of the actual
 // plugin-schema entries around it.
+// The eight gamma presets, as the ini stores them (a string, not the
+// index the struct holds). Shared by settings.c's load/save and the
+// preset sections written by presets.c so all three can't drift.
+extern const char *kGammaNames[8];
+
 #define SMOOTHING_PRESET_COUNT 4
 extern const char *kSmoothingPresetNames[SMOOTHING_PRESET_COUNT]; // "Off","Responsive","Balanced","Smooth"
 int smoothing_preset_index(const AmbientConfig *cfg);             // derives the current bucket from the two real fields
