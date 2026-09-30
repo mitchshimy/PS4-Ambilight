@@ -307,6 +307,12 @@ release is the first thing to try.
   appearing.
 - **HDR titles look badly wrong, not just slightly off.** See HDR / pixel format handling
   above -- make sure you're on the latest plugin release.
+- **A game crashes as soon as the plugin is enabled, or a title's strip stays dark while
+  others work.** Mortal Kombat 11 did both before v3.9: its display buffers are GPU-only and
+  the CPU may not read them. The plugin now asks the console first and, for a buffer like
+  that, allows the read, so update to the latest plugin release. If another title still
+  does it, that's worth a report with a debug capture, see
+  [`docs/debugging/gpu-only-buffers.md`](docs/debugging/gpu-only-buffers.md).
 - **The Home screen's install button seems stuck on the wrong state**, e.g. still shows
   **Install** after you already installed it. Fully close and reopen the companion app -- a few
   older builds had install-state staleness bugs in specific spots (e.g. Home's **Test Strip**
@@ -375,7 +381,7 @@ and [CI and releases](docs/development/ci-and-releases.md).
 ```
 PS4-Ambilight/
 ├── plugin/            # the GoldHEN plugin itself (runs on the PS4, hooks the video-out path)
-│   ├── source/          # main.c + 11 supporting modules (gamma, network, tiling, hooks, ...)
+│   ├── source/          # main.c + 12 supporting modules (gamma, network, tiling, hooks, ...)
 │   ├── include/         # config.h, ambient_internal.h
 │   ├── config/          # default ps4_ambient_light.ini
 │   └── Makefile

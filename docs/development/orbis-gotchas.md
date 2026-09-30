@@ -37,6 +37,28 @@ computation for all 1024 codes, so it is caching, not an approximation.
 **Keep the flip hook light.** It only records which slot was flipped. All sampling
 lives on its own thread, so a slow pass can't hold up the game.
 
+**A recognized format doesn't mean the buffer is readable (v3.9).** Mortal Kombat 11
+registers a format the plugin decodes, and its display buffers are mapped GPU-only
+(protection `0x30`, memory type 3, write-combined), so a CPU load page-faults and takes
+the game down with it. `sceKernelVirtualQuery` tells you the protection and how far the
+region extends. Ask before every pass, don't assume because the same format worked on
+another title. [gpu-only-buffers](../debugging/gpu-only-buffers.md).
+
+**A second mapping of already-mapped direct memory is refused (v3.9).**
+`sceKernelMapDirectMemory2` for a range the game has mapped returns `0x80020010`. The
+`0x8002xxxx` codes are SCE errors with the errno in the low bits, and 16 is `EBUSY`. The
+refusal is deterministic and each refused call costs about 6 ms, so a failed region has
+to be remembered, not retried every pass.
+
+**`sceKernelMprotect` can add `CPU_READ` to a GPU-only mapping (v3.9).** `0x30` to
+`0x31`, memory type unchanged, so it stays write-combined (uncached reads, about 2.5 ms
+per sampling pass on MK11, always current). Seen on one title. Verify with a fresh
+`sceKernelVirtualQuery` that the bit stuck, a call that returns 0 isn't proof.
+
+**The `sceKernelVirtualQuery` info struct's `flags` is one byte (v3.9).** Written from
+memory as four bytes at first, the capture showed the next bytes were the start of the
+region name.
+
 ## In the companion app
 
 **`O_TRUNC` is `0x0400` on Orbis.** The app opened files with `0x200 | 0x001` and a

@@ -214,7 +214,7 @@ static int detectHdr2200Fast(uint64_t bufferAddr)
     uint32_t got = 0;
     for (uint32_t i = 0; i < nSamples; i++) {
         uint64_t off = getTiledElementByteOffset(&kParamsBase, g_zoneX[i], g_zoneY[i]);
-        if (off + 4 > BASE_PADDED_BUFFER_BYTES) continue; // same safety check as detectHdr2200Format
+        if (off + 4 > g_readableLimit) continue; // same safety check as detectHdr2200Format
         memcpy(&words[got], (const void*)(bufferAddr + off), 4);
         got++;
     }
@@ -287,7 +287,7 @@ void detectHdr2200Format(uint64_t bufferAddr)
     uint32_t got = 0;
     for (uint32_t i = 0; i < nSamples; i++) {
         uint64_t off = getTiledElementByteOffset(&kParamsBase, g_zoneX[i], g_zoneY[i]);
-        if (off + 4 > BASE_PADDED_BUFFER_BYTES) continue; // same safety check sampleZoneAverage uses
+        if (off + 4 > g_readableLimit) continue; // same safety check sampleZoneAverage uses
         uint32_t px;
         memcpy(&px, (const void*)(bufferAddr + off), 4);
         unpackA8B8G8R8_to_rgb888(px, &sdrR[got], &sdrG[got], &sdrB[got]);
@@ -375,7 +375,7 @@ void detectPq8bitMisregistration(uint64_t bufferAddr)
     uint32_t got = 0;
     for (uint32_t i = 0; i < nSamples; i++) {
         uint64_t off = getTiledElementByteOffset(&kParamsBase, g_zoneX[i], g_zoneY[i]);
-        if (off + 4 > BASE_PADDED_BUFFER_BYTES) continue; // same safety check as detectHdr2200Format
+        if (off + 4 > g_readableLimit) continue; // same safety check as detectHdr2200Format
         memcpy(&words[got], (const void*)(bufferAddr + off), 4);
         got++;
     }
@@ -447,7 +447,7 @@ void sampleZoneAverage(const TileParams *p, uint64_t bufferAddr, PixelUnpackFn u
             // paid for bad-memory-access crashes once --
             // cheap insurance against a future edge case or a param
             // typo, not a sign anything is currently wrong.
-            if (off + 4 > BASE_PADDED_BUFFER_BYTES) continue;
+            if (off + 4 > g_readableLimit) continue;
             uint32_t px;
             memcpy(&px, (const void*)(bufferAddr + off), 4);
             uint8_t r, g, b;

@@ -9,6 +9,8 @@ misbehaves.
 | `flicker_capture.py` | capture and analyze the FLK1 flicker probe from a debug plugin build |
 | `udp_ground_truth_listener.py` | print every raw UDP packet on port 4048 |
 | `decode_verification_dump.py` | decode the plugin's older raw debug packets offline |
+| `decode_guard_packets.py` | decode the buffer guard's `GRDC`, `GRDI` and `RMAP` packets and the sampler's pass times from a listener log |
+| `test_buffer_guard.c` | host test for `buffer_guard.c`, run against a fake kernel, for the GPU-only buffer fix |
 | `ps4_detile_2dthin.c` | standalone reference detiler, to cross-check the plugin's tiling |
 | `test_pq8bit_vote.c` | host test for the alpha byte vote that spots 8-bit ARGB under `0x88740000` |
 | `test_hdr2200_vote.c` | host test for the alpha byte vote that picks HDR or SDR under `0x80002200` |
@@ -62,6 +64,65 @@ Some of those packets (older reload and timing diagnostics) are from versions th
 no longer send them, so it's mostly useful for old captures and for checking the HDR
 detector offline, which is how [hdr-pixel-format](../debugging/hdr-pixel-format.md)
 was validated.
+
+## decode_guard_packets.py
+
+Reads a log from `udp_ground_truth_listener.py` (UTF-8 or the UTF-16 PowerShell makes)
+and prints the v3.9 buffer guard telemetry: `GRDC` (guard counters), `GRDI` (kernel map
+info for the last rejected region), `RMAP` (remap status, with `0x80020010` called out as
+`EBUSY`), and a summary of the 36 byte timing packets (median and worst average pass,
+worst single pass, over-budget passes).
+
+```
+python tools/decode_guard_packets.py capture.log          # first and last few of each
+python tools/decode_guard_packets.py capture.log --all
+python tools/decode_guard_packets.py --selftest           # synthetic packets, no capture needed
+```
+
+It goes by the 4 byte tag, not the length: `GRDI`, `PQ8C` and `HDRV` are the same length
+after the DDP header, and a length-only decoder reads one as another. The `--selftest`
+checks that, on synthetic packets built from the layouts in `network.c`. What
+the fields mean and how to read a capture is in
+[gpu-only-buffers](../debugging/gpu-only-buffers.md#telemetry-debug-builds).
+
+## test_buffer_guard.c
+
+Builds and runs on a PC from the repo root, no console and no SDK. The two stub headers
+stand in for the GoldHEN SDK:
+
+```
+mkdir -p /tmp/stubbg
+echo '#include <stdint.h>' > /tmp/stubbg/plugin_common.h
+printf '#include <stdint.h>\n#include <stdbool.h>\n#include <string.h>\n#define BASE_PADDED_BUFFER_BYTES ((uint64_t)1920 * 1088 * 4)\n' > /tmp/stubbg/ambient_internal.h
+gcc -Wall -I/tmp/stubbg -o /tmp/test_buffer_guard tools/test_buffer_guard.c
+/tmp/test_buffer_guard
+```
+
+It `#include`s `plugin/source/buffer_guard.c` itself and supplies fake
+`sceKernelVirtualQuery`, `MapDirectMemory2`, `MapDirectMemory`, `Munmap` and `Mprotect`
+over a fake address space. 27 checks, exits 0 if all pass:
+
+- The fail-open case (`sceKernelVirtualQuery` unresolved).
+- A normal readable buffer comes back unchanged with the full limit and **no** remap call.
+  This is the no-regression case for every title that works today.
+- A readable buffer shorter than the padded size, one with a hole after it, and one split
+  over two regions.
+- An unmapped address.
+- MK11 as captured: second mapping refused with `0x80020010`, `mprotect` accepted. The
+  original address is returned, protection is `0x31`, memory type still 3, and the next
+  pass makes no further calls.
+- Everything refused, 100 passes: each method is tried exactly once. The first build
+  retried every pass (435 refusals, about 6 ms each), which is why this is here. The
+  same address re-created with a different offset gets a new try.
+- An `mprotect` that returns 0 but leaves the protection alone is treated as a failure.
+- Each `gpu_only_remap` value (0, 1, 2, 3), and 3 without `sceKernelMprotect` resolved.
+- A GPU-only region that isn't direct memory is left alone.
+- If a kernel did accept the typed second view: created with the original's memory type,
+  reused, and unmapped once the game's mapping changes.
+
+The fake kernel answers what the captures showed and nothing more. It can't tell whether
+a real kernel accepts `mprotect` for some other title's buffers, or how write-combined
+memory behaves under CPU reads. See [gpu-only-buffers](../debugging/gpu-only-buffers.md).
 
 ## ps4_detile_2dthin.c
 
@@ -138,6 +199,8 @@ title in `media_titles.h` pick the Movie section, that games and unknown titles 
 (`CUSA05682` is Horizon Zero Dawn and is checked by name), that an ini from before v3.8
 still reads as it did, that leftover flat keys are ignored once a preset exists, the
 fallbacks between presets, a live reload from one preset to the other, and the bad-value
-handling. The last case loads `tools/data/preset_ini_golden.ini`, the file the companion
+handling, and (v3.9) that the optional `[compat] gpu_only_remap` key is absent from the
+generated ini, defaults to 3, reads 0 to 3, ignores other numbers and doesn't disturb a preset.
+The last case loads `tools/data/preset_ini_golden.ini`, the file the companion
 app writes for a fresh setup. `companion-app/tests/test_presets.c` compares the app's output
 to that same file, so the app's writer and the plugin's reader can't drift apart unnoticed.

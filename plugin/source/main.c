@@ -175,6 +175,23 @@ int32_t attr_public plugin_load(int32_t argc, const char* argv[])
         sys_dynlib_dlsym(hSystemService, "sceSystemServiceGetStatus", (void**)&sceSystemServiceGetStatusPtr);
     }
 
+    // v3.9: resolve sceKernelVirtualQuery for the buffer readability guard
+    // (buffer_guard.c). Not fatal if it fails: the guard then fails open and
+    // the plugin behaves as v3.8 did.
+    {
+        int32_t hKernel = 0;
+        sys_dynlib_load_prx("libkernel.sprx", &hKernel);
+        if (hKernel != 0) {
+            sys_dynlib_dlsym(hKernel, "sceKernelVirtualQuery", (void**)&sceKernelVirtualQueryPtr);
+            // v3.9: ways to make a GPU-only buffer CPU-readable (buffer_guard.c). All optional.
+            sys_dynlib_dlsym(hKernel, "sceKernelMapDirectMemory2", (void**)&sceKernelMapDirectMemory2Ptr);
+            sys_dynlib_dlsym(hKernel, "sceKernelMapDirectMemory", (void**)&sceKernelMapDirectMemoryPtr);
+            sys_dynlib_dlsym(hKernel, "sceKernelMunmap", (void**)&sceKernelMunmapPtr);
+            sys_dynlib_dlsym(hKernel, "sceKernelMprotect", (void**)&sceKernelMprotectPtr); // v3.9
+        }
+        g_guardAvailable = (sceKernelVirtualQueryPtr != NULL) ? 1 : 0;
+    }
+
     // Same forwarding-stub guard as detile_verify_probe -- proven
     // necessary, do not skip. v3.1: extended to the two new pointers,
     // but only when they actually resolved above -- unlike the two

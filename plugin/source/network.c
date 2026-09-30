@@ -480,3 +480,74 @@ void wled_send_keepalive_if_stale(uint64_t nowTicks, uint64_t tscFreq)
     wled_send_rgb_zones(g_lastSentRgb, g_lastSentNumZones); // also resets g_lastSendTicks
 }
 
+
+// v3.9: buffer guard debug packets (debug builds only, sent from sample_thread.c about once a
+// second). Each starts with a 4 byte ASCII tag, like FLK1, PQ8C and HDRV. The tag is how to tell
+// them apart: GRDI is 48 bytes after the DDP header, the same length as PQ8C and HDRV, so a
+// decoder that goes by length alone will misread one as the other (this happened while decoding
+// the first MK11 capture, see docs/debugging/gpu-only-buffers.md).
+
+// GRDC -- guard counters, 24 bytes.
+//   [0:4]   "GRDC"
+//   [4:8]   guard_available  -- 1 if sceKernelVirtualQuery resolved (0 = the guard is failing open)
+//   [8:12]  reject_count     -- cumulative passes skipped because the buffer was not readable
+//   [12:16] last_ret         -- 0 ok, <0 VirtualQuery error, 1 unmapped gap, 2 not CPU-readable
+//   [16:24] last_bad_addr    -- last address rejected (compare with a crash report's fault address)
+// reject_count keeps counting a buffer that is later made readable only by its first rejection,
+// so on a fixed title it stops at one per slot; on a title that stays dark it climbs by the sampler
+// rate (about 30 a second).
+void send_guard_diag_packet(uint32_t available, uint32_t rejects, int32_t lastRet, uint64_t lastBadAddr)
+{
+    uint8_t packet[24];
+    memcpy(packet + 0, "GRDC", 4);
+    memcpy(packet + 4, &available, 4);
+    memcpy(packet + 8, &rejects, 4);
+    memcpy(packet + 12, &lastRet, 4);
+    memcpy(packet + 16, &lastBadAddr, 8);
+    debug_send_raw(packet, sizeof(packet));
+}
+
+// GRDI -- kernel map info for the last region that failed the readability check, 52 bytes.
+// Only sent once reject_count is above 0. It is a snapshot of the LAST failed query, so on a title
+// that was fixed by the mprotect it keeps showing the pre-fix protection (0x30) after the buffer
+// became readable; read it together with RMAP, not on its own.
+//   [0:4]   "GRDI"
+//   [4:12]  start  [12:20] end  [20:28] direct-memory offset  [28:36] address queried
+//   [36:40] protection (bit0 CPU read, bit1 CPU write, bit4 GPU read, bit5 GPU write)
+//   [40:44] memoryType (MK11: 3, write-combined)
+//   [44:48] flags byte (bit1 direct, bit4 committed; MK11: 0x12)
+//   [48:52] guard reason
+void send_guard_info_packet(uint64_t start, uint64_t end, uint64_t offset, uint64_t addr,
+                             int32_t prot, int32_t memType, uint32_t flags, int32_t ret)
+{
+    uint8_t packet[52];
+    memcpy(packet + 0, "GRDI", 4);
+    memcpy(packet + 4, &start, 8);   memcpy(packet + 12, &end, 8);
+    memcpy(packet + 20, &offset, 8); memcpy(packet + 28, &addr, 8);
+    memcpy(packet + 36, &prot, 4);   memcpy(packet + 40, &memType, 4);
+    memcpy(packet + 44, &flags, 4);  memcpy(packet + 48, &ret, 4);
+    debug_send_raw(packet, sizeof(packet));
+}
+
+// RMAP -- GPU-only buffer remap status, 28 bytes.
+//   [0:4]   "RMAP"
+//   [4:8]   flags: bits 0-3 gpu_only_remap setting (default 3), bit4 sceKernelMapDirectMemory2
+//           resolved, bit5 sceKernelMapDirectMemory resolved, bit6 sceKernelMunmap resolved,
+//           bit7 sceKernelMprotect resolved, bits 8-15 last method tried
+//           (1 typed MapDirectMemory2, 2 plain MapDirectMemory, 3 mprotect)
+//   [8:12]  created  -- buffers made readable (alias views created, or mprotects that stuck)
+//   [12:16] failed   -- regions every enabled method failed on (each is remembered, not retried)
+//   [16:20] passes   -- resolve calls served by a remap (an mprotected buffer reads directly from
+//                       the next pass on, so this stays small on a title fixed by method 3)
+//   [20:24] last_ret -- last method's return code, 0 ok. 0x80020010 = EBUSY (second mapping refused)
+//   [24:28] low 32 bits of the last alias address (0 when no alias was made)
+void send_remap_diag_packet(uint32_t flags, uint32_t created, uint32_t failed, uint32_t passes, int32_t lastRet, uint64_t lastAlias)
+{
+    uint8_t packet[28];
+    uint32_t aliasLo = (uint32_t)lastAlias;
+    memcpy(packet + 0, "RMAP", 4);
+    memcpy(packet + 4, &flags, 4);   memcpy(packet + 8, &created, 4);
+    memcpy(packet + 12, &failed, 4); memcpy(packet + 16, &passes, 4);
+    memcpy(packet + 20, &lastRet, 4); memcpy(packet + 24, &aliasLo, 4);
+    debug_send_raw(packet, sizeof(packet));
+}

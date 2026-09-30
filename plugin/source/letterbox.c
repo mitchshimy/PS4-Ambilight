@@ -187,7 +187,7 @@ static bool probeNonBlack(const TileParams *p, uint64_t bufferAddr, PixelUnpackF
                            uint32_t x, uint32_t y, uint32_t threshold)
 {
     uint64_t off = getTiledElementByteOffset(p, x, y);
-    if (off + 4 > BASE_PADDED_BUFFER_BYTES) return false;
+    if (off + 4 > g_readableLimit) return false;
     uint32_t px;
     memcpy(&px, (const void*)(bufferAddr + off), 4);
     uint8_t r, g, b;

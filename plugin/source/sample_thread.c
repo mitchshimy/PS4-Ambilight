@@ -247,6 +247,17 @@ void *ambient_sample_thread(void *args)
         }
 #endif
 
+        // v3.9: never read a buffer the kernel says is not mapped or CPU-readable. Mortal Kombat 11
+        // crashed here (SIGSEGV, page not present) on its first sampling pass: its display buffers
+        // are GPU-only (protection 0x30). ambient_resolve_readable() asks the kernel, and for a
+        // GPU-only direct-memory buffer makes it CPU-readable (buffer_guard.c), returning the
+        // address to read and setting g_readableLimit for the pixel-read bounds checks. 0 means
+        // unreadable, which takes the existing keepalive path (liveBufferAddr = 0): the strip
+        // holds its last color instead of the game dying.
+        if (liveBufferAddr != 0) {
+            liveBufferAddr = ambient_resolve_readable(liveBufferAddr);
+        }
+
 #if (__FINAL__) == 0
         // v3.1: what actually found "this title never lights up" -- see
         // hooks.c's g_pluginVersion comment. Sent UNCONDITIONALLY, not
@@ -266,6 +277,13 @@ void *ambient_sample_thread(void *args)
                                        g_submitFlipPtrResolved,
                                        g_gnmForWorkloadHookCallCount,
                                        g_gnmForWorkloadPtrResolved);
+                send_guard_diag_packet(g_guardAvailable, g_guardRejectCount, g_guardLastRet, g_guardLastBadAddr);
+                send_remap_diag_packet((g_gpuOnlyRemap & 0xF) | (sceKernelMapDirectMemory2Ptr ? 0x10u : 0) |
+                                       (sceKernelMapDirectMemoryPtr ? 0x20u : 0) | (sceKernelMunmapPtr ? 0x40u : 0) | (sceKernelMprotectPtr ? 0x80u : 0) |
+                                       ((uint32_t)g_remapLastMethod << 8),
+                                       g_remapCreated, g_remapFailed, g_remapPasses, g_remapLastRet, g_remapLastAlias);
+                if (g_guardRejectCount != 0) send_guard_info_packet(g_guardInfoStart, g_guardInfoEnd, g_guardInfoOffset, g_guardInfoAddr,
+                                                                    g_guardInfoProt, g_guardInfoMemType, g_guardInfoFlags, g_guardLastRet);
             }
         }
 #endif
@@ -485,6 +503,8 @@ void *ambient_sample_thread(void *args)
                             memcpy(zp + 5, probeRaw[k], 3);
                             for (int j = 0; j < 3; j++) {
                                 uint64_t baddr = (j < bc) ? g_bufferAddrs[j] : 0;
+                                uint64_t savedLimit = g_readableLimit;
+                                if (baddr != 0) baddr = ambient_resolve_readable(baddr); // v3.9: never raw-read a GPU-only slot
                                 if (baddr != 0) {
                                     uint8_t br, bg, bb;
                                     sampleZoneAverage(&kParamsBase, baddr, unpack,
@@ -492,6 +512,7 @@ void *ambient_sample_thread(void *args)
                                     zp[8 + j * 3 + 0] = br; zp[8 + j * 3 + 1] = bg; zp[8 + j * 3 + 2] = bb;
                                     validMask |= (uint8_t)(1u << j);
                                 }
+                                g_readableLimit = savedLimit;
                             }
                             zp += 17;
                         }
@@ -586,7 +607,7 @@ void *ambient_sample_thread(void *args)
                         uint32_t zi = diagZones[k];
                         uint64_t off = getTiledElementByteOffset(&kParamsBase, g_zoneX[zi], g_zoneY[zi]);
                         uint32_t rawPx = 0;
-                        if (off + 4 <= BASE_PADDED_BUFFER_BYTES)
+                        if (off + 4 <= g_readableLimit)
                             memcpy(&rawPx, (const void*)(liveBufferAddr + off), 4);
                         uint8_t dr, dg, db;
                         unpack(rawPx, &dr, &dg, &db);

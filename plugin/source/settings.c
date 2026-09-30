@@ -197,6 +197,14 @@ void ambient_load_config(void)
     const char *sColor  = ps ? ps : "color";
     const char *sTiming = ps ? ps : "timing";
 
+    // v3.9: [compat] gpu_only_remap. OPTIONAL: default 3, not in the shipped ini, nothing needs
+    // to set it. 0 off, 1 second CPU_READ view only, 2 also the untyped fallback, 3 also
+    // sceKernelMprotect on the game's own mapping (the only method that has worked, on MK11).
+    // It only acts on a buffer the guard already rejected as GPU-only, so it cannot change a
+    // title that reads fine today. See buffer_guard.c and docs/debugging/gpu-only-buffers.md.
+    if (ini_table_get_entry_as_int(table, "compat", "gpu_only_remap", &iv) && iv >= 0 && iv <= 3)
+        g_gpuOnlyRemap = (uint32_t)iv;
+
     if ((v = ini_table_get_entry(table, "network", "wled_host")) != NULL) {
         strncpy(g_config.wledHost, v, sizeof(g_config.wledHost) - 1);
         g_config.wledHost[sizeof(g_config.wledHost) - 1] = '\0';

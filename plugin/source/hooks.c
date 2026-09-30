@@ -22,7 +22,12 @@
 attr_public const char *g_pluginName = "ps4_ambient_light";
 attr_public const char *g_pluginDesc = "Live per-frame ambient light: detiles the real scanout buffer and streams zone colors to WLED";
 attr_public const char *g_pluginAuth = "(null)";
-attr_public uint32_t g_pluginVersion = 0x00000308; // v3.7 -> v3.8:
+attr_public uint32_t g_pluginVersion = 0x00000309; // v3.8 -> v3.9:
+// The sampler asks the kernel whether it may read a display buffer before it
+// touches it, and makes a GPU-only one (Mortal Kombat 11) CPU-readable instead
+// of crashing the game -- see buffer_guard.c and
+// docs/debugging/gpu-only-buffers.md.
+// v3.7 -> v3.8:
 // Game and Movie presets. The ini holds two complete presets and the plugin
 // reads the one [presets] active= names, or Movie for a title in
 // media_titles.h. An ini from before v3.8 reads as it always did -- see

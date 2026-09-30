@@ -34,6 +34,7 @@ void ambient_rebuild_perchannel_gamma_luts(void) { g_lutRebuilds++; }
 void ambient_read_content_preview(uint8_t *o, size_t n) { memset(o, 0, n); }
 void buildZoneGeometry(void) {}
 bool g_isBackgrounded; bool g_smoothedRgbValid;
+volatile uint32_t g_gpuOnlyRemap = 3;   // lives in buffer_guard.c (v3.9), not linked here; same default
 void relay_send_external_source(bool on) { (void)on; }
 void send_config_reload_debug_packet(uint32_t event, uint32_t statErrno, uint64_t curMtime, uint64_t lastMtime,
                                      uint64_t curSize, uint64_t lastSize, uint32_t checkCount,
@@ -202,6 +203,28 @@ int main(void)
     printf("plugin reads the ini the app writes: PASSED\n");
 
     remove(TMP_INI);
+    // v3.9: [compat] gpu_only_remap (buffer_guard.c). Optional: the shipped ini doesn't have it and the
+    // default is 3, so nothing has to set it. It lives outside g_config, so it is reset by hand here.
+    g_gpuOnlyRemap = 3;
+    fresh(AMBIENT_DEFAULT_INI, "CUSA00001");
+    assert(strstr(AMBIENT_DEFAULT_INI, "gpu_only_remap") == NULL);
+    assert(g_gpuOnlyRemap == 3);
+    for (int want = 0; want <= 3; want++) {
+        char ini[16384];
+        g_gpuOnlyRemap = 3;
+        snprintf(ini, sizeof(ini), "%s\n[compat]\ngpu_only_remap=%d\n", AMBIENT_DEFAULT_INI, want);
+        fresh(ini, "CUSA00001");
+        assert(g_gpuOnlyRemap == (uint32_t)want);
+        assert(g_config.scanDepth == 2 && g_config.brightness == 255);   // the preset still reads as before
+    }
+    g_gpuOnlyRemap = 2; fresh("[compat]\ngpu_only_remap=4\n", "CUSA00001"); assert(g_gpuOnlyRemap == 2);    // out of range: value stands
+    g_gpuOnlyRemap = 2; fresh("[compat]\ngpu_only_remap=-1\n", "CUSA00001"); assert(g_gpuOnlyRemap == 2);
+    // Text that is not a number reads as 0 through ini_table_get_entry_as_int, as for every int key here, so it turns the remap off.
+    g_gpuOnlyRemap = 3; fresh("[compat]\ngpu_only_remap=abc\n", "CUSA00001"); assert(g_gpuOnlyRemap == 0);
+    g_gpuOnlyRemap = 2; fresh("[color]\nbrightness=180\n", "CUSA00001"); assert(g_gpuOnlyRemap == 2);     // key absent: value stands
+    g_gpuOnlyRemap = 3;
+    printf("[compat] gpu_only_remap is optional, in range 0 to 3, and independent of presets: PASSED\n");
+
     printf("ALL PLUGIN CONFIG CHECKS PASSED\n");
     return 0;
 }

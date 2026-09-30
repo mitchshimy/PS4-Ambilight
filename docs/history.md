@@ -118,8 +118,17 @@ of the five title IDs that were suggested for the list, `CUSA05682`, turned out 
 Horizon Zero Dawn, which would have put a game on the movie preset. The list now holds only
 IDs confirmed against independent sources.
 
+**v3.9.** Mortal Kombat 11 crashed the game with the plugin loaded: the sampler read a
+display buffer that the GPU owns and the CPU may not read (protection `0x30`), and
+nothing had ever checked. The sampler now asks the kernel first, and for a GPU-only
+direct-memory buffer adds CPU read to the game's own mapping with `sceKernelMprotect`.
+Two other ways were tried first: a second `CPU_READ` view of the same memory, which the
+kernel refuses with `EBUSY`, and a first guard that required the whole padded buffer size
+to be readable, which would have turned a short readable buffer into a dark strip.
+[gpu-only-buffers](debugging/gpu-only-buffers.md).
+
 Along the way `main.c` grew to 3,240 lines and was split into modules (Sep 23).
-It is `main.c` plus 11 files now, with the split described in
+It is `main.c` plus 12 files now, with the split described in
 [architecture](architecture.md).
 
 ## Companion app

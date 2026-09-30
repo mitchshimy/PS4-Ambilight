@@ -11,7 +11,8 @@ What has actually been used to check the plugin:
 - **Debug builds.** `make DEBUG=1` compiles in the telemetry (`__FINAL__==0`): the
   flip and register counters, the per-pass FLK1 flicker probe, format-change
   logging, raw pixel dumps, HDR detection numbers, the `PQ8C` packets from the
-  `0x88740000` 8-bit check and the `HDRV` packets from the `0x80002200` check. Release builds have none of it.
+  `0x88740000` 8-bit check, the `HDRV` packets from the `0x80002200` check, and the
+  `GRDC`, `GRDI` and `RMAP` packets from the buffer readability guard. Release builds have none of it.
 - **The `[dev]` ini section.** Set `dev_ip` to the PC's address and `dev_logging=true`
   to send the telemetry there. Without it nothing is sent, and there is no hardcoded
   debug address.
@@ -37,6 +38,14 @@ What has actually been used to check the plugin:
   from before presets, a live switch between presets, and the exact file the companion app
   writes (`tools/data/preset_ini_golden.ini`). Only the console calls it makes are stand-ins.
   See [tools](tools.md#test_plugin_configc).
+- **`tools/decode_guard_packets.py`.** Decodes the guard packets from a listener log by
+  tag (not length, several debug packets share a length), and summarizes the sampler's
+  pass times. See [tools](tools.md#decode_guard_packetspy).
+- **`tools/test_buffer_guard.c`.** A host test that compiles `buffer_guard.c` against a
+  fake kernel built from what the Mortal Kombat 11 captures showed. It is the only way
+  the no-regression case (a readable buffer never reaches the remap path) and the
+  refuse-once-don't-retry case are checked without a console. See
+  [tools](tools.md#test_buffer_guardc).
 - **Offline replicas.** Several algorithms were run in Python first against real
   captures, then ported: the zone geometry for all 8 corner and direction
   combinations, the saturation formula, gamma tables, the dark threshold hysteresis,
@@ -45,7 +54,9 @@ What has actually been used to check the plugin:
 
 Things that only real hardware showed, so keep testing on a console: `stat()`
 returning garbage, `fopen()` crashing a worker thread, the flip hooks firing at
-submit time, and a title that skips the flip wrapper.
+submit time, a title that skips the flip wrapper, and a title whose display buffers
+the CPU may not read (the kernel refusing a second mapping with `EBUSY` and accepting
+an `mprotect` instead is not something a fake kernel can tell you about another title).
 
 ## Companion app: isolation tests
 

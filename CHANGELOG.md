@@ -5,6 +5,78 @@ companion app) are documented here, newest first.
 
 ## Plugin
 
+### v3.9
+- Fixed Mortal Kombat 11 (CUSA11395) crashing the game with the plugin loaded. The game
+  was fine with the plugin disabled and went down with it enabled: `SIGSEGV` on
+  `ambient_sample_thread`, page fault on a user read (page not present) at
+  `0x49ff38b6d0`, plugin offset `+0x719c`, on the first real sampling pass. The sampler
+  had never asked whether a display buffer was readable. `sampleZoneAverage()` bounded
+  the offset and trusted the address, and every title tested until then happened to map
+  its buffers CPU-readable. MK11's are GPU-only (protection `0x30`, memory type 3,
+  write-combined, one `0x7EC000` byte direct-memory region per slot). The registered
+  format (`0x88740000`) was recognized and isn't the cause: a working title registers the
+  same one. The new `buffer_guard.c` asks `sceKernelVirtualQuery` how many bytes from the
+  buffer base the CPU may read, before every pass, and `zones.c`, `letterbox.c` and the
+  debug probe check each pixel read against that. A buffer that can't be read at all takes
+  the existing keepalive path, so the strip holds its last color and the game isn't
+  touched. If `sceKernelVirtualQuery` can't be resolved the guard fails open (v3.8
+  behavior).
+- Made MK11's strip work. For a GPU-only direct-memory buffer the plugin adds `CPU_READ`
+  to the game's own mapping with `sceKernelMprotect` (`0x30` to `0x31`, memory type
+  unchanged) and checks with a fresh query that the bit stuck. **Confirmed on real
+  hardware** on MK11: `created 3, failed 0` for three slots, the same for the whole of a
+  53 s gameplay capture, all slots readable on all 1,422 probe packets, zone output up to
+  210 of 255, sampling about 2.6 to 2.9 ms per pass (uncached reads; 30 Hz gives 33 ms),
+  no crash in any capture, and the colors on the strip are right by eye. The optional ini
+  key `[compat] gpu_only_remap` turns it off (0) or limits it, default 3, and nothing needs
+  to set it. It only runs on a buffer the guard already found unreadable, so a title that
+  works today never reaches it. Host-tested with a fake kernel, see `tools/test_buffer_guard.c`. `tools/test_plugin_config.c`
+  now also checks that key is optional, in range 0 to 3, and doesn't disturb a preset.
+- Paths that were tried and didn't work, kept because the next person will think of them:
+  - **A second, CPU-readable view of the same direct memory** (`sceKernelMapDirectMemory2`,
+    with the original's memory type so a cached view can't freeze on stale pixels). The
+    kernel refused it every time, `0x80020010` (`EBUSY`): the range is already mapped.
+    The untyped `sceKernelMapDirectMemory` was refused too, inferred from the capture (the
+    `mprotect` only runs after both failed) and not recorded. Both are still in the code
+    behind `gpu_only_remap`, as the tested build had them; they are the first thing to
+    delete if nothing ever needs them.
+  - **Retrying a refused region on every pass.** The first build of that path did, 435
+    times in about 23 s, at about 6 ms a refused call, so the pass time went from tens of
+    microseconds to 6.2 ms. A refused region is now remembered and not retried until its
+    start, size or direct-memory offset changes (3 refusals, 40 to 70 µs passes in the
+    same run after the fix).
+  - **A guard that required the whole padded buffer size (`0x7F8000`) to be readable.**
+    MK11's region is `0x7EC000`, so a title with a CPU-readable buffer that short would
+    have been rejected outright, a dark strip on a game that used to work. MK11 didn't
+    show it (rejected for its protection first), so it was found while decoding the
+    capture, not by a test. It now measures the readable length and reads up to it; a zone
+    that sits entirely in the skipped tail reads as black. No captured title has hit this.
+  - **The `sceKernelVirtualQuery` info struct from memory, `flags` as four bytes.** It is
+    one byte; the capture's next bytes were the start of the region name.
+- New debug-build telemetry: `GRDC` (guard counters), `GRDI` (kernel map info for the
+  last rejected region) and `RMAP` (remap status), each with a 4 byte ASCII tag.
+  `tools/decode_guard_packets.py` decodes them by tag, because `GRDI`, `PQ8C` and `HDRV`
+  are the same length after the DDP header and a length-only decoder confuses them (it
+  did, on the first capture). Two other things that misled while reading these captures:
+  the listener's "first LED = RGB" is the tag's ASCII for a `FLK1` packet (70, 76, 75), and
+  a file redirected from PowerShell is UTF-16.
+- Not done / not known: only MK11 has been captured with a GPU-only buffer, so whether
+  `mprotect` is accepted for another title's buffers is untested. A GPU-only region that
+  isn't direct memory can't be handled by any of the three methods and would give a dark
+  strip, not a crash (nobody has seen one). Two single passes in the gameplay capture took
+  94 ms and 123 ms, in two of 47 windows; the others stayed under 4 ms average, the cause
+  is unknown. A buffer freed mid-pass can still fault, and a game that frees and
+  re-creates its buffers was tested only on the PC, not on a console. No release build
+  was captured. The captures quoted here are from the overlay builds over v3.7 that the
+  guard was first run as, with untagged packets. It was then merged onto v3.8
+  (`hooks.c`, `settings.c`, `main.c` and `ambient_internal.h` were touched by both changes,
+  every conflict kept both sides, nothing of the presets was dropped) and the packets got
+  their tags. The merged build was built and tested on a console and works. The presets' own
+  host test, `tools/test_plugin_config.c`, passes on the merged tree with the new key
+  covered, and so do the other host tests.
+- Details, the capture tables and the decoding wrong turns:
+  [gpu-only-buffers](docs/debugging/gpu-only-buffers.md).
+
 ### v3.8
 - Added Game and Movie presets to the ini. `[presets] active=game|movie` picks one, and
   `[preset_game]` and `[preset_movie]` each hold a complete set of the values a preset owns:

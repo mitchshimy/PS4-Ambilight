@@ -37,6 +37,7 @@ Rough map of `plugin/source/`:
 |---|---|
 | `hooks.c` | the flip and buffer-registration hooks, slot tracking |
 | `sample_thread.c` | the sampler loop, buffer selection, keepalive |
+| `buffer_guard.c` | asks the kernel whether a buffer is readable before it is sampled, and makes a GPU-only one readable |
 | `pixel_formats.c`, `tiling.c` | unpacking the console's pixel formats and its tiled memory layout |
 | `zones.c`, `letterbox.c` | where the sample zones sit, and black bar detection |
 | `color_processing.c`, `gamma.c` | brightness, gamma, saturation, contrast, smoothing |

@@ -177,6 +177,36 @@ typedef struct {
     uint8_t reservedPadding[AMBIENT_SYS_SERVICE_STATUS_PADDING];
 } AmbientSystemServiceStatus;
 extern int32_t (*sceSystemServiceGetStatusPtr)(AmbientSystemServiceStatus *status); // defined in network.c, set in main.c's plugin_load
+
+// [buffer_guard] -- v3.9, buffer_guard.c. Readability check before the sampler touches a display buffer.
+extern int32_t (*sceKernelVirtualQueryPtr)(const void *addr, int32_t flags, void *info, uint64_t infoSize);
+extern volatile uint32_t g_guardAvailable, g_guardRejectCount;
+extern volatile uint64_t g_guardLastBadAddr;
+extern volatile int32_t  g_guardLastRet;
+extern volatile uint64_t g_guardInfoStart, g_guardInfoEnd, g_guardInfoOffset, g_guardInfoAddr;
+extern volatile int32_t  g_guardInfoProt, g_guardInfoMemType;
+extern volatile uint32_t g_guardInfoFlags;
+void send_guard_info_packet(uint64_t start, uint64_t end, uint64_t offset, uint64_t addr,
+                             int32_t prot, int32_t memType, uint32_t flags, int32_t ret); // GRDI, network.c, debug builds only
+uint64_t ambient_readable_bytes(uint64_t addr, uint64_t len);
+void send_guard_diag_packet(uint32_t available, uint32_t rejects, int32_t lastRet, uint64_t lastBadAddr); // GRDC, network.c, __FINAL__==0 callers only
+bool ambient_buffer_readable(uint64_t bufferAddr); // false = first page is unmapped/not CPU-readable, do not read at all
+// How many bytes from the buffer base are contiguously CPU-readable right now (set by
+// ambient_buffer_readable). Every pixel read is bounds-checked against this instead of the
+// fixed 1088-row ceiling, so a buffer shorter than the padded size skips its last pixels
+// instead of faulting or being rejected outright.
+extern volatile uint64_t g_readableLimit;
+// [gpu_remap] -- v3.9, buffer_guard.c. Making a GPU-only direct-memory buffer CPU-readable (MK11).
+extern int32_t (*sceKernelMapDirectMemoryPtr)(void **addr, uint64_t len, int32_t prot, int32_t flags, int64_t offset, uint64_t align);
+extern int32_t (*sceKernelMapDirectMemory2Ptr)(void **addr, uint64_t len, int32_t type, int32_t prot, int32_t flags, int64_t offset, uint64_t align);
+extern int32_t (*sceKernelMunmapPtr)(void *addr, uint64_t len);
+extern int32_t (*sceKernelMprotectPtr)(const void *addr, uint64_t len, int32_t prot); // v3.9
+extern volatile uint32_t g_gpuOnlyRemap, g_remapCreated, g_remapFailed, g_remapPasses, g_remapLastMethod;
+extern volatile int32_t  g_remapLastRet;
+extern volatile uint64_t g_remapLastAlias;
+uint64_t ambient_remap_cpu_view(uint64_t bufferAddr);
+uint64_t ambient_resolve_readable(uint64_t bufferAddr); // readable address (original or alias) with g_readableLimit set, or 0
+void send_remap_diag_packet(uint32_t flags, uint32_t created, uint32_t failed, uint32_t passes, int32_t lastRet, uint64_t lastAlias); // RMAP, network.c, debug builds only
 extern bool g_isBackgrounded; // defined in network.c, updated by sample_thread.c, read by settings.c
 
 // [tiling] -- confirmed-correct BASE detile params only (tiling.c)

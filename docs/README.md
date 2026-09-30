@@ -34,6 +34,8 @@ Investigations with the evidence and the wrong turns left in.
 - [letterbox-detection](debugging/letterbox-detection.md): black bar detection, v2.9 to v3.4
 - [letterbox-placement](debugging/letterbox-placement.md): zones sampling inside the bar,
   and the loading-screen flashes that the first fix caused
+- [gpu-only-buffers](debugging/gpu-only-buffers.md): Mortal Kombat 11 crashing the game
+  by reading a display buffer the CPU can't read, and the `mprotect` that fixed it
 - [title-compatibility](debugging/title-compatibility.md): what's been seen on specific
   titles
 

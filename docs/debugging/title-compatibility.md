@@ -9,6 +9,7 @@ just the titles that taught something. Anything not here hasn't been captured, s
 | Assassin's Creed III Remastered (CUSA11711) | SDR `0x80000000`, 3-slot swap chain, about 30 fps. Static menu flickered until v3.3. A letterboxed cutscene still flickers (open). | [framebuffer-flicker](framebuffer-flicker.md) |
 | God of War Ragnarok | Dark loading screens flashed the strip until v3.3. The game resubmits the same buffer index for seconds while still writing to it. At lag 2 the first pass after game boot could read a half-drawn slot and flash, one launch in seven; fixed in v3.7 by waiting for the lag history. | [framebuffer-flicker](framebuffer-flicker.md#second-title-god-of-war-ragnarok-load-screens), [sample-lag-and-boot-flash](sample-lag-and-boot-flash.md) |
 | Red Dead Redemption | About 58 fps, registers `0x80002200`. Flickered and flashed unrelated colors with the console's HDR setting on or off, the same both ways. The HDR vote stayed on SDR for the whole capture (alpha byte `0xff` on every check, no mode change), so the format detection was ruled out. One flip of lag (v3.3) was not enough, the buffer was still being written; lag 2 fixed it in v3.7. | [sample-lag-and-boot-flash](sample-lag-and-boot-flash.md) |
+| Mortal Kombat 11 (CUSA11395) | Registers `0x88740000` (HDR10 PQ), 3-slot swap chain. Crashed the game with the plugin loaded (SIGSEGV in the sampler): its display buffers are mapped GPU-only (protection `0x30`, write-combined), so a CPU read faults. Since v3.9 the plugin asks the kernel first and adds CPU read to the mapping with `sceKernelMprotect`; the strip works and colors were confirmed by eye. Only title seen with GPU-only buffers so far. | [gpu-only-buffers](gpu-only-buffers.md) |
 | Shadow of the Tomb Raider | Never lit the strip, in SDR (`0x80000000`) or HDR (`0x88740000`), until v3.1. It calls the `ForWorkload` flip entry point directly. Two swap-chain slots. | [videoout-hooks](videoout-hooks.md) |
 | HITMAN 3 | Reports `0x80002200`. That ID is A8B8G8R8 with HDR off and PQ data with HDR on, and it never re-registers. The smoothness detector took 43 to 53 s from boot to decide. Since v3.6 the alpha byte decides on the first frame with data (4.4 to 4.8 s in captures, the game's own loading time). Fades to and from black in SDR write partial alpha bytes, which the vote holds on. HDR changes only apply after a restart. | [hdr2200-alpha-detection](hdr2200-alpha-detection.md), [hdr-pixel-format](hdr-pixel-format.md) |
 | Red Dead Redemption 2 | Same `0x80002200` behavior as HITMAN 3, HDR on or off, no re-registration. Decided on the first frame with data since v3.6 (1.95 s with HDR on, 0.34 s off). HDR on is very dark, nearly every word has a top byte of `0xc0` to `0xc4`. An HDR change only applies after a restart. | [hdr2200-alpha-detection](hdr2200-alpha-detection.md) |
@@ -37,6 +38,11 @@ just the titles that taught something. Anything not here hasn't been captured, s
   `0x88740000` while it draws 8-bit ARGB for SDR video. If the raw words in a capture
   look like plain `0xffRRGGBB` under a PQ format, check the alpha byte before
   suspecting the decode.
+- **A recognized format doesn't mean the CPU can read the buffer.** MK11 registers the
+  same `0x88740000` as titles that work, and its buffers are GPU-only. If a title crashes
+  in `ambient_sample_thread` with a page fault, or the strip stays dark with the format
+  recognized and flips counting, check the guard packets before the decode, see
+  [gpu-only-buffers](gpu-only-buffers.md).
 - **A black loading screen gives the HDR detector nothing to work with.** It just
   waits.
 
@@ -46,11 +52,13 @@ When a new title misbehaves, the order that has worked so far:
 
 1. Did the register hook fire, and was the format recognized? If not, it's a
    [pixel format](hdr-pixel-format.md) problem.
-2. Is the flip counter moving and is `g_currentDisplayBufferIndex` off its sentinel?
+2. Was the buffer readable? Debug builds send `GRDC` and `RMAP`; rejects climbing means
+   the CPU can't read it, see [gpu-only-buffers](gpu-only-buffers.md#if-another-title-has-a-dark-strip-or-crashes).
+3. Is the flip counter moving and is `g_currentDisplayBufferIndex` off its sentinel?
    If not, see [videoout-hooks](videoout-hooks.md#if-another-title-never-lights-up).
-3. Is the output steady when it should be? Capture it with `flicker_capture.py`, see
+4. Is the output steady when it should be? Capture it with `flicker_capture.py`, see
    the [methodology](framebuffer-flicker.md#methodology).
-4. Note what you found here, with the title id and format, even if the answer is
+5. Note what you found here, with the title id and format, even if the answer is
    "nothing wrong".
 
 Things still worth checking on a new title, from the "not verified" list in
