@@ -250,6 +250,24 @@ int main(void)
     }
     printf("app output matches the golden ini: PASSED\n");
 
+    // ---- hand-added [compat] keys (v3.9 gpu_only_remap, v3.9.1 report_file) survive the app saving ----
+    // A tester adds report_file=1 by hand; opening the app and saving must not drop it.
+    {
+        FILE *cf = fopen(P, "w");
+        assert(cf);
+        fputs("[network]\nwled_host=10.0.0.5\n\n[compat]\ngpu_only_remap=1\nreport_file=1\n", cf);
+        fclose(cf);
+        AmbientConfig c;
+        assert(settings_load(&c, P));
+        presets_init(&c, P);
+        assert(presets_save(&c, P));
+        char *t = slurp(P);
+        assert(has_key(t, "compat", "report_file") && strstr(t, "report_file = 1"));
+        assert(has_key(t, "compat", "gpu_only_remap") && strstr(t, "gpu_only_remap = 1"));
+        free(t);
+    }
+    printf("hand-added [compat] keys survive a save: PASSED\n");
+
     printf("ALL PRESET CHECKS PASSED\n");
     return 0;
 }

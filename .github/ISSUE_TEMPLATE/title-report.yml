@@ -1,0 +1,60 @@
+name: Game report
+description: Tell us whether the strip works in a game, and attach the report file
+title: "[game] "
+labels: ["title-report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing. The report file is off by default. Before you start the game,
+        add these two lines to the end of `/data/ps4_ambient_light.ini`
+        (if the file already has a `[compat]` section, put the second line in that one):
+
+            [compat]
+            report_file=1
+
+        Play the game for a minute, then copy `/data/ps4_ambient_report_<TITLEID>.txt`
+        off the console and paste it below. It has no personal data in it (no WLED
+        address, nothing from your ini). If there is no file even with that line in
+        place, say so: that means the plugin never hooked the game.
+  - type: input
+    id: game
+    attributes:
+      label: Game
+      placeholder: "Mortal Kombat 11 (CUSA11395)"
+    validations:
+      required: true
+  - type: dropdown
+    id: result
+    attributes:
+      label: What happened
+      options:
+        - Works
+        - Strip stays dark
+        - Colors or brightness look wrong
+        - Flickers or flashes
+        - The game crashed
+        - Something else
+    validations:
+      required: true
+  - type: dropdown
+    id: hdr
+    attributes:
+      label: Console HDR setting
+      options:
+        - "Off"
+        - "On"
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: Report file
+      description: Paste the whole file, or drag it into this box.
+      render: text
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: Which mode or screen, what the strip did, plugin version if you know it.

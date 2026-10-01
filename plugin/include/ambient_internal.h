@@ -207,6 +207,16 @@ extern volatile uint64_t g_remapLastAlias;
 uint64_t ambient_remap_cpu_view(uint64_t bufferAddr);
 uint64_t ambient_resolve_readable(uint64_t bufferAddr); // readable address (original or alias) with g_readableLimit set, or 0
 void send_remap_diag_packet(uint32_t flags, uint32_t created, uint32_t failed, uint32_t passes, int32_t lastRet, uint64_t lastAlias); // RMAP, network.c, debug builds only
+// [report] -- v3.9.1, report.c. The per-title report file a tester sends instead of a capture.
+// AMBIENT_VERSION_STRING is the full version; g_pluginVersion (hooks.c) only holds major.minor,
+// because CI compares a tag's major.minor against it. tools/test_report.c fails if the two
+// disagree on major.minor.
+#define AMBIENT_VERSION_STRING "3.9.1"
+extern volatile uint32_t g_reportEnabled;        // ini [compat] report_file (optional): 1 on, default 0 (off)
+extern volatile uint32_t g_reportLoopPasses;     // bumped once per completed sampler loop, sample_thread.c
+extern volatile uint32_t g_reportTimingWindows, g_reportPassUsAvg, g_reportPassUsMax; // set once per timing window
+void *ambient_report_thread(void *args);         // started by main.c's plugin_load, writes the file
+
 extern bool g_isBackgrounded; // defined in network.c, updated by sample_thread.c, read by settings.c
 
 // [tiling] -- confirmed-correct BASE detile params only (tiling.c)

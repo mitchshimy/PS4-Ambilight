@@ -5,6 +5,40 @@ companion app) are documented here, newest first.
 
 ## Plugin
 
+### v3.9.1
+- Added a report file, so testing a game no longer needs a debug build and a UDP capture. **It
+  is off by default**: a tester turns it on by adding `report_file=1` under `[compat]` in
+  `/data/ps4_ambient_light.ini`. With it on, the release build writes `/data/ps4_ambient_report_<TITLEID>.txt`, a short text file with the
+  plugin version and build, the title ID, how far it got (`hooked`, `registered`, `flipping`
+  or `running`), the registered format and whether it was recognized, the flip counts for all
+  three entry points, the guard result (rejects, last return, last bad address), the remap
+  result (created, failed, method, last return) and the last pass time. A tester sends that file.
+  It holds no personal data: no WLED address and nothing from the ini. Everything in it was
+  already kept in plain globals in every build; only the packets that send them are debug-only.
+  [report-file](docs/debugging/report-file.md) explains each line.
+- It is written when something changes (stage, format, guard or remap outcome) and every 60 s
+  otherwise, not only at the end. That is deliberate: a game that dies on its first sampling
+  pass, as Mortal Kombat 11 did before v3.9, never reaches a last write, but the file on disk
+  still says `flipping` and what the guard saw. With the key set, no file at all means the
+  plugin never hooked that title (`plugin_load` returned early) or GoldHEN didn't load it.
+- It runs on its own thread, `ambient_report_thread` (new `report.c`), so a disk write never
+  lands in the sampler's 33 ms pass. The sampler itself gained one counter increment per loop
+  and three stores once per 30-pass timing window. The thread only reads.
+- The optional ini key `[compat] report_file` is 0 (off) when absent, so an ordinary install
+  never writes the file, and 1 turns it on. It isn't in the shipped ini. It is read on the
+  live ini reload too, so it can be switched on mid-game. The companion app keeps a
+  hand-added `[compat]` section when it saves (tested in `tests/test_presets.c`). After 3
+  failed writes in a row (no `/data`, disk full) it stops for the session.
+- Host-tested: `tools/test_report.c` includes `report.c` and runs the real write path against
+  made-up counters, including that a rewrite leaves no stale tail, that per-frame counters
+  don't cause writes, and that the version string matches `g_pluginVersion`.
+  `tools/test_plugin_config.c` now also checks the new key.
+- Added `.github/ISSUE_TEMPLATE/title-report.yml`, so a tester can say works, dark strip or
+  crashed and attach the file without editing any markdown. Results worth keeping get copied
+  into [title-compatibility](docs/debugging/title-compatibility.md) by hand.
+- `g_pluginVersion` stays `0x0309`: CI compares only major.minor, so the tag is `v3.9.1`.
+  The full version string is `AMBIENT_VERSION_STRING` in `ambient_internal.h`.
+
 ### v3.9
 - Fixed Mortal Kombat 11 (CUSA11395) crashing the game with the plugin loaded. The game
   was fine with the plugin disabled and went down with it enabled: `SIGSEGV` on

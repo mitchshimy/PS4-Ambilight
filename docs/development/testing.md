@@ -46,6 +46,9 @@ What has actually been used to check the plugin:
   the no-regression case (a readable buffer never reaches the remap path) and the
   refuse-once-don't-retry case are checked without a console. See
   [tools](tools.md#test_buffer_guardc).
+- **`tools/test_report.c`.** A host test that compiles `report.c` and drives its write
+  logic with made-up counters: what makes it write, that it never writes per frame, that a
+  rewrite leaves no stale tail, and the off switch. See [tools](tools.md#test_reportc).
 - **Offline replicas.** Several algorithms were run in Python first against real
   captures, then ported: the zone geometry for all 8 corner and direction
   combinations, the saturation formula, gamma tables, the dark threshold hysteresis,

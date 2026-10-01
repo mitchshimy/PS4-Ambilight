@@ -35,6 +35,7 @@ void ambient_read_content_preview(uint8_t *o, size_t n) { memset(o, 0, n); }
 void buildZoneGeometry(void) {}
 bool g_isBackgrounded; bool g_smoothedRgbValid;
 volatile uint32_t g_gpuOnlyRemap = 3;   // lives in buffer_guard.c (v3.9), not linked here; same default
+volatile uint32_t g_reportEnabled = 0;  // lives in report.c (v3.9.1), not linked here; same default (off)
 void relay_send_external_source(bool on) { (void)on; }
 void send_config_reload_debug_packet(uint32_t event, uint32_t statErrno, uint64_t curMtime, uint64_t lastMtime,
                                      uint64_t curSize, uint64_t lastSize, uint32_t checkCount,
@@ -224,6 +225,33 @@ int main(void)
     g_gpuOnlyRemap = 2; fresh("[color]\nbrightness=180\n", "CUSA00001"); assert(g_gpuOnlyRemap == 2);     // key absent: value stands
     g_gpuOnlyRemap = 3;
     printf("[compat] gpu_only_remap is optional, in range 0 to 3, and independent of presets: PASSED\n");
+
+    // v3.9.1: [compat] report_file (report.c). Optional and OFF by default: a tester turns it on by adding
+    // the key. Only 0 and 1 mean anything.
+    g_reportEnabled = 0;
+    fresh(AMBIENT_DEFAULT_INI, "CUSA00001");
+    assert(strstr(AMBIENT_DEFAULT_INI, "report_file") == NULL);      // not in the shipped ini
+    assert(g_reportEnabled == 0);                                    // so a normal install never writes the file
+    g_reportEnabled = 0; fresh("[compat]\nreport_file=1\n", "CUSA00001"); assert(g_reportEnabled == 1);   // the tester's line
+    g_reportEnabled = 1; fresh("[compat]\nreport_file=0\n", "CUSA00001"); assert(g_reportEnabled == 0);
+    g_reportEnabled = 0; fresh("[compat]\nreport_file=2\n", "CUSA00001"); assert(g_reportEnabled == 0);    // out of range: value stands
+    g_reportEnabled = 1; fresh("[compat]\nreport_file=-1\n", "CUSA00001"); assert(g_reportEnabled == 1);
+    g_reportEnabled = 0; fresh("[color]\nbrightness=180\n", "CUSA00001"); assert(g_reportEnabled == 0);    // key absent: value stands
+    g_reportEnabled = 1; fresh("[color]\nbrightness=180\n", "CUSA00001"); assert(g_reportEnabled == 1);
+    {
+        char ini[16384];
+        g_reportEnabled = 0; g_gpuOnlyRemap = 2;
+        snprintf(ini, sizeof(ini), "%s\n[compat]\nreport_file=1\n", AMBIENT_DEFAULT_INI);
+        fresh(ini, "CUSA00001");
+        assert(g_reportEnabled == 1 && g_gpuOnlyRemap == 2);         // neither [compat] key disturbs the other
+        assert(g_config.scanDepth == 2 && g_config.brightness == 255);   // nor the preset
+        g_reportEnabled = 0; g_gpuOnlyRemap = 3;
+        snprintf(ini, sizeof(ini), "%s\n[compat]\ngpu_only_remap=1\nreport_file=1\n", AMBIENT_DEFAULT_INI);
+        fresh(ini, "CUSA00001");
+        assert(g_reportEnabled == 1 && g_gpuOnlyRemap == 1);         // both keys together, as a tester would have them
+    }
+    g_reportEnabled = 0; g_gpuOnlyRemap = 3;
+    printf("[compat] report_file is optional, off by default, 0 or 1, and independent of gpu_only_remap and presets: PASSED\n");
 
     printf("ALL PLUGIN CONFIG CHECKS PASSED\n");
     return 0;

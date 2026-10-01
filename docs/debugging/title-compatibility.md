@@ -61,6 +61,10 @@ When a new title misbehaves, the order that has worked so far:
 5. Note what you found here, with the title id and format, even if the answer is
    "nothing wrong".
 
+A tester without a debug build can turn on and send the [report file](report-file.md) instead
+(one ini line), through the "Game report" issue form. Its `stage`, `format`, guard and remap lines answer steps 1 to 3
+well enough to tell which one to chase. Rows here are added by hand from those reports.
+
 Things still worth checking on a new title, from the "not verified" list in
 [buffer-selection](buffer-selection.md#not-verified): single-buffer and 2-slot swap
 chains, blank (-1) flips, and fast-moving content.

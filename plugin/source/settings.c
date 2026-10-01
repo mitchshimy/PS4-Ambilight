@@ -205,6 +205,12 @@ void ambient_load_config(void)
     if (ini_table_get_entry_as_int(table, "compat", "gpu_only_remap", &iv) && iv >= 0 && iv <= 3)
         g_gpuOnlyRemap = (uint32_t)iv;
 
+    // v3.9.1: [compat] report_file. OPTIONAL, default 0 (off), not in the shipped ini. 1 makes the
+    // plugin write /data/ps4_ambient_report_<TITLEID>.txt (report.c): a tester adds it. Anything
+    // but 0 or 1 is ignored and the value stands, like gpu_only_remap above.
+    if (ini_table_get_entry_as_int(table, "compat", "report_file", &iv) && (iv == 0 || iv == 1))
+        g_reportEnabled = (uint32_t)iv;
+
     if ((v = ini_table_get_entry(table, "network", "wled_host")) != NULL) {
         strncpy(g_config.wledHost, v, sizeof(g_config.wledHost) - 1);
         g_config.wledHost[sizeof(g_config.wledHost) - 1] = '\0';

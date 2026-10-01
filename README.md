@@ -373,7 +373,8 @@ sends telemetry to the `[dev]` address in the ini; the flicker write-up above sh
 More detail is in [`docs/`](docs/README.md): [history](docs/history.md),
 [sampling zones](docs/sampling-zones.md), [HDR and pixel formats](docs/debugging/hdr-pixel-format.md),
 [letterbox detection](docs/debugging/letterbox-detection.md),
-[title notes](docs/debugging/title-compatibility.md), [testing](docs/development/testing.md),
+[title notes](docs/debugging/title-compatibility.md), [the report file a game test leaves](docs/debugging/report-file.md),
+[testing](docs/development/testing.md),
 and [CI and releases](docs/development/ci-and-releases.md).
 
 ## Layout

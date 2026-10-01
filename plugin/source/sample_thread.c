@@ -675,12 +675,15 @@ void *ambient_sample_thread(void *args)
             uint32_t avgUs = (uint32_t)(((sumTicks / windowSamples) * 1000000ULL) / tscFreq);
             send_timing_packet(minUs, maxUs, avgUs, windowSamples, overBudgetCount, windowId++,
                                 (uint32_t)minCpuSeen, (uint32_t)maxCpuSeen, migrationCount);
+            // v3.9.1: kept for the report file (report.c), once per window, not per pass.
+            g_reportPassUsAvg = avgUs; g_reportPassUsMax = maxUs; g_reportTimingWindows++;
             minTicks = UINT64_MAX; maxTicks = 0; sumTicks = 0;
             windowSamples = 0; overBudgetCount = 0;
             minCpuSeen = INT32_MAX; maxCpuSeen = -1; migrationCount = 0;
         }
 #endif
 
+        g_reportLoopPasses++; // v3.9.1: lets the report file say the sampler got past its first pass
         usleep(sampleIntervalUs);
     }
     return NULL;

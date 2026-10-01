@@ -262,6 +262,10 @@ int32_t attr_public plugin_load(int32_t argc, const char* argv[])
 #endif
 
     scePthreadCreate(&thread, NULL, ambient_sample_thread, NULL, "ambient_sample_thread");
+    // v3.9.1: the report file writer (report.c). Its own thread so a disk write never lands in
+    // the sampler's 33 ms budget. Always started; it does nothing unless [compat] report_file=1.
+    OrbisPthread reportThread;
+    scePthreadCreate(&reportThread, NULL, ambient_report_thread, NULL, "ambient_report_thread");
     // scePthreadAttrSetaffinity(&attr, CORE_MASK) + scePthreadCreate(&thread,
     // &attr, ...) is the confirmed path once CORE_MASK is real. Same for
     // scePthreadSetprio(thread, N) once N's semantics are confirmed against

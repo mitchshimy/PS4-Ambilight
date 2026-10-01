@@ -127,8 +127,15 @@ kernel refuses with `EBUSY`, and a first guard that required the whole padded bu
 to be readable, which would have turned a short readable buffer into a dark strip.
 [gpu-only-buffers](debugging/gpu-only-buffers.md).
 
+**v3.9.1.** One person can't test the whole PS4 library, and a bug report that needs a debug
+build and a UDP capture doesn't get sent. The release build now writes a small text file per
+game with how far the plugin got, the format, and what the guard and remap did, and it writes
+it when something changes rather than at the end, so a game that crashes on its first pass
+still leaves a useful file. It is off unless the tester adds `report_file=1` to the ini. It is
+on its own thread so the sampler isn't touched. [report-file](debugging/report-file.md).
+
 Along the way `main.c` grew to 3,240 lines and was split into modules (Sep 23).
-It is `main.c` plus 12 files now, with the split described in
+It is `main.c` plus 13 files now, with the split described in
 [architecture](architecture.md).
 
 ## Companion app

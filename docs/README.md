@@ -38,6 +38,8 @@ Investigations with the evidence and the wrong turns left in.
   by reading a display buffer the CPU can't read, and the `mprotect` that fixed it
 - [title-compatibility](debugging/title-compatibility.md): what's been seen on specific
   titles
+- [report-file](debugging/report-file.md): the file the release build writes for a game,
+  what each line means, and what it points to
 
 ## Development
 

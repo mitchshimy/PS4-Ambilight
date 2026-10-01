@@ -11,6 +11,7 @@ misbehaves.
 | `decode_verification_dump.py` | decode the plugin's older raw debug packets offline |
 | `decode_guard_packets.py` | decode the buffer guard's `GRDC`, `GRDI` and `RMAP` packets and the sampler's pass times from a listener log |
 | `test_buffer_guard.c` | host test for `buffer_guard.c`, run against a fake kernel, for the GPU-only buffer fix |
+| `test_report.c` | host test for the report file: its text, when `report.c` writes, and the write itself |
 | `ps4_detile_2dthin.c` | standalone reference detiler, to cross-check the plugin's tiling |
 | `test_pq8bit_vote.c` | host test for the alpha byte vote that spots 8-bit ARGB under `0x88740000` |
 | `test_hdr2200_vote.c` | host test for the alpha byte vote that picks HDR or SDR under `0x80002200` |
@@ -204,3 +205,32 @@ generated ini, defaults to 3, reads 0 to 3, ignores other numbers and doesn't di
 The last case loads `tools/data/preset_ini_golden.ini`, the file the companion
 app writes for a fresh setup. `companion-app/tests/test_presets.c` compares the app's output
 to that same file, so the app's writer and the plugin's reader can't drift apart unnoticed.
+
+## test_report.c
+
+Builds and runs on a PC from the repo root, no console and no SDK:
+
+```
+gcc -Wall -Itools/host_stubs -Iplugin/include -Icommon -o /tmp/test_report tools/test_report.c
+/tmp/test_report
+```
+
+It `#include`s `plugin/source/report.c` itself, so it runs the real `ambient_report_tick()` against
+made-up counters. The console's three file calls are stand-ins that redirect `/data` to a scratch
+directory and honor the flags `report.c` really passes, so a missing `O_TRUNC` shows up as a
+stale tail. Exits 0 if all pass:
+
+- The text has the title, stage, format, guard and remap lines, ends with `end of report`, and
+  has nothing from the ini in it. An undersized buffer is cut safely.
+- Stages follow the counters in order, and a title ID can't change where the file goes.
+- Only stage, format and guard or remap outcome count as a change. Flip counts, pass counts and
+  timing don't, or the file would be rewritten every second.
+- The first turn writes at once with `O_WRONLY | O_CREAT | O_TRUNC`, a rewrite leaves no stale
+  tail, and a change is written while more of the same is not. A refresh comes round every 60 turns.
+- Off by default: with no key set, a game that is running fine gets no file and no open call.
+  Turning it on mid-game starts the file. Three failed writes in a row stop it for the session,
+  and a success resets the count.
+- `AMBIENT_VERSION_STRING` agrees with `g_pluginVersion` (major.minor) and has a changelog entry.
+
+It can't show that a real console lets a game process write `/data` with these flags, or what the
+counters read on a title nobody has tried. See [report-file](../debugging/report-file.md).
