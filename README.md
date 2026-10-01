@@ -41,6 +41,19 @@ That is all the hardware: the WLED controller and the strip.
 > Get GoldHEN running first. This project is a GoldHEN plugin plus a standalone companion app,
 > not a jailbreak on its own.
 
+## Tested on
+
+| | |
+|---|---|
+| PS4 firmware | 9.00 and 12.50 |
+| GoldHEN | 2.4b18.9 and 2.4b18.10 |
+| LED strip | WS2812B, 229 LEDs (73 top, 41 right, 73 bottom, 42 left), starting at the bottom left and running clockwise |
+| Controller | WLED, latest release |
+
+Other setups very likely work too, since the plugin only depends on GoldHEN and a WLED controller
+on your network. If you try a different firmware, GoldHEN version or strip, a note in an
+[issue](../../issues) helps.
+
 ## What it does
 
 - Reads the PS4's rendered video output directly, on the console
@@ -62,9 +75,12 @@ That is all the hardware: the WLED controller and the strip.
 
 ## Quick start
 
-1. Install the companion app `.pkg` from [Releases](../../releases) like any other homebrew
+1. In GoldHEN, turn on the plugin loader: open **Settings**, choose **★ GoldHEN ★**, go to
+   **Plugin Settings** and tick **Enable Plugins Loader**. With it off, GoldHEN loads no plugins
+   at all, this one included, and nothing in the companion app will tell you.
+2. Install the companion app `.pkg` from [Releases](../../releases) like any other homebrew
    package. (To build it yourself, see [`companion-app/README.md`](companion-app/README.md).)
-2. Open it. On **Home**, press the main button. It reads **Install**, **Update** or **Enable**,
+3. Open it. On **Home**, press the main button. It reads **Install**, **Update** or **Enable**,
    depending on what it finds, and puts the plugin in place:
    - **Install**: `ps4_ambient_light.prx` isn't on the console yet. Pressing it downloads the
      latest release build to GoldHEN's plugin folder.
@@ -72,12 +88,12 @@ That is all the hardware: the WLED controller and the strip.
    - **Enable**: the `.prx` is present, but its `plugins.ini` entry is commented out or missing,
      so GoldHEN isn't loading it.
    - Once it's installed and enabled, the button becomes **Test Strip**.
-3. Go to **Set up** and enter your WLED controller's IP address and your strip's layout. Details
+4. Go to **Set up** and enter your WLED controller's IP address and your strip's layout. Details
    are in [Set up your strip](#set-up-your-strip). **Test Strip** stays locked until this is
    done, and pressing it before then shows a reminder.
-4. Press **Test Strip**. It sends live colors from the companion app straight to your WLED
+5. Press **Test Strip**. It sends live colors from the companion app straight to your WLED
    controller, so you can check wiring, layout and color order before trusting it in a game.
-5. Start a game. There is nothing else to launch: the plugin hooks the video-out path itself, and
+6. Start a game. There is nothing else to launch: the plugin hooks the video-out path itself, and
    if `wled_host` is set and the strip is reachable, it starts streaming on its own.
 
 If something is off, [Help](#help) is next.
@@ -87,6 +103,13 @@ If something is off, [Help](#help) is next.
 The companion app's Help screen (Home, then Help) keeps to five short cards. This section is the
 longer version. Pressing **△ Triangle** on that screen opens a QR code pointing at this heading,
 so you can read it on a phone without typing a URL on a controller.
+
+**Nothing happens in any game, even though Home says the plugin is installed and enabled.**
+Check that GoldHEN's plugin loader is switched on: **Settings**, **★ GoldHEN ★**, **Plugin
+Settings**, then tick **Enable Plugins Loader**. It's a separate switch from the plugin's own
+`plugins.ini` entry. Home only checks that `ps4_ambient_light.prx` is installed and listed in
+`plugins.ini`, and it can't see whether the loader itself is on. With the loader off, GoldHEN
+loads no plugins for any game.
 
 **The strip stays completely dark.**
 Re-check `wled_host` and `wled_port` under **Set up**. Confirm WLED's realtime UDP listener is

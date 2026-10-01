@@ -367,7 +367,9 @@ static int build_group_cards(MenuScreen screen, const AmbientConfig *cfg, int fo
 static void help_cards_init(UiCard out[HELP_CARD_COUNT])
 {
     out[0] = (UiCard){ COL_CYAN, ICON_DOWNLOAD, COL_CYAN, "Getting started",
-        "Install ps4_ambient_light.prx from Home once GoldHEN is running -- "
+        "First, in GoldHEN's Plugin Settings, tick Enable Plugins Loader -- "
+        "with it off no plugin runs at all, and Home can't tell. Then "
+        "install ps4_ambient_light.prx from Home -- "
         "the button there reads Install, Update or Enable depending on "
         "what's already on the console. From there, Set up connects WLED "
         "and describes your physical strip, and Customization tunes how "
@@ -408,6 +410,8 @@ static void help_cards_init(UiCard out[HELP_CARD_COUNT])
         NULL, 0, -1, NULL, NULL };
 
     out[4] = (UiCard){ COL_WARN, ICON_WARNING, COL_WARN, "Troubleshooting",
+        "Nothing runs in any game: tick Enable Plugins Loader under "
+        "GoldHEN's Plugin Settings -- Home can't see that switch. "
         "Strip stays dark: re-check the WLED host/port on Set up, and "
         "that WLED's realtime UDP listener is actually reachable on your "
         "network. Colours land on the wrong LEDs: revisit start corner, "
