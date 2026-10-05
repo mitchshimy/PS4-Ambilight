@@ -266,6 +266,13 @@ int32_t attr_public plugin_load(int32_t argc, const char* argv[])
     // the sampler's 33 ms budget. Always started; it does nothing unless [compat] report_file=1.
     OrbisPthread reportThread;
     scePthreadCreate(&reportThread, NULL, ambient_report_thread, NULL, "ambient_report_thread");
+    // v3.9.2: the cross-process state file (state.c), so a second, independent process -- a
+    // compositor-level feed over in the research repo -- can tell whether this plugin is
+    // actively driving the strip right now. Own thread for the same reason as reportThread.
+    // Always started, unlike reportThread: see state.c's header comment for why this one has
+    // no opt-in key.
+    OrbisPthread stateThread;
+    scePthreadCreate(&stateThread, NULL, ambient_state_thread, NULL, "ambient_state_thread");
     // scePthreadAttrSetaffinity(&attr, CORE_MASK) + scePthreadCreate(&thread,
     // &attr, ...) is the confirmed path once CORE_MASK is real. Same for
     // scePthreadSetprio(thread, N) once N's semantics are confirmed against

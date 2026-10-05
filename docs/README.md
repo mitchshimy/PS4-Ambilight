@@ -49,5 +49,7 @@ Investigations with the evidence and the wrong turns left in.
 - [ci-and-releases](development/ci-and-releases.md): the workflow and the GoldHEN SDK patch
 - [testing](development/testing.md): telemetry, the tools, and the app's tests
 - [tools](development/tools.md): what's in `tools/`
+- [shell-feed-coordination](development/shell-feed-coordination.md): the `/data/ps4_ambient_state`
+  file, for anyone writing something that reads it
 
 The changelog says what changed. These say why.

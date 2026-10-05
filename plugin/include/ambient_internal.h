@@ -211,11 +211,12 @@ void send_remap_diag_packet(uint32_t flags, uint32_t created, uint32_t failed, u
 // AMBIENT_VERSION_STRING is the full version; g_pluginVersion (hooks.c) only holds major.minor,
 // because CI compares a tag's major.minor against it. tools/test_report.c fails if the two
 // disagree on major.minor.
-#define AMBIENT_VERSION_STRING "3.9.1"
+#define AMBIENT_VERSION_STRING "3.9.2"
 extern volatile uint32_t g_reportEnabled;        // ini [compat] report_file (optional): 1 on, default 0 (off)
 extern volatile uint32_t g_reportLoopPasses;     // bumped once per completed sampler loop, sample_thread.c
 extern volatile uint32_t g_reportTimingWindows, g_reportPassUsAvg, g_reportPassUsMax; // set once per timing window
 void *ambient_report_thread(void *args);         // started by main.c's plugin_load, writes the file
+void *ambient_state_thread(void *args);          // started by main.c's plugin_load, writes /data/ps4_ambient_state
 
 extern bool g_isBackgrounded; // defined in network.c, updated by sample_thread.c, read by settings.c
 

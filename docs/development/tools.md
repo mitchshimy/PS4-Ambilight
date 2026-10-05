@@ -234,3 +234,38 @@ stale tail. Exits 0 if all pass:
 
 It can't show that a real console lets a game process write `/data` with these flags, or what the
 counters read on a title nobody has tried. See [report-file](../debugging/report-file.md).
+
+## test_state.c
+
+Builds and runs on a PC from the repo root, no console and no SDK:
+
+```
+gcc -Wall -Itools/host_stubs -Iplugin/include -Icommon -o /tmp/test_state tools/test_state.c
+/tmp/test_state
+```
+
+It `#include`s `plugin/source/state.c` itself, so it runs the real `ambient_state_tick()` against
+made-up flip counters and a fake `g_isBackgrounded`. Same stand-in file calls as `test_report.c`,
+redirecting `/data` to a scratch directory and honoring the real flags, so a missing `O_TRUNC`
+(the wrong thing here, unlike the report file) would show up as an unexpected one. Exits 0 if all
+pass:
+
+- The very first tick writes `fg=0` immediately, before anything about foreground or flipping is
+  known, so a reader is never stuck treating a missing file as a special case.
+- `fg=1` only when foreground **and** a flip hook moved that tick; foreground alone, or flipping
+  alone while backgrounded, is not a claim.
+- Exactly one `fg=0` write on the transition out of a claim, then total silence while it stays
+  that way -- checked by counting open calls across several idle ticks, not just reading the file
+  once.
+- `seq` keeps counting up across a background/foreground cycle; it does not reset to 0.
+- The record length is a true constant -- checked against `state_format()` directly, not just
+  the ticks above -- across `fg` 0 and 1, a sequence number that needs to wrap at 1,000,000, and
+  a title longer than the field, which must truncate rather than overrun.
+- A write never carries `O_TRUNC`.
+- A disk that keeps failing just keeps retrying the same tick forever; there is no failure
+  counter to reset, unlike the report file, because every tick here is already cheap and
+  idempotent to repeat.
+
+It can't show that a real console lets the compositor's own process (not a game process) read
+`/data`, or how a reader in another process actually behaves under real polling timing. See
+[shell-feed-coordination](shell-feed-coordination.md).

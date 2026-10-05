@@ -415,6 +415,12 @@ saturation and smoothing pipeline in `plugin/source/color_processing.c`.
 color is resent once a second so WLED's realtime timeout doesn't fire. See
 [`docs/debugging/wled-heartbeat.md`](docs/debugging/wled-heartbeat.md).
 
+**Handing off to the shell screens.** The plugin writes `/data/ps4_ambient_state` once a second,
+saying whether it's actively driving the strip right now. It never reads this file itself -- it's
+there for a separate, unreleased project that reads the PS4's own Home screen and Settings and
+needs to know when to back off. See
+[`docs/development/shell-feed-coordination.md`](docs/development/shell-feed-coordination.md).
+
 **Debugging.** `tools/` has the capture and decode scripts. A debug plugin build (`make DEBUG=1`)
 sends telemetry to the `[dev]` address in the ini. The flicker write-up above shows how it's
 used. For a quick look at a game without a debug build, use the [report file](#reporting-a-game).

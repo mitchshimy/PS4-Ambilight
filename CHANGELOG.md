@@ -5,6 +5,45 @@ companion app) are documented here, newest first.
 
 ## Plugin
 
+### v3.9.2
+- Added a small state file, `/data/ps4_ambient_state`, so a second, independent process can
+  tell whether this plugin is actively driving the strip right now. It is written
+  unconditionally -- no ini key, no opt-in -- because a missing or stale file is already the
+  correct "nothing is claiming the strip" signal for a reader, so there is nothing to protect
+  an ordinary install from. This plugin never reads the file and has no code that knows what
+  (if anything) reads it. First consumer: a separate, unreleased compositor-level feed in the
+  `ps4-shell-capture-research` repo that reads the PS4's own Home screen, Settings and quick
+  menu and needs to back off the moment a game is actually driving the strip, and resume the
+  moment it isn't. See [shell-feed-coordination](docs/development/shell-feed-coordination.md).
+- The record is one fixed-width line -- `v1 fg=1 seq=000123 title=CUSA00000\n`, 35 bytes,
+  always exactly that many -- written at offset 0 **without** `O_TRUNC`. That is deliberate and
+  different from the report file: this one is polled by another process several times a second,
+  so a reader must never be able to catch a torn write, only the old complete record or the new
+  one. `fg=1` means foreground **and** the flip hooks moved in the last second; a static
+  foreground frame, or a backgrounded game that's still flipping somehow, is not a claim either
+  way. `seq` only advances while `fg=1`; it is not a wall-clock heartbeat.
+- Written once at load (`fg=0`, so a reader is never stuck treating "the file doesn't exist
+  yet" as its own special case during the first second a title runs), then once a second while
+  `fg=1`, then **exactly once** on the transition back to `fg=0` -- after that one write the
+  thread goes quiet and touches the file again only once play resumes. A crash leaves the file
+  on a frozen `fg=1`; recovering from that is entirely the reader's own staleness timeout, not
+  anything this plugin does.
+- New `state.c` and `state_file.h`, split the same way as `report.c` / `report_file.h`: the
+  header is pure string logic, host-testable with no console calls, and the `.c` file does the
+  two things that need the console (reading the existing flip/backgrounded globals, and the
+  file I/O). Its own thread (`ambient_state_thread`), for the same reason `report.c` has one: a
+  disk write can take milliseconds, and the sampler's whole budget is 33 ms a pass at 30 Hz.
+  Nothing in the sampler is touched by this change at all.
+- Host-tested: `tools/test_state.c` includes `state.c` and runs the real tick against made-up
+  flip counters and a fake `g_isBackgrounded`, including that the record length is a true
+  constant (checked, not hand-counted) across a wrapping sequence number and an oversized title,
+  that a write never carries `O_TRUNC`, that exactly one `fg=0` write happens on the
+  foreground-to-background transition and none after, and that `seq` keeps counting across a
+  background/foreground cycle instead of resetting.
+- `g_pluginVersion` stays `0x0309`, same as the v3.9.1 patch release: CI compares only
+  major.minor, so the tag is `v3.9.2`. The full version string is `AMBIENT_VERSION_STRING` in
+  `ambient_internal.h`.
+
 ### v3.9.1
 - Added a report file, so testing a game no longer needs a debug build and a UDP capture. **It
   is off by default**: a tester turns it on by adding `report_file=1` under `[compat]` in
