@@ -5,6 +5,29 @@ companion app) are documented here, newest first.
 
 ## Plugin
 
+### v3.9.3
+- The state file's `fg=1` is now written the moment the plugin starts flipping, not up to a
+  second later. In v3.9.2 the state thread looked at the flip counters once a second, so the
+  first `fg=1` could land up to a second after a game's first flip, and a reader that backs off
+  while the file says `fg=1` could only back off after that. For that second both this plugin
+  and the reader were sending to the same strip, and WLED alternated between the two: a 1-2 s
+  flicker at every game launch, seen on hardware with the shell-level feed. The thread now looks
+  every 100 ms and writes `fg=1` on the first tick it sees a flip.
+- What counts as `fg=1` has **not** changed: foreground and the flip hooks moved in the last
+  second. It is now a one-second window of 100 ms ticks instead of "any flip in this 1 s tick",
+  so a game that flips slower than 10 times a second still holds the claim between flips.
+- The write rate while a claim holds is unchanged: one record a second (`seq` +1 each time).
+  The only extra write is the one on the way in. `fg=0` is still written exactly once on the
+  way out, after the same ~1 s of no flips (or at once when the plugin is backgrounded), and
+  the thread then goes quiet. A failed write is retried on the next 100 ms tick and no longer
+  uses up a `seq` number. The record format (`v1`, 35 bytes) is unchanged, so a v3.9.2 reader
+  works as before, only sooner.
+- `tools/test_state.c` now drives 100 ms ticks: the first flipping tick writes `fg=1` (also
+  after 25 flip-less loading ticks), writes between heartbeats stay at none, a stopped game
+  keeps the claim for the window and then writes one `fg=0`, and a failed rising-edge write is
+  retried without skipping a `seq`. All earlier checks kept.
+- `g_pluginVersion` stays `0x0309` (CI compares only major.minor): the tag is `v3.9.3`.
+
 ### v3.9.2
 - Added a small state file, `/data/ps4_ambient_state`, so a second, independent process can
   tell whether this plugin is actively driving the strip right now. It is written

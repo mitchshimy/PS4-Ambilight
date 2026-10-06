@@ -30,7 +30,7 @@ v1 fg=1 seq=000123 title=CUSA00000
 | Field | Meaning |
 |---|---|
 | `v1` | Format version. A reader that doesn't recognize it should treat the file as absent. |
-| `fg` | `1` while this plugin is actively driving the strip (foreground **and** the flip hooks moved in the last second); `0` otherwise. |
+| `fg` | `1` while this plugin is actively driving the strip (foreground **and** the flip hooks moved in the last second); `0` otherwise. Written as soon as the first flip is seen (v3.9.3; v3.9.2 could take up to a second). |
 | `seq` | Six digits, wraps at 1,000,000. Advances only while `fg=1`. A frozen `seq` while `fg=1` means the plugin stopped updating without writing `fg=0` -- a crash, not a clean handoff. |
 | `title` | Nine characters, space-padded, the same title ID the report file uses. `-` when unknown. |
 
@@ -53,9 +53,16 @@ v1 fg=1 seq=000123 title=CUSA00000
 
 ## What this plugin does and doesn't promise
 
-- The write rate is about once a second while idle-to-active, and about once a second while
-  active (see `state.c`'s header comment for the exact transition logic). It is **not** a
-  high-rate heartbeat; don't poll faster than a few times a second expecting new information.
+- `fg=1` is written within about 100 ms of the plugin's first flip (v3.9.3), then once a second
+  while it stays true; `fg=0` is written once on the way out. A reader that wants to back off
+  without a visible overlap should poll every 50-100 ms; polling faster than that gains
+  nothing. It is **not** a high-rate heartbeat: between the first write and the next
+  heartbeat the file does not change (see `state.c`'s header comment for the exact logic).
+- A game that was already flipping when the reader started is seen as `fg=1` with a `seq` the
+  reader has not seen change yet. A reader may wait for the next heartbeat (at most about a
+  second) before trusting it; the first read after the reader's own start is also where a
+  record left by a previous boot shows up, which is why the freshness rule above compares
+  `seq` across reads.
 - The format (`v1`) is considered stable. A future incompatible change would use a new version
   tag, not silently change the field layout under `v1`.
 - This plugin makes no promise about *when* GoldHEN loads or unloads it relative to a title's own

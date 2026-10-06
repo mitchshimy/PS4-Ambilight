@@ -415,8 +415,8 @@ saturation and smoothing pipeline in `plugin/source/color_processing.c`.
 color is resent once a second so WLED's realtime timeout doesn't fire. See
 [`docs/debugging/wled-heartbeat.md`](docs/debugging/wled-heartbeat.md).
 
-**Handing off to the shell screens.** The plugin writes `/data/ps4_ambient_state` once a second,
-saying whether it's actively driving the strip right now. It never reads this file itself -- it's
+**Handing off to the shell screens.** The plugin writes `/data/ps4_ambient_state` the moment it starts
+driving the strip and once a second while it does, saying whether it's actively driving the strip right now. It never reads this file itself -- it's
 there for a separate, unreleased project that reads the PS4's own Home screen and Settings and
 needs to know when to back off. See
 [`docs/development/shell-feed-coordination.md`](docs/development/shell-feed-coordination.md).

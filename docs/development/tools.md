@@ -245,15 +245,18 @@ gcc -Wall -Itools/host_stubs -Iplugin/include -Icommon -o /tmp/test_state tools/
 ```
 
 It `#include`s `plugin/source/state.c` itself, so it runs the real `ambient_state_tick()` against
-made-up flip counters and a fake `g_isBackgrounded`. Same stand-in file calls as `test_report.c`,
+made-up flip counters and a fake `g_isBackgrounded`, one 100 ms tick at a time. Same stand-in file calls as `test_report.c`,
 redirecting `/data` to a scratch directory and honoring the real flags, so a missing `O_TRUNC`
 (the wrong thing here, unlike the report file) would show up as an unexpected one. Exits 0 if all
 pass:
 
 - The very first tick writes `fg=0` immediately, before anything about foreground or flipping is
   known, so a reader is never stuck treating a missing file as a special case.
-- `fg=1` only when foreground **and** a flip hook moved that tick; foreground alone, or flipping
-  alone while backgrounded, is not a claim.
+- `fg=1` only when foreground **and** a flip hook moved in the last second (ten 100 ms ticks);
+  foreground alone, or flipping alone while backgrounded, is not a claim.
+- The first flipping tick writes `fg=1` at once (also after a long run of flip-less loading
+  ticks), and while the claim holds the file is rewritten only at the one-second heartbeat.
+- A game whose flips just stop keeps the claim for the window, then gets exactly one `fg=0`.
 - Exactly one `fg=0` write on the transition out of a claim, then total silence while it stays
   that way -- checked by counting open calls across several idle ticks, not just reading the file
   once.
