@@ -147,6 +147,8 @@ static uint32_t parse_gamma_index(const char *s, uint32_t fallback)
 // True if `section` holds at least one preset-owned key, i.e. the ini really
 // has that preset. Checked by key rather than by section name so an empty or
 // stray "[preset_movie]" line doesn't count as a preset.
+const char *g_presetOverride = NULL; // see ambient_internal.h; this plugin never sets it
+
 static bool preset_section_has_keys(ini_table_s *table, const char *section)
 {
     static const char *const kPresetKeys[] = {
@@ -189,10 +191,19 @@ void ambient_load_config(void)
     // are never part of a preset and always come from their own sections.
     // A key missing from the chosen section is treated like any other missing
     // key here: the value it already has stands.
-    const char *ps = preset_section_pick(ini_table_get_entry(table, "presets", "active"),
-                                         media_title_is_movie(g_titleId),
-                                         preset_section_has_keys(table, PRESET_SECTION_GAME),
-                                         preset_section_has_keys(table, PRESET_SECTION_MOVIE));
+    const char *ps;
+    if (g_presetOverride != NULL && preset_section_has_keys(table, g_presetOverride)) {
+        // g_presetOverride wins over active=/the title guess, but only if its
+        // section actually has keys -- an override pointing at a section the
+        // ini doesn't define falls through to the normal pick below rather
+        // than silently losing every preset-owned setting.
+        ps = g_presetOverride;
+    } else {
+        ps = preset_section_pick(ini_table_get_entry(table, "presets", "active"),
+                                  media_title_is_movie(g_titleId),
+                                  preset_section_has_keys(table, PRESET_SECTION_GAME),
+                                  preset_section_has_keys(table, PRESET_SECTION_MOVIE));
+    }
     const char *sLayout = ps ? ps : "layout";
     const char *sColor  = ps ? ps : "color";
     const char *sTiming = ps ? ps : "timing";

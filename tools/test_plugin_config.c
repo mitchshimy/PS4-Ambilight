@@ -8,6 +8,7 @@
 #include "ambient_internal.h"
 #include "media_titles.h"
 #include "default_ini.h"
+#include "preset_select.h"   // PRESET_SECTION_GAME / PRESET_SECTION_MOVIE, for the g_presetOverride cases below
 #include <assert.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -252,6 +253,39 @@ int main(void)
     }
     g_reportEnabled = 0; g_gpuOnlyRemap = 3;
     printf("[compat] report_file is optional, off by default, 0 or 1, and independent of gpu_only_remap and presets: PASSED\n");
+
+    // v3.9.4: g_presetOverride (shell-feed). NULL is the default and every assert above this
+    // point ran with it NULL, so this plugin's own behaviour (all 13 cases above) is unaffected
+    // by the override's mere existence -- these new cases are additional, not a replacement.
+    assert(g_presetOverride == NULL);
+    // 14a. NULL override: no change from case 6/8 above (active=movie, both sections present).
+    fresh("[presets]\nactive=movie\n[preset_game]\n" PRESET_BODY_GAME "[preset_movie]\n" PRESET_BODY_MOVIE, "CUSA00001");
+    assert(g_config.scanDepth == 4 && g_config.settlingTimeMs == 200);   // active=movie wins, as always
+    // 14b. override=preset_game wins over active=movie, same ini.
+    g_presetOverride = PRESET_SECTION_GAME;
+    ambient_load_config();
+    assert(g_config.scanDepth == 2 && g_config.settlingTimeMs == 50);
+    // 14c. override pointing at a section the ini doesn't define falls through to the normal
+    // pick, same "use the other one" rule preset_section_pick() already follows -- an override
+    // never produces a worse result than no override at all.
+    g_presetOverride = PRESET_SECTION_GAME;
+    fresh("[presets]\nactive=movie\n[preset_movie]\n" PRESET_BODY_MOVIE, "CUSA00001");   // no [preset_game] here
+    assert(g_config.scanDepth == 4);                                     // falls back to movie, not silently broken
+    // 14d. override=preset_movie, a media title that would normally force movie anyway: no change.
+    g_presetOverride = PRESET_SECTION_MOVIE;
+    fresh("[presets]\nactive=game\n[preset_game]\n" PRESET_BODY_GAME "[preset_movie]\n" PRESET_BODY_MOVIE, "CUSA00129"); // Netflix US
+    assert(g_config.scanDepth == 4);
+    // 14e. override=preset_game on a title that would normally force movie (Netflix): override wins.
+    // This is the exact situation shell-feed needs -- the shell is never "Netflix", but this proves
+    // the override outranks the media-title check, not just active=.
+    g_presetOverride = PRESET_SECTION_GAME;
+    fresh("[presets]\nactive=game\n[preset_game]\n" PRESET_BODY_GAME "[preset_movie]\n" PRESET_BODY_MOVIE, "CUSA00129"); // Netflix US
+    assert(g_config.scanDepth == 2 && g_config.settlingTimeMs == 50);
+    g_presetOverride = NULL;
+    // 14f. back to NULL: behaves exactly as case 6 did, proving the override leaves no residue.
+    fresh("[presets]\nactive=movie\n[preset_game]\n" PRESET_BODY_GAME, "CUSA00001");
+    assert(g_config.scanDepth == 2 && g_config.settlingTimeMs == 50);
+    printf("g_presetOverride forces a preset section, falls back cleanly when absent, outranks the media-title check, and is a no-op when NULL: PASSED\n");
 
     printf("ALL PLUGIN CONFIG CHECKS PASSED\n");
     return 0;

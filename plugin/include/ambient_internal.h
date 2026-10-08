@@ -115,6 +115,18 @@ typedef struct {
 extern AmbientConfig g_config; // defined in settings.c
 extern char g_titleId[16];     // defined in settings.c; set by plugin_load, picks the preset (media_titles.h)
 
+// v3.9.4: force ambient_load_config() to use a specific [preset_*] section
+// regardless of [presets] active= or the title's own movie/game guess, IF
+// that section exists in the ini (falls through to the normal pick
+// otherwise -- same "use the other one if the first has no keys" rule
+// preset_section_pick() already follows). NULL (the default) means "no
+// override, behave exactly as before" -- this plugin never sets it itself.
+// It exists for a second, in-repo plugin (shell-feed/) that always wants
+// [preset_game], never [preset_movie], no matter what the ini's active=
+// says, since active=movie would otherwise turn the shell screens movie
+// too. See preset_select.h for PRESET_SECTION_GAME/PRESET_SECTION_MOVIE.
+extern const char *g_presetOverride; // defined in settings.c, default NULL
+
 // [gamma] -- kGammaLuts is the fixed 8-preset table (gamma.c); the
 // per-channel g_gammaLutR/G/B are the continuous, config-driven ones
 // (also gamma.c) -- see that file for why both exist. Used directly
