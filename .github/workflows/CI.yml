@@ -37,8 +37,14 @@ jobs:
           fi
           val=$((16#$raw))
           want="$(( (val >> 8) & 255 )).$(( val & 255 ))"
-          if ! printf '%s' "$tag" | grep -Eq '^v[0-9]+\.[0-9]+(\.[0-9]+)?$'; then
-            echo "::error::tag '$tag' isn't a version tag like v$want.0"
+          # Allows an optional "-rc.N" pre-release suffix (e.g. v3.9.4-rc1)
+          # so a shell-feed hardware test build (see publish job below) can
+          # be tagged and built through this same check without it being
+          # mistaken for a real release tag. The suffix sits on the patch
+          # segment, after the last ".", so it doesn't affect the
+          # major.minor extraction two lines below.
+          if ! printf '%s' "$tag" | grep -Eq '^v[0-9]+\.[0-9]+(\.[0-9]+)?(-rc\.?[0-9]+)?$'; then
+            echo "::error::tag '$tag' isn't a version tag like v$want.0 or v$want.0-rc1"
             exit 1
           fi
           have=$(printf '%s' "${tag#v}" | cut -d. -f1,2)
@@ -96,18 +102,47 @@ jobs:
         working-directory: plugin
         run: make DEBUG=1
 
+      # shell-feed Stage A: built against the same patched SDK, same
+      # toolchain env, as the Stage-A merge plan calls for. Its Makefile
+      # computes the same bin/plugins/ output folder plugin/Makefile does
+      # (both resolve "../bin/plugins" from their own directory), so both
+      # plugins land in prx_final/ and prx_debug/ together -- the upload
+      # steps below select each .prx by name rather than globbing the
+      # whole folder, so the two artifacts stay distinct.
+      - name: Build shell-feed (Release)
+        working-directory: shell-feed
+        run: make
+
+      - name: Build shell-feed (Debug)
+        working-directory: shell-feed
+        run: make DEBUG=1
+
       - name: Upload plugin (Release)
         uses: actions/upload-artifact@main
         with:
           name: ps4_ambient_light-prx_final
-          path: bin/plugins/prx_final/*.prx
+          path: bin/plugins/prx_final/ps4_ambient_light.prx
           if-no-files-found: error
 
       - name: Upload plugin (Debug)
         uses: actions/upload-artifact@main
         with:
           name: ps4_ambient_light-prx_debug
-          path: bin/plugins/prx_debug/*.prx
+          path: bin/plugins/prx_debug/ps4_ambient_light.prx
+          if-no-files-found: error
+
+      - name: Upload shell-feed (Release)
+        uses: actions/upload-artifact@main
+        with:
+          name: ps4_shell_feed-prx_final
+          path: bin/plugins/prx_final/ps4_shell_feed.prx
+          if-no-files-found: error
+
+      - name: Upload shell-feed (Debug)
+        uses: actions/upload-artifact@main
+        with:
+          name: ps4_shell_feed-prx_debug
+          path: bin/plugins/prx_debug/ps4_shell_feed.prx
           if-no-files-found: error
 
   build_pkg:
@@ -225,6 +260,12 @@ jobs:
           name: ps4_ambient_light-prx_final
           path: prx
 
+      - name: Download shell-feed (Release)
+        uses: actions/download-artifact@main
+        with:
+          name: ps4_shell_feed-prx_final
+          path: prx
+
       - name: Download companion app package
         uses: actions/download-artifact@main
         with:
@@ -239,15 +280,37 @@ jobs:
       # that asset and its checksum sidecar (PLUGIN_CHECKSUM_URL,
       # "<same name>.sha256") from the SAME build_prx artifact, so they
       # can never drift out of sync with each other -- do_plugin_update()
-      # in main.c refuses to install if they don't match.
-      - name: Compute checksum
+      # in main.c refuses to install if they don't match. The same now
+      # happens for ps4_shell_feed.prx; nothing reads its checksum yet,
+      # but publishing it alongside keeps the two plugins' release assets
+      # symmetric from the start.
+      - name: Compute checksums
         working-directory: prx
-        run: sha256sum ps4_ambient_light.prx > ps4_ambient_light.prx.sha256
+        run: |
+          sha256sum ps4_ambient_light.prx > ps4_ambient_light.prx.sha256
+          sha256sum ps4_shell_feed.prx > ps4_shell_feed.prx.sha256
+
+      # A tag like v3.9.4-rc1 passes the build_prx version check (see its
+      # comment) but must never become the release that "latest" resolves
+      # to, since do_plugin_update() in companion-app and the researchers'
+      # own notes both treat "latest" as what real users receive. This is
+      # what makes it safe to test shell-feed's release-asset naming on a
+      # real tag (merge plan step 10) before it ever ships for real.
+      - name: Determine prerelease flag
+        id: prerelease
+        run: |
+          case "$GITHUB_REF_NAME" in
+            *-rc*) echo "flag=true" >> "$GITHUB_OUTPUT" ;;
+            *)     echo "flag=false" >> "$GITHUB_OUTPUT" ;;
+          esac
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
+          prerelease: ${{ steps.prerelease.outputs.flag }}
           files: |
             prx/ps4_ambient_light.prx
             prx/ps4_ambient_light.prx.sha256
+            prx/ps4_shell_feed.prx
+            prx/ps4_shell_feed.prx.sha256
             pkg/*.pkg
