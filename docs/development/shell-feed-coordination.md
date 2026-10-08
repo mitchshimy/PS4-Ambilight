@@ -2,9 +2,11 @@
 
 Since v3.9.2 the plugin writes `/data/ps4_ambient_state`, a small file saying whether it's
 actively driving the strip right now. This page is for anyone writing something that reads it --
-today that's a separate, unreleased project in `ps4-shell-capture-research` that samples the PS4's
-own Home screen, Settings and quick menu and sends those colors to the same WLED strip when no
-game is doing it instead.
+today that's [`shell-feed/`](../../shell-feed/), a second plugin in this same repo that samples
+the PS4's own Home screen, Settings and quick menu and sends those colors to the same WLED strip
+when no game is doing it instead. (It started life as a separate research project,
+`ps4-shell-capture-research`; see [`shell-feed/README.md`](../../shell-feed/README.md) for the
+provenance of its current code and what's still unreplaced from that project.)
 
 This plugin has no code that reads the file back, and no dependency on anything reading it. It
 writes its own state because that's cheap and useful on its own; what another process does with

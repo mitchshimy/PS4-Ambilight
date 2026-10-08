@@ -416,10 +416,13 @@ color is resent once a second so WLED's realtime timeout doesn't fire. See
 [`docs/debugging/wled-heartbeat.md`](docs/debugging/wled-heartbeat.md).
 
 **Handing off to the shell screens.** The plugin writes `/data/ps4_ambient_state` the moment it starts
-driving the strip and once a second while it does, saying whether it's actively driving the strip right now. It never reads this file itself -- it's
-there for a separate, unreleased project that reads the PS4's own Home screen and Settings and
-needs to know when to back off. See
-[`docs/development/shell-feed-coordination.md`](docs/development/shell-feed-coordination.md).
+driving the strip and once a second while it does, saying whether it's actively driving the strip right now. It never reads this file itself -- [`shell-feed/`](shell-feed/), a second
+plugin in this repo, reads it to know when to back off and drive the strip from the PS4's own Home
+screen and Settings instead. See
+[`docs/development/shell-feed-coordination.md`](docs/development/shell-feed-coordination.md) for
+the handoff protocol and [`shell-feed/README.md`](shell-feed/README.md) for that module itself,
+including its current build/hardware status and its own, narrower support matrix (9.00 only, see
+[`shell-feed/docs/support-matrix.md`](shell-feed/docs/support-matrix.md)).
 
 **Debugging.** `tools/` has the capture and decode scripts. A debug plugin build (`make DEBUG=1`)
 sends telemetry to the `[dev]` address in the ini. The flicker write-up above shows how it's
@@ -460,6 +463,17 @@ Output lands in `bin/plugins/` (created next to this repo root). CI applies this
 fresh SDK checkout before every build (see `.github/workflows/CI.yml`), so a tagged release is
 always built against the patched SDK. A local build only gets those same fixes if you patch your
 own `GOLDHEN_SDK` copy too.
+
+`shell-feed/` builds the same way, against the same patched SDK:
+
+```
+cd shell-feed
+make
+```
+
+It lands in the same `bin/plugins/` folder, alongside `ps4_ambient_light.prx`, as its own
+`ps4_shell_feed.prx`. See [`shell-feed/README.md`](shell-feed/README.md) for what this module
+is, its provenance, and its current build/hardware status.
 
 ## Building the companion app
 
