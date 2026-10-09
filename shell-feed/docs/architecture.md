@@ -109,11 +109,11 @@ bad buffer checks in a row before a re-scan, 10 s cooldown doubling to
 60 s), a per-gate `GATE:` status line, an optional
 `/data/ps4_ambient_report_SHELL.txt` report file, an optional `[dev]` UDP
 mirror, its own hardware-verified v17 tiling math (used by the
-buffer-discovery/self-heal code, unrelated to the zone sampler above), and
--- deliberately, since it's Stage D's concern, not this one -- its own
-pasted copy of the sister's per-frame smoothing block, since that code
-runs in a game's hot path and earns its own, separate hardware re-test
-before being shared.
+buffer-discovery/self-heal code, unrelated to the zone sampler above).
+Stage D then replaced its pasted copy of the sister's per-frame smoothing
+(and the sister's own inline copy in `sample_thread.c`) with
+`plugin/include/smoothing.h`, a header-only pair of functions both call;
+each process keeps its own smoothing state, only the arithmetic is shared.
 
 Verification done for this stage, without hardware: `shell-feed/tools/
 run_stagec_core_test.sh` compiles and links the exact span of
@@ -125,7 +125,7 @@ parameters byte for byte, `g_presetOverride` forces `[preset_game]` through
 the real `ambient_load_config()` even with `active=movie` in the ini, the
 real `buildZoneGeometry()` reproduces the same 229-zone/LED-42-rotation
 geometry the research repo's `host_zone_check` already found, and a
-synthetic frame samples/colour-processes/smooths correctly end to end. What
+synthetic frame samples/colour-processes/smooths correctly end to end (smoothing now via `smoothing.h`). What
 this can't prove -- a real compositor buffer, a real console, a real strip
 -- was the hardware step (merge plan step 14: cold boot,
 disable/resume, a game launch, rest mode). That step has now been run on a

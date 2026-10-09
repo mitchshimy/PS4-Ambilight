@@ -15,6 +15,7 @@ misbehaves.
 | `ps4_detile_2dthin.c` | standalone reference detiler, to cross-check the plugin's tiling |
 | `test_pq8bit_vote.c` | host test for the alpha byte vote that spots 8-bit ARGB under `0x88740000` |
 | `test_hdr2200_vote.c` | host test for the alpha byte vote that picks HDR or SDR under `0x80002200` |
+| `test_smoothing.c` | host test that `smoothing.h` (shared by the plugin and shell-feed) is bit-identical to the smoothing code it replaced |
 | `data/hdr2200_frames.csv` | real 8-word frames from HITMAN 3 and RDR2, the recorded input for that test |
 
 ## flicker_capture.py
@@ -134,6 +135,22 @@ known at the time whether the console was in Neo mode. Detiling a real capture w
 each and seeing which looks right settles it. The plugin's `tiling.c` uses the base
 parameters, and this file is the independent reference to compare against when
 touching that code. See also [sampling-zones](../sampling-zones.md#tiling).
+
+## test_smoothing.c
+
+Builds and runs on a PC, no console and no SDK:
+
+```
+gcc -Wall -Iplugin/include -o /tmp/test_smoothing tools/test_smoothing.c
+/tmp/test_smoothing
+```
+
+It includes `plugin/include/smoothing.h` and keeps a verbatim copy of the smoothing code as
+it was before that header existed (inline in `sample_thread.c`, pasted into shell-feed) as
+the reference. It compares the two on every update rate and settling time the ini allows,
+and on every previous value, target and alpha, with and without a valid previous frame. It
+then checks that a fade always reaches its target exactly (the v2.7.5 fix). The header is
+the one piece of smoothing logic shared by the plugin and `shell-feed/`.
 
 ## test_pq8bit_vote.c
 

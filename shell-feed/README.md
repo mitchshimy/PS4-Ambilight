@@ -19,10 +19,10 @@ build (`Makefile`'s second source list) against this repo's real
 `plugin/source/tiling.c`, `pixel_formats.c`, `zones.c`, `gamma.c`,
 `color_processing.c`, `settings.c` and `config.c`. `g_presetOverride`
 (added to `plugin/source/settings.c` alongside this refactor) is what makes
-that possible without reimplementing ini parsing here. The two
-`sample_thread.c` smoothing blocks are the one piece still intentionally
-pasted -- that's Stage D, a separate, later change, since it's code in a
-game's hot path.
+that possible without reimplementing ini parsing here. Stage D then moved
+the per-zone smoothing, which had been pasted here and written inline in
+`sample_thread.c`, into one shared header, `plugin/include/smoothing.h`;
+both now call it (see `docs/findings.md` for how that was checked).
 
 **Status.** Builds with the same toolchain and link pattern as `plugin/`
 (see `Makefile`), now with a second source list for the shared files.
@@ -39,7 +39,8 @@ preset the shell feed uses was `game` regardless of `active=` in the ini.
 Rest mode: 30 minutes in rest with no crash (person report -- it is not in
 the captured log, which has no rest/wake lines). Everything else above is
 in the capture: see `docs/findings.md` for the line-by-line evidence.
-Stage D (the two pasted smoothing blocks) is still separate and still
-needs its own hardware re-test.
+Those results are for the build *before* Stage D. Stage D (shared
+smoothing) changed `plugin/source/sample_thread.c` as well, so it needs its
+own console re-test -- see `docs/findings.md`.
 
 **Firmware:** 9.00 only. See `docs/support-matrix.md`.

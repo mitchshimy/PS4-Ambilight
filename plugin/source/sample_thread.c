@@ -17,6 +17,7 @@
 
 #include "plugin_common.h"
 #include "ambient_internal.h"
+#include "smoothing.h"
 
 // v1.1: all the actual work -- resolving the live buffer, sampling 229
 // zones, sending the UDP packet -- now happens here, on its own
@@ -175,9 +176,7 @@ void *ambient_sample_thread(void *args)
 #endif
             }
         }
-        uint32_t smoothingIntervalMs = sampleIntervalUs / 1000u;
-        smoothingAlpha = (smoothingIntervalMs * 256u) / (g_config.settlingTimeMs + 1u);
-        if (smoothingAlpha > 256u) smoothingAlpha = 256u;
+        smoothingAlpha = smoothing_alpha(sampleIntervalUs, g_config.settlingTimeMs);
 
         if (g_isBackgrounded) {
             // v2.4: closes the real, confirmed gap from --
@@ -387,40 +386,7 @@ void *ambient_sample_thread(void *args)
                     applyDarkThreshold(i, &verified[0], &verified[1], &verified[2]);
 
                     if (g_config.smoothingEnabled) {
-                        if (!g_smoothedRgbValid) {
-                            g_smoothedRgb[i][0] = verified[0];
-                            g_smoothedRgb[i][1] = verified[1];
-                            g_smoothedRgb[i][2] = verified[2];
-                        } else {
-                            for (int c = 0; c < 3; c++) {
-                                int32_t prev = g_smoothedRgb[i][c];
-                                int32_t raw = verified[c];
-                                int32_t delta = ((raw - prev) * (int32_t)smoothingAlpha) / 256;
-                                // v2.7.5: C's / truncates toward zero, not
-                                // toward -infinity -- so once |raw-prev| is
-                                // small enough that |delta| rounds down to
-                                // 0, prev stops moving AT ALL, forever,
-                                // even though raw != prev. Confirmed by
-                                // simulation with this project's own
-                                // defaults (update_frequency_hz=30,
-                                // settling_time_ms=100 -> smoothingAlpha=83):
-                                // decaying toward a target of 0 from ANY
-                                // starting brightness lands on exactly 3
-                                // and sticks there permanently -- a dim
-                                // residual glow that never reaches black on
-                                // its own. This is what was reported as "a
-                                // colorful scene's colors are retained
-                                // dimly" after a cut to black. Forcing a
-                                // minimum step of 1 toward raw whenever the
-                                // proper proportional step would otherwise
-                                // round to 0 guarantees this always
-                                // converges to the exact target within a
-                                // few extra frames, instead of stalling
-                                // short of it indefinitely.
-                                if (delta == 0 && raw != prev) delta = (raw > prev) ? 1 : -1;
-                                g_smoothedRgb[i][c] = (uint8_t)(prev + delta);
-                            }
-                        }
+                        smoothing_step(g_smoothedRgb[i], verified, smoothingAlpha, g_smoothedRgbValid);
                         rgbTriplets[i*3+0] = g_smoothedRgb[i][0];
                         rgbTriplets[i*3+1] = g_smoothedRgb[i][1];
                         rgbTriplets[i*3+2] = g_smoothedRgb[i][2];

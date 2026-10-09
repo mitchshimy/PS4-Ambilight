@@ -9,9 +9,9 @@
 # tools/host_ini_check for the post-Stage-C shape: those two assume a self-contained single-file
 # probe (Stage A/B's shape) and can no longer run their own harness step against shell-feed's main.c
 # now that it legitimately #includes the sister's real headers via a proper Makefile -- their
-# provenance check (now comparing only the two sample_thread.c smoothing blocks still intentionally
-# pasted, Stage D's concern) still works and should still be run from the research repo for that
-# part. This script covers everything Stage C actually changed.
+# provenance check (which compared the two sample_thread.c smoothing blocks, since removed by
+# Stage D) has nothing left to compare. This script covers everything Stage C actually changed;
+# the shared smoothing's own equivalence proof is tools/test_smoothing.c.
 #
 # Usage: sh shell-feed/tools/run_stagec_core_test.sh   (run from the repo root)
 set -e

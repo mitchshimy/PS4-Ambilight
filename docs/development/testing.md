@@ -30,6 +30,9 @@ What has actually been used to check the plugin:
   `0x88740000` check, on real words from captures and on generated PQ. The one piece
   of plugin logic that is built and run on a PC, only because it lives in its own
   header. See [tools](tools.md#test_pq8bit_votec).
+- **`tools/test_smoothing.c`.** A host test that the shared `smoothing.h` is bit-identical
+  to the smoothing code it replaced, exhaustively over alpha, previous value and target.
+  See [tools](tools.md#test_smoothingc).
 - **`tools/test_hdr2200_vote.c`.** The same kind of host test for the `0x80002200`
   vote, on hand-written cases and 281 real frames from HITMAN 3 and RDR2 in
   `tools/data/hdr2200_frames.csv`. See [tools](tools.md#test_hdr2200_votec).

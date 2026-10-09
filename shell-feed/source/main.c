@@ -63,8 +63,9 @@
 // (now living in the sister's own repo, as shell-feed/) instead compiles tiling.c, pixel_formats.c,
 // zones.c, gamma.c, color_processing.c, settings.c and config.c straight from ../plugin/source/ -- see
 // the comment above the real #include block further down for the rest of that story, and
-// shell-feed/README.md for the provenance of the pieces that are still local to this file (the
-// per-frame smoothing block, still "sister-begin"-marked, and the probe's own v17 tiling math).
+// shell-feed/README.md for the provenance of the one piece that is still local to this file (the
+// probe's own v17 tiling math). Stage D then moved the per-frame smoothing out of both this file and
+// sample_thread.c into plugin/include/smoothing.h, so there is no "sister-begin" paste left here.
 //
 // NOT PORTED, on purpose (these exist for a game's process or a game's pixels, not the shell's):
 //  - auto letterbox (the shell has no black bars; its margins stay 0), HDR/PQ format detection,
@@ -688,10 +689,8 @@ static uint64_t t17_offset(const TileParams17 *p, uint32_t x, uint32_t y)
 // settings.c and config.c are compiled from ../plugin/source/ (see shell-feed/Makefile's second
 // source list) and declared through the sister's own real headers, included below. What stays
 // local to this file: the probe's own v17 tiling math just above this comment (kept for the
-// buffer-discovery/self-heal code that has always used it, unrelated to the zone sampler), the
-// per-frame smoothing block further down (sister-begin: sample_thread.c smoothing -- Stage D of the
-// merge plan, not this one, since it sits in a game's hot path and needs its own hardware re-test),
-// and the small shim just below (11 externs the shared files need from sister files this project
+// buffer-discovery/self-heal code that has always used it, unrelated to the zone sampler), and the
+// small shim just below (11 externs the shared files need from sister files this project
 // does not link -- network.c, buffer_guard.c, report.c -- each a safe default or a no-op here; see
 // each one's own comment for why).
 // =====================================================================
@@ -699,6 +698,7 @@ static uint64_t t17_offset(const TileParams17 *p, uint32_t x, uint32_t y)
 #include "ambient_internal.h"
 #include "config.h"
 #include "preset_select.h"
+#include "smoothing.h"
 
 // ---- shim: 11 symbols the 7 shared files above reference from sister files this project doesn't
 // link (network.c, buffer_guard.c, report.c). Confirmed to be exactly these 11 by grepping all 7
@@ -732,7 +732,7 @@ void debug_send_raw(const uint8_t *data, int len) { (void)data; (void)len; } // 
 // ---------------------------------------------------------------------
 // [v22] Glue: this project's own code from here to the end of the block.
 // ---------------------------------------------------------------------
-static uint8_t g_smoothedRgb[MAX_TOTAL_ZONES][3];  // this file's own smoothing state -- private, per the
+static uint8_t g_smoothedRgb[MAX_TOTAL_ZONES][3];  // this file's own smoothing STATE (the maths is smoothing.h's) -- private, per the
                                                      // comment above ambient_internal.h's g_smoothedRgbValid extern
 bool g_smoothedRgbValid = false; // ambient_internal.h declares this extern (real definition's normally sample_thread.c's,
                                   // which this project doesn't link); false until the first real frame, and again after a reload
@@ -891,54 +891,15 @@ static void shell_enabled_poll(uint64_t nowTsc, uint64_t tscHz, uint64_t *nextPo
 // without the game-process-only parts (see the header comment).
 static uint32_t shell_process_frame(uint64_t bufferAddr, uint32_t sampleIntervalUs, uint8_t *rgbTriplets)
 {
-    uint32_t smoothingAlpha = 256u;
-// ---- sister-begin: sample_thread.c smoothing alpha ----
-        uint32_t smoothingIntervalMs = sampleIntervalUs / 1000u;
-        smoothingAlpha = (smoothingIntervalMs * 256u) / (g_config.settlingTimeMs + 1u);
-        if (smoothingAlpha > 256u) smoothingAlpha = 256u;
-// ---- sister-end ----
+    uint32_t smoothingAlpha = smoothing_alpha(sampleIntervalUs, g_config.settlingTimeMs);
     for (uint32_t i = 0; i < g_numZones; i++) {
         uint8_t r, g, b;
         sampleZoneAverage(&kParamsBase, bufferAddr, unpack_argb, g_zoneX[i], g_zoneY[i], &r, &g, &b);
         uint8_t verified[3];
         applyColorProcessing(r, g, b, verified);
         applyDarkThreshold(i, &verified[0], &verified[1], &verified[2]);
-// ---- sister-begin: sample_thread.c smoothing ----
                     if (g_config.smoothingEnabled) {
-                        if (!g_smoothedRgbValid) {
-                            g_smoothedRgb[i][0] = verified[0];
-                            g_smoothedRgb[i][1] = verified[1];
-                            g_smoothedRgb[i][2] = verified[2];
-                        } else {
-                            for (int c = 0; c < 3; c++) {
-                                int32_t prev = g_smoothedRgb[i][c];
-                                int32_t raw = verified[c];
-                                int32_t delta = ((raw - prev) * (int32_t)smoothingAlpha) / 256;
-                                // v2.7.5: C's / truncates toward zero, not
-                                // toward -infinity -- so once |raw-prev| is
-                                // small enough that |delta| rounds down to
-                                // 0, prev stops moving AT ALL, forever,
-                                // even though raw != prev. Confirmed by
-                                // simulation with this project's own
-                                // defaults (update_frequency_hz=30,
-                                // settling_time_ms=100 -> smoothingAlpha=83):
-                                // decaying toward a target of 0 from ANY
-                                // starting brightness lands on exactly 3
-                                // and sticks there permanently -- a dim
-                                // residual glow that never reaches black on
-                                // its own. This is what was reported as "a
-                                // colorful scene's colors are retained
-                                // dimly" after a cut to black. Forcing a
-                                // minimum step of 1 toward raw whenever the
-                                // proper proportional step would otherwise
-                                // round to 0 guarantees this always
-                                // converges to the exact target within a
-                                // few extra frames, instead of stalling
-                                // short of it indefinitely.
-                                if (delta == 0 && raw != prev) delta = (raw > prev) ? 1 : -1;
-                                g_smoothedRgb[i][c] = (uint8_t)(prev + delta);
-                            }
-                        }
+                        smoothing_step(g_smoothedRgb[i], verified, smoothingAlpha, g_smoothedRgbValid);
                         rgbTriplets[i*3+0] = g_smoothedRgb[i][0];
                         rgbTriplets[i*3+1] = g_smoothedRgb[i][1];
                         rgbTriplets[i*3+2] = g_smoothedRgb[i][2];
@@ -947,7 +908,6 @@ static uint32_t shell_process_frame(uint64_t bufferAddr, uint32_t sampleInterval
                         rgbTriplets[i*3+1] = verified[1];
                         rgbTriplets[i*3+2] = verified[2];
                     }
-// ---- sister-end ----
     }
     g_smoothedRgbValid = true;
     return g_numZones;
@@ -1213,7 +1173,7 @@ static void ddp_preview(int scene, int c, uint8_t rgb[][3])
 
 // ---------------------------------------------------------------------
 // [v24] Phase 3 leftovers (docs/integration_plan_v2.md, Phase 3): report file, [dev] UDP mirror,
-// self-heal, one log line per gate. Probe-only: no sister-begin block is touched.
+// self-heal, one log line per gate. Probe-only: nothing shared with the sister is touched.
 // The region below is host-tested by tools/host_v24_check/run.sh, which cuts it out of THIS file
 // between the portable-begin/end markers and builds it on a PC (real sockets, real heal timeline).
 // ---------------------------------------------------------------------

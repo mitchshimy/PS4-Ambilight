@@ -30,6 +30,23 @@ is `merged.log` (PuTTY serial log, 149 KB). Each row says what it rests on.
 | Per-frame cost is steady: avg about 1.9-2.1 ms, max under 3.7 ms at 30 Hz, `sent` always equal to the tick count, no skips. | Capture: the periodic `LIVE t=` lines (the last stretch, t=5s to t=85s, shows it). |
 | 30 minutes in rest mode, no crash, and the feed was correct afterwards. | **Person report only.** The capture has no rest or wake lines, so there is nothing in the log to cite for this one. |
 
+## Stage D: one smoothing implementation (merge plan, after step 14)
+
+The per-zone smoothing used to exist twice: inline in the plugin's
+`sample_thread.c` pass 3, and pasted into `shell-feed/source/main.c`. It is
+now two functions in `plugin/include/smoothing.h` (`smoothing_alpha()`,
+`smoothing_step()`), header-only and `static inline`, so neither Makefile's
+source list changed. Each caller keeps its own state array and valid flag.
+
+| Finding | How established |
+|---|---|
+| The new functions are bit-identical to the code they replaced. | `tools/test_smoothing.c` keeps a verbatim copy of the old code as the reference. It compares every update rate 1-240 Hz against settling 0-5000 ms (1,200,240 alpha cases) and every previous value x target x alpha 0-256 x valid/not-yet-valid (33,685,504 step cases): 0 differences. |
+| The test can fail. | Removing the v2.7.5 minimum-step line from a scratch copy of the header makes it report 1,595,571 failures. |
+| The v2.7.5 "dim residual glow" fix still holds: alpha 83 fading to black reaches exactly 0, and any fade with alpha >= 1 reaches its target. | Same test (26,832 fade cases plus the alpha-83 case). |
+| shell-feed's refactored span still compiles, links and runs against the real sister files. | `run_stagec_core_test.sh`, all checks passed after the change. |
+| The plugin's `sample_thread.c` still compiles after the change. | `gcc -fsyntax-only` against the host stubs. This is a syntax check only: the PS4 SDK isn't available here, so neither module was built with the real toolchain. |
+| **Not yet verified:** either module on a console after this change. | `sample_thread.c` is the game-process hot path. The step 14 results above are for the build before Stage D and do not cover it. A game launch with smoothing on, a fade to black (no stuck dim glow), and a cold boot of the shell feed are the checks to repeat. |
+
 ## What this merge's own equivalence checks reproduced
 
 Running the research repo's four PC-only host checks against this merged
@@ -60,7 +77,8 @@ shape), and `source/main.c` now legitimately depends on the sister's real
 headers via a proper Makefile. Its *provenance* check still ran and still
 means something: of the original 17 pasted blocks, 15 are gone (replaced by
 the real files) and the remaining 2 (`sample_thread.c` smoothing alpha and
-smoothing -- Stage D's concern) are still verbatim, `0 not verbatim`.
+smoothing) were still verbatim, `0 not verbatim`, when this was written;
+Stage D has since removed both (see its section above), so there is nothing left to compare.
 
 For everything Stage C actually changed, this merge added its own
 equivalent: `shell-feed/tools/run_stagec_core_test.sh`, which extracts the
@@ -88,8 +106,10 @@ settings,config}.c` and a real ini fixture. Results:
   site into the real linked function rather than a separate test harness.
 - A synthetic frame run through `shell_process_frame()` -- the real
   `sampleZoneAverage()`, `applyColorProcessing()`, `applyDarkThreshold()`
-  and this file's own (still-pasted, Stage D) smoothing block, in that
-  order -- comes back colour-processed rather than black.
+  and the smoothing step (`smoothing.h` since Stage D; a pasted copy when
+  this check was first written), in that order -- comes back
+  colour-processed rather than black.
 
 What this can't check: a real compositor buffer, a real console, a real
-strip. That's merge plan step 14, still ahead of this code.
+strip. That was merge plan step 14, since run on a console -- see "Stage C
+on a real console" above.
