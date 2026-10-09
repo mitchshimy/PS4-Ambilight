@@ -127,8 +127,9 @@ real `buildZoneGeometry()` reproduces the same 229-zone/LED-42-rotation
 geometry the research repo's `host_zone_check` already found, and a
 synthetic frame samples/colour-processes/smooths correctly end to end. What
 this can't prove -- a real compositor buffer, a real console, a real strip
--- is exactly the hardware step (merge plan step 14: cold boot,
-disable/resume, a game launch, rest mode) still ahead of this code before
-it ships. See `loading.md`, `findings.md` and `support-matrix.md` in this
+-- was the hardware step (merge plan step 14: cold boot,
+disable/resume, a game launch, rest mode). That step has now been run on a
+console and passed; see `findings.md` for what was captured and what is
+person-reported. See `loading.md`, `findings.md` and `support-matrix.md` in this
 same directory for the loading runbook, distilled findings and support
 matrix carried over from the research repo.

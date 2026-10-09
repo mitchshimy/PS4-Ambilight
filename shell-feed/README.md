@@ -30,9 +30,16 @@ game's hot path.
 refactored span against the real linked sister files and a real ini
 fixture (not the PS4 SDK, which isn't available in this environment) --
 see `docs/architecture.md`'s status section for what it checks and what it
-found. This module has not yet been built against the real PS4 SDK or run
-on a console; that's the hardware step the merge plan calls for next
-(step 14: cold boot, disable/resume, a game launch, rest mode), and it's
-the one thing in this module nothing on a PC can substitute for.
+found.
+
+**Hardware status (merge plan step 14, done 2026-10-09).** Built and run on
+a real 9.00 console with the Stage C code. Cold boot, disable/resume, a game
+launch and rest mode all passed; the strip colours were correct; and the
+preset the shell feed uses was `game` regardless of `active=` in the ini.
+Rest mode: 30 minutes in rest with no crash (person report -- it is not in
+the captured log, which has no rest/wake lines). Everything else above is
+in the capture: see `docs/findings.md` for the line-by-line evidence.
+Stage D (the two pasted smoothing blocks) is still separate and still
+needs its own hardware re-test.
 
 **Firmware:** 9.00 only. See `docs/support-matrix.md`.

@@ -15,6 +15,21 @@ and `HANDOFF.md`. Each row says how it was established.
 | The same running probe instance survives a PS-button suspend/resume (~13 s) with no reload and no skipped ticks, and (separately) survives several full rest/wake cycles with the correct colours restored on wake. | Capture v23-F (suspend/resume) plus person report (rest/wake cycles). |
 | Two FTP reads of the sister's claim file across real sessions show a consistent ~1 Hz heartbeat (`seq` advancing by the elapsed seconds) through both a suspend/resume and a cold launch. | Captured directly: seq 35->36->67 over 31.5 s (+31), then 68->91 over 24.0 s, then a fresh cold launch restarting `seq` at 1. |
 
+## Stage C on a real console (merge plan step 14)
+
+Run 2026-10-09 on a 9.00 console, built from the Stage C tree. The capture
+is `merged.log` (PuTTY serial log, 149 KB). Each row says what it rests on.
+
+| Finding | How established |
+|---|---|
+| Cold boot reaches a live, sending feed: module hooks fire, the two `CompositorSeverWork` buffers (8,355,840 B each) are found by name/size, 229 zones sampled with 0 points outside the buffer, then `LIVE: sending ... 30 Hz`. | Capture: the `BUFS`, `SAMPLER`, `INI LOAD` and `LIVE` lines. |
+| The shell feed uses `[preset_game]` regardless of `active=` in the ini. | Capture: every `INI LOAD` / `INI RELOAD` line reads `preset=preset_game`. That the ini's `active=` was something else is the person's report; the log can't show it. The PC check (`g_presetOverride` with `active=movie`) agrees. |
+| Strip colours are correct. | Person report (visual). The log only shows sends succeeding, not what the strip showed. |
+| Game launch hands the strip over and back: `CLAIM ACQUIRED` (seq=1) then `CLAIM RELEASED (explicit fg=0)`, and the feed resumes sending. | Capture. In that 197 s run, `gameOwned=215` ticks (3.6%) were left to the game's plugin, `skipped=0`. |
+| Disable and resume work three ways: `[shell] enabled=false` in the ini, the `/data/ps4_shell_feed_off` file (twice), each followed by `STANDBY` then `RESUMING` and a fresh `INI RELOAD` and `LIVE`. | Capture. Every resume came back within about a second of the ini or file change. |
+| Per-frame cost is steady: avg about 1.9-2.1 ms, max under 3.7 ms at 30 Hz, `sent` always equal to the tick count, no skips. | Capture: the periodic `LIVE t=` lines (the last stretch, t=5s to t=85s, shows it). |
+| 30 minutes in rest mode, no crash, and the feed was correct afterwards. | **Person report only.** The capture has no rest or wake lines, so there is nothing in the log to cite for this one. |
+
 ## What this merge's own equivalence checks reproduced
 
 Running the research repo's four PC-only host checks against this merged
