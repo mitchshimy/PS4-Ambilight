@@ -14,13 +14,13 @@ that project's evidence lives.
 
 ```
 sha256sum -c <<'SUMS'
-a1e996d040040c33da2d7cda8e05e617ef0a79fb7dff1c33dad6520485e3a86f  ps4-ambilight-900.bin
+5c922cd7d8cb83c5d5b294625566f5b32d0cec1aea3e8e0eac8798cc6c83b272  ps4-ambilight-900.bin
 SUMS
 ```
 
 | File | Size (bytes) | sha256 | Note |
 |---|---|---|---|
-| `ps4-ambilight-900.bin` | 14,072 | `a1e996d040040c33da2d7cda8e05e617ef0a79fb7dff1c33dad6520485e3a86f` | Targets `GnmCompositor` by prefix match, loads one SPRX once per boot, no re-injection, mounts never torn down. 9.00 only -- see `shell-feed/docs/support-matrix.md`. |
+| `ps4-ambilight-900.bin` | 14,264 | `5c922cd7d8cb83c5d5b294625566f5b32d0cec1aea3e8e0eac8798cc6c83b272` | Targets `GnmCompositor` by prefix match, tries `ps4_shell_feed.prx` then falls back to `shell_probe.sprx`, no re-injection, mounts never torn down. 9.00 only -- see `shell-feed/docs/support-matrix.md`. Previous build (14,072 bytes, `a1e996d...`) superseded. |
 
 If you need to rebuild this binary yourself (e.g. to point it at a
 different SPRX path), the buildable source is in the research repo's
