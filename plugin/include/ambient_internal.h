@@ -139,6 +139,7 @@ void ambient_rebuild_perchannel_gamma_luts(void); // gamma.c -- called by settin
 // [settings] -- ini load/save + live-reload detection (settings.c)
 void ambient_load_config(void);       // called by main.c (plugin_load)
 void ambient_check_config_reload(void); // called by sample_thread.c, once per loop pass
+bool ambient_get_real_config_size_and_hash(int64_t *outSize, uint32_t *outHash); // v3.9.4: exposed for shell-feed's own reload poll
 
 // [network] -- WLED/relay/debug transport (network.c)
 extern int g_wledSockfd; // read directly by main.c's plugin_unload to close it

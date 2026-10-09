@@ -95,14 +95,40 @@ logic, the claim reader, DDP send) stays local to `shell-feed/source/`.
 
 ## Status of this code at merge time
 
-As imported (Stage A of the merge), `shell-feed/source/main.c` is the
-`shell_probe_v24` probe byte-for-byte: self-heal (30 bad buffer checks in a
-row before a re-scan, 10 s cooldown doubling to 60 s), a per-gate `GATE:`
-status line, an optional `/data/ps4_ambient_report_SHELL.txt` report file,
-and an optional `[dev]` UDP mirror. It still carries its own pasted copies
-of the colour pipeline and its own ini reader at this stage -- replacing
-those with the shared files above (so this document's "shared code" section
-is literally true of the build, not just the design) is Stage C of the
-merge, tracked separately. See `loading.md`, `findings.md` and
-`support-matrix.md` in this same directory for the loading runbook,
-distilled findings and support matrix carried over from the research repo.
+As of Stage C, this document's "shared code" section is literally true of
+the build, not just the design: `shell-feed/source/main.c` now
+`#include`s the sister's real `ambient_internal.h`/`config.h`/
+`preset_select.h` and is compiled (via `Makefile`'s second source list)
+against the sister's real `tiling.c`, `pixel_formats.c`, `zones.c`,
+`gamma.c`, `color_processing.c`, `settings.c` and `config.c`, not a pasted
+copy. `g_presetOverride` (added to `settings.c` alongside this refactor)
+is what makes it possible to use the sister's own `ambient_load_config()`
+unmodified instead of re-implementing ini parsing here. This module still
+keeps, unmodified from the original `shell_probe_v24` probe: self-heal (30
+bad buffer checks in a row before a re-scan, 10 s cooldown doubling to
+60 s), a per-gate `GATE:` status line, an optional
+`/data/ps4_ambient_report_SHELL.txt` report file, an optional `[dev]` UDP
+mirror, its own hardware-verified v17 tiling math (used by the
+buffer-discovery/self-heal code, unrelated to the zone sampler above), and
+-- deliberately, since it's Stage D's concern, not this one -- its own
+pasted copy of the sister's per-frame smoothing block, since that code
+runs in a game's hot path and earns its own, separate hardware re-test
+before being shared.
+
+Verification done for this stage, without hardware: `shell-feed/tools/
+run_stagec_core_test.sh` compiles and links the exact span of
+`source/main.c` that now calls into the shared files -- the v17 tiling
+math through `shell_process_frame()` -- against those real, linked sister
+files, and runs it against a real ini fixture. It confirms the real
+`TileParams` struct matches the probe's own hardware-verified tiling
+parameters byte for byte, `g_presetOverride` forces `[preset_game]` through
+the real `ambient_load_config()` even with `active=movie` in the ini, the
+real `buildZoneGeometry()` reproduces the same 229-zone/LED-42-rotation
+geometry the research repo's `host_zone_check` already found, and a
+synthetic frame samples/colour-processes/smooths correctly end to end. What
+this can't prove -- a real compositor buffer, a real console, a real strip
+-- is exactly the hardware step (merge plan step 14: cold boot,
+disable/resume, a game launch, rest mode) still ahead of this code before
+it ships. See `loading.md`, `findings.md` and `support-matrix.md` in this
+same directory for the loading runbook, distilled findings and support
+matrix carried over from the research repo.

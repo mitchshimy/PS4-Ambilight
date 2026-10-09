@@ -399,7 +399,12 @@ static uint32_t ambient_fnv1a32(const uint8_t *data, size_t len)
 // failure result since they come from the same read; on any failure
 // *outSize carries the negative orbis error code (or a sentinel below)
 // same as v2.1.4's function did, and *outHash is left untouched.
-static bool ambient_get_real_config_size_and_hash(int64_t *outSize, uint32_t *outHash)
+// v3.9.4: no longer static -- shell-feed's own reload poll (shell_cfg_poll) wants the sister's
+// proven size+hash read (raw sceKernelOpen/Lseek/Read, not stat(), see the comment above
+// ambient_check_config_reload for why) but needs its own cadence, logging and
+// buildZoneGeometry()/g_smoothedRgbValid side effects, not ambient_check_config_reload()'s. This
+// function's own body and behaviour are unchanged; only its linkage changed.
+bool ambient_get_real_config_size_and_hash(int64_t *outSize, uint32_t *outHash)
 {
     int32_t fd = sceKernelOpen(AMBIENT_CONFIG_PATH, 0 /* O_RDONLY */, 0777);
     if (fd < 0) {

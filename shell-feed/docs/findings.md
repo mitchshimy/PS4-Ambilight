@@ -34,3 +34,47 @@ equivalence proof the merge plan calls for in its step 6):
 
 All four ran clean on this repo's own file tree during this merge, not just
 in the research repo.
+
+## Stage C's own verification (merge plan step 13)
+
+Once the pasted copies were replaced with real `#include`s and a real
+second-source-list build, the research repo's `host_ini_check` could no
+longer run its equivalence-harness step at all against `source/main.c` --
+that tool assumes a self-contained single-file probe (true of Stage A/B's
+shape), and `source/main.c` now legitimately depends on the sister's real
+headers via a proper Makefile. Its *provenance* check still ran and still
+means something: of the original 17 pasted blocks, 15 are gone (replaced by
+the real files) and the remaining 2 (`sample_thread.c` smoothing alpha and
+smoothing -- Stage D's concern) are still verbatim, `0 not verbatim`.
+
+For everything Stage C actually changed, this merge added its own
+equivalent: `shell-feed/tools/run_stagec_core_test.sh`, which extracts the
+current shared-code span of `source/main.c` by marker (not a frozen
+snapshot) and compiles + links + runs it against the real, linked
+`plugin/source/{tiling,pixel_formats,zones,gamma,color_processing,
+settings,config}.c` and a real ini fixture. Results:
+
+- The real `TileParams` struct is 48 bytes, matching the probe's own
+  hardware-verified `TileParams17` byte for byte -- the "same BASE
+  parameters, verbatim formulas" finding above now holds for the literal
+  linked struct, not just an asserted equivalence between two separate
+  implementations.
+- `g_presetOverride` forces `[preset_game]` through the real
+  `ambient_load_config()` even with `active=movie` set in the ini
+  (`scanDepth=2`, `brightness=200`, `settlingTimeMs=50` -- the game values,
+  not movie's `4`/`100`/`200`).
+- All four shell-only aux keys (`[shell] enabled=`, `[dev] dev_ip=`,
+  `[dev] dev_logging=`, `[compat] report_file=`) still parse correctly
+  through the second, separate ini read `shell_cfg_load()` still does for
+  them.
+- The real `buildZoneGeometry()` reproduces `g_numZones=229` (73+41+73+42)
+  with the first zone at `(0, 1079)` -- the exact same geometry
+  `host_zone_check` found above, now produced by shell-feed's own call
+  site into the real linked function rather than a separate test harness.
+- A synthetic frame run through `shell_process_frame()` -- the real
+  `sampleZoneAverage()`, `applyColorProcessing()`, `applyDarkThreshold()`
+  and this file's own (still-pasted, Stage D) smoothing block, in that
+  order -- comes back colour-processed rather than black.
+
+What this can't check: a real compositor buffer, a real console, a real
+strip. That's merge plan step 14, still ahead of this code.

@@ -1,14 +1,14 @@
 # Library metadata.
 #
-# Stage A (see shell-feed/README.md): this Makefile builds shell_probe_v24's
-# main.c byte-for-byte, with no shared-file refactor. It otherwise follows
-# plugin/Makefile's pattern exactly -- same toolchain vars, same flags, same
-# link step -- so this module is a packaging change only, not a build change.
-# When Stage C lands (building against the sister's real tiling.c,
-# pixel_formats.c, zones.c, gamma.c, color_processing.c, settings.c and
-# config.c instead of the probe's pasted copies), PROJDIR gains a second
-# source list pointing at ../plugin/source for those seven files; nothing
-# else in this file needs to change for that.
+# Stage C (see shell-feed/README.md and docs/architecture.md): this module's
+# own source (shell-feed/source/*.c) is compiled alongside a second source
+# list -- the sister's real tiling.c, pixel_formats.c, zones.c, gamma.c,
+# color_processing.c, settings.c and config.c, compiled straight from
+# ../plugin/source/, not copied -- so SHAREDFILES below. Otherwise this
+# follows plugin/Makefile's pattern exactly: same toolchain vars, same
+# flags, same link step. This module's own include dir and ../plugin's are
+# both on the include path, since shell-feed/source/main.c now includes
+# the sister's own ambient_internal.h/config.h/preset_select.h directly.
 
 DEBUG_FLAGS = -D__FINAL__=1
 LOG_TYPE = -D__USE_PRINTF__
@@ -45,16 +45,24 @@ PROJDIR       := ../$(shell basename $(CURDIR))/source
 INTDIR        := ../$(shell basename $(CURDIR))/build
 INCLUDEDIR    := ../$(shell basename $(CURDIR))/include
 COMMON_DIR    := ../common
+SISTER_SRC    := ../plugin/source
+SISTER_INC    := ../plugin/include
+
+# Stage C: the sister's real colour pipeline, compiled from ../plugin/source, not copied. See the
+# comment above and shell-feed/docs/architecture.md. Their .o files land in this module's own
+# $(INTDIR) (same as shell-feed/source/main.c's), which is why the link step's `$(INTDIR)/*.o` glob
+# already picks them up with no other change needed below.
+SHAREDFILES   := tiling.c pixel_formats.c zones.c gamma.c color_processing.c settings.c config.c
 
 # Define objects to build
-CFILES      := $(wildcard $(PROJDIR)/*.c)
+CFILES      := $(wildcard $(PROJDIR)/*.c) $(addprefix $(SISTER_SRC)/,$(SHAREDFILES))
 CPPFILES    := $(wildcard $(PROJDIR)/*.cpp)
 COMMONFILES := $(wildcard $(COMMONDIR)/*.cpp)
-OBJS        := $(patsubst $(PROJDIR)/%.c, $(INTDIR)/%.o, $(CFILES)) $(patsubst $(PROJDIR)/%.cpp, $(INTDIR)/%.o, $(CPPFILES)) $(patsubst $(COMMONDIR)/%.cpp, $(INTDIR)/%.o, $(COMMONFILES))
-STUBOBJS    := $(patsubst $(PROJDIR)/%.c, $(INTDIR)/%.o, $(CFILES)) $(patsubst $(PROJDIR)/%.cpp, $(INTDIR)/%.o.stub, $(CPPFILES)) $(patsubst $(COMMONDIR)/%.cpp, $(INTDIR)/%.o.stub, $(COMMONFILES))
+OBJS        := $(patsubst $(PROJDIR)/%.c, $(INTDIR)/%.o, $(wildcard $(PROJDIR)/*.c)) $(patsubst $(SISTER_SRC)/%.c, $(INTDIR)/%.o, $(addprefix $(SISTER_SRC)/,$(SHAREDFILES))) $(patsubst $(PROJDIR)/%.cpp, $(INTDIR)/%.o, $(CPPFILES)) $(patsubst $(COMMONDIR)/%.cpp, $(INTDIR)/%.o, $(COMMONFILES))
+STUBOBJS    := $(patsubst $(PROJDIR)/%.c, $(INTDIR)/%.o, $(wildcard $(PROJDIR)/*.c)) $(patsubst $(SISTER_SRC)/%.c, $(INTDIR)/%.o, $(addprefix $(SISTER_SRC)/,$(SHAREDFILES))) $(patsubst $(PROJDIR)/%.cpp, $(INTDIR)/%.o.stub, $(CPPFILES)) $(patsubst $(COMMONDIR)/%.cpp, $(INTDIR)/%.o.stub, $(COMMONFILES))
 
 # Define final C/C++ flags
-CFLAGS      := $(FINAL) --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -c $(EXTRAFLAGS) -isysroot $(TOOLCHAIN) -isystem $(TOOLCHAIN)/include -I$(GH_SDK)/include -I$(INCLUDEDIR) -I$(COMMON_DIR) $(O_FLAG)
+CFLAGS      := $(FINAL) --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -c $(EXTRAFLAGS) -isysroot $(TOOLCHAIN) -isystem $(TOOLCHAIN)/include -I$(GH_SDK)/include -I$(INCLUDEDIR) -I$(SISTER_INC) -I$(COMMON_DIR) $(O_FLAG)
 CXXFLAGS    := $(CFLAGS) -isystem $(TOOLCHAIN)/$(INCLUDEDIR)/c++/v1
 LDFLAGS     := -m elf_x86_64 -pie --script $(TOOLCHAIN)/link.x -e _init --eh-frame-hdr -L$(TOOLCHAIN)/lib -L$(GH_SDK) $(LIBS)
 
@@ -95,6 +103,9 @@ $(TARGETSTUB): $(INTDIR) $(STUBOBJS)
 	$(CC) $(INTDIR)/*.o.stub -o $(TARGETSTUB) -target x86_64-pc-linux-gnu -shared -fuse-ld=lld -ffreestanding -nostdlib -fno-builtin -L$(TOOLCHAIN)/lib $(LIBS)
 
 $(INTDIR)/%.o: $(PROJDIR)/%.c
+	$(CC) $(CFLAGS) -o $@ $<
+
+$(INTDIR)/%.o: $(SISTER_SRC)/%.c
 	$(CC) $(CFLAGS) -o $@ $<
 
 $(INTDIR)/%.o: $(PROJDIR)/%.cpp
