@@ -28,7 +28,7 @@ is `merged.log` (PuTTY serial log, 149 KB). Each row says what it rests on.
 | Game launch hands the strip over and back: `CLAIM ACQUIRED` (seq=1) then `CLAIM RELEASED (explicit fg=0)`, and the feed resumes sending. | Capture. In that 197 s run, `gameOwned=215` ticks (3.6%) were left to the game's plugin, `skipped=0`. |
 | Disable and resume work three ways: `[shell] enabled=false` in the ini, the `/data/ps4_shell_feed_off` file (twice), each followed by `STANDBY` then `RESUMING` and a fresh `INI RELOAD` and `LIVE`. | Capture. Every resume came back within about a second of the ini or file change. |
 | Per-frame cost is steady: avg about 1.9-2.1 ms, max under 3.7 ms at 30 Hz, `sent` always equal to the tick count, no skips. | Capture: the periodic `LIVE t=` lines (the last stretch, t=5s to t=85s, shows it). |
-| 30 minutes in rest mode, no crash, and the feed was correct afterwards. | **Person report only.** The capture has no rest or wake lines, so there is nothing in the log to cite for this one. |
+| 30 minutes in rest mode, no crash, and the feed was correct afterwards. | **Person report only, and the later captures don't change that.** `capture_2.log` ends as the console starts suspending (`Standby Start: Fri, 09 Oct 2026 09:42:04 +0300`, then `System Suspend start`). The serial output stops in rest, so neither the 30 minutes nor the wake is in any log. What the capture does show is the feed healthy right up to that point (next section). |
 
 ## Stage D: one smoothing implementation (merge plan, after step 14)
 
@@ -45,7 +45,24 @@ source list changed. Each caller keeps its own state array and valid flag.
 | The v2.7.5 "dim residual glow" fix still holds: alpha 83 fading to black reaches exactly 0, and any fade with alpha >= 1 reaches its target. | Same test (26,832 fade cases plus the alpha-83 case). |
 | shell-feed's refactored span still compiles, links and runs against the real sister files. | `run_stagec_core_test.sh`, all checks passed after the change. |
 | The plugin's `sample_thread.c` still compiles after the change. | `gcc -fsyntax-only` against the host stubs. This is a syntax check only: the PS4 SDK isn't available here, so neither module was built with the real toolchain. |
-| **Not yet verified:** either module on a console after this change. | `sample_thread.c` is the game-process hot path. The step 14 results above are for the build before Stage D and do not cover it. A game launch with smoothing on, a fade to black (no stuck dim glow), and a cold boot of the shell feed are the checks to repeat. |
+| Console check after this change: smoothing looks right on the strip, and a full game session ran with six clean handoffs. | **Person report** for the visual part; the session itself is in the capture (see "A full session" below). Still not covered: a deliberate fade-to-black test for the stuck dim glow, and a log line identifying which build was running. |
+
+## A full session, then entry into rest (`capture_1.log`, `capture_2.log`)
+
+Two PuTTY captures from the same session, one 9.00 console, Stage D build per
+the person (the log carries no build identifier, so this can't be read back
+from the capture). `capture_1.log` stops at about 310 s of feed uptime;
+`capture_2.log` is byte-identical for that stretch and then runs on through the
+Quick Menu and the start of standby.
+
+| Finding | How established |
+|---|---|
+| The feed never dropped a frame: `skipped=0` in all 71 periodic reports across both captures, and `sent` rises by exactly 150 per 5 s (30 Hz) through to t=355 s. | Capture: every `LIVE t=` line. |
+| Per-frame cost is flat through a real game session and the Quick Menu: avg about 1.6-2.4 ms, max under 2.7 ms in normal running, 30 Hz budget 33 ms. Isolated spikes of 11.2 ms (t=120 s, during claim handoffs) and 6.5 ms (t=350 s, as suspend begins). | Capture: `LIVE t=` lines. |
+| A real game session handed the strip over and back six times: six `CLAIM ACQUIRED` / `CLAIM RELEASED` pairs. The game's plugin owned 5,780 ticks (about 193 s) by t=300 s, with `skipped=0` throughout. | Capture. |
+| One release was a **timeout**, not an explicit `fg=0`: acquired at t=128,901 ms (seq=10), released by timeout at t=192,296 ms, then re-acquired about 1 s later at seq=69. `seq` advanced by 59 across that gap, so the game side kept writing; the heartbeat looked stalled to the reader for one window and recovered by itself. The shell feed would have been sending alongside the game for about a second. Cause not established from the log. | Capture: the `CLAIM` lines. Worth watching in a longer session; no visible effect was reported. |
+| Smoothing, now shared (`smoothing.h`), behaved as expected on the strip: nothing wrong seen on the LEDs. | **Person report** (visual). The capture can't show LED output, and has no build identifier. |
+| The feed ran up to the moment the console began suspending, with the strip going to black as the UI left the screen (`first3` goes to `000000` from t=345 s). | Capture: last `LIVE t=` lines, then `PowerManager.RequestStateChange state:Suspend` and `Standby Start`. |
 
 ## What this merge's own equivalence checks reproduced
 

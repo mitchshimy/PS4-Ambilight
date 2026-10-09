@@ -39,8 +39,10 @@ preset the shell feed uses was `game` regardless of `active=` in the ini.
 Rest mode: 30 minutes in rest with no crash (person report -- it is not in
 the captured log, which has no rest/wake lines). Everything else above is
 in the capture: see `docs/findings.md` for the line-by-line evidence.
-Those results are for the build *before* Stage D. Stage D (shared
-smoothing) changed `plugin/source/sample_thread.c` as well, so it needs its
-own console re-test -- see `docs/findings.md`.
+The step 14 results above are for the build before Stage D. Stage D (shared
+smoothing) changed `plugin/source/sample_thread.c` as well; a later session
+on the Stage D build looked right on the strip and ran a full game with clean
+handoffs (person report plus capture, see `docs/findings.md`). The rest-mode
+result is still a person report: the serial log goes dark in rest.
 
 **Firmware:** 9.00 only. See `docs/support-matrix.md`.
