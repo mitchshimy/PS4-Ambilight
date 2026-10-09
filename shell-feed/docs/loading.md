@@ -55,6 +55,10 @@ L1 alone is sufficient recovery for how GoldHEN is actually loaded here.
 2. If AutoRun is configured for this payload, it runs automatically on
    boot; otherwise, run it once from Launchpad.
 3. Watch for `[SHELLPROBE24]` lines in klog on first boot to confirm it's
-   running (self-heal and gate lines appear there).
+   running (self-heal and gate lines appear there). The second line it
+   prints is `[SHELLPROBE24] BUILD: commit=... branch=... num=... built=...`:
+   the git commit it was built from and the build time, so a capture shows
+   exactly which build ran. The commit is HEAD when `make` ran, so commit your
+   changes before building if you want the hash to mean something.
 4. If a build misbehaves: reboot holding **L1** to skip it, then remove or
    disable the entry from GoldHEN's Payloader screen before trying again.

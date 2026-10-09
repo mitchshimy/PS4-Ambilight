@@ -45,13 +45,15 @@ source list changed. Each caller keeps its own state array and valid flag.
 | The v2.7.5 "dim residual glow" fix still holds: alpha 83 fading to black reaches exactly 0, and any fade with alpha >= 1 reaches its target. | Same test (26,832 fade cases plus the alpha-83 case). |
 | shell-feed's refactored span still compiles, links and runs against the real sister files. | `run_stagec_core_test.sh`, all checks passed after the change. |
 | The plugin's `sample_thread.c` still compiles after the change. | `gcc -fsyntax-only` against the host stubs. This is a syntax check only: the PS4 SDK isn't available here, so neither module was built with the real toolchain. |
-| Console check after this change: smoothing looks right on the strip, and a full game session ran with six clean handoffs. | **Person report** for the visual part; the session itself is in the capture (see "A full session" below). Still not covered: a deliberate fade-to-black test for the stuck dim glow, and a log line identifying which build was running. |
+| Console check after this change: smoothing looks right on the strip, and a full game session ran with six clean handoffs. | **Person report** for the visual part; the session itself is in the capture (see "A full session" below). Still not covered: a deliberate fade-to-black test for the stuck dim glow. The missing build-identifying log line is now added (see "Build identity"); it takes effect from the next build. |
 
 ## A full session, then entry into rest (`capture_1.log`, `capture_2.log`)
 
-Two PuTTY captures from the same session, one 9.00 console, Stage D build per
-the person (the log carries no build identifier, so this can't be read back
-from the capture). `capture_1.log` stops at about 310 s of feed uptime;
+Two PuTTY captures from the same session, one 9.00 console. Which build was
+running is **not provable from these captures**: they predate the shell feed's
+`BUILD:` log line (below), and the plugin does not print its commit to the
+serial log. What can be said is in the "Build identity" table below.
+`capture_1.log` stops at about 310 s of feed uptime;
 `capture_2.log` is byte-identical for that stretch and then runs on through the
 Quick Menu and the start of standby.
 
@@ -61,8 +63,18 @@ Quick Menu and the start of standby.
 | Per-frame cost is flat through a real game session and the Quick Menu: avg about 1.6-2.4 ms, max under 2.7 ms in normal running, 30 Hz budget 33 ms. Isolated spikes of 11.2 ms (t=120 s, during claim handoffs) and 6.5 ms (t=350 s, as suspend begins). | Capture: `LIVE t=` lines. |
 | A real game session handed the strip over and back six times: six `CLAIM ACQUIRED` / `CLAIM RELEASED` pairs. The game's plugin owned 5,780 ticks (about 193 s) by t=300 s, with `skipped=0` throughout. | Capture. |
 | One release was a **timeout**, not an explicit `fg=0`: acquired at t=128,901 ms (seq=10), released by timeout at t=192,296 ms, then re-acquired about 1 s later at seq=69. `seq` advanced by 59 across that gap, so the game side kept writing; the heartbeat looked stalled to the reader for one window and recovered by itself. The shell feed would have been sending alongside the game for about a second. Cause not established from the log. | Capture: the `CLAIM` lines. Worth watching in a longer session; no visible effect was reported. |
-| Smoothing, now shared (`smoothing.h`), behaved as expected on the strip: nothing wrong seen on the LEDs. | **Person report** (visual). The capture can't show LED output, and has no build identifier. |
+| Smoothing, now shared (`smoothing.h`), behaved as expected on the strip: nothing wrong seen on the LEDs. | **Person report** (visual). The capture can't show LED output. That the Stage D plugin was the one on the console is likely but not proven by the capture; see "Build identity". |
 | The feed ran up to the moment the console began suspending, with the strip going to black as the UI left the screen (`first3` goes to `000000` from t=345 s). | Capture: last `LIVE t=` lines, then `PowerManager.RequestStateChange state:Suspend` and `Standby Start`. |
+
+### Build identity
+
+| Finding | How established |
+|---|---|
+| The `ps4_ambient_light.prx` the person built and supplied carries the full commit hash `ec9d4c76d5e0f482d4e1a615e9fc2084e2922318`, which is the Stage D commit (`ec9d4c7`, "smoothing: share one implementation between the plugin and shell-feed"). | Read from the binary's embedded `GIT_COMMIT` string, which the Makefile writes from `git rev-parse HEAD` at build time, and matched to this repo. The hash covers the author, so it also shows the build came from the repo with the corrected author, not an earlier checkout. |
+| `ps4_shell_feed.prx` carries no commit string in the binary, but the build that followed (see the last row) prints one at startup, and it names the tree below. The first shell feed build was made in the same session as the plugin, from a clean tree (`rm -rf build ../bin` first, so no stale objects). | Build log supplied by the person; for the later build, the capture in the last row. |
+| Limits of the hash: it is HEAD when `make` ran, so uncommitted edits in the working tree are not reflected; and nothing here ties these two files to the moment of the captures, only to the same development session. | Reasoning, not a measurement. |
+| The shell feed now prints its own identity at startup: `[SHELLPROBE24] BUILD: commit=... branch=... num=... built=... (Release)`, from the same `git_ver.h` the plugin uses. Checked on a PC with a stand-in `git_ver.h` (falls back to `unknown` for missing fields) and with a real-shaped one. | Added in this commit. |
+| **Confirmed on a console:** a ~2 minute capture (`putty.log`, 2026-10-09 10:00) shows `BUILD: commit=ba2663ec8e2572b8f1f746a14439f27e590f2c08 branch=main num=113 built=Oct 09 2026 @ 09:56:15 (Release)`. `num=113` is that commit's depth in the history. The same run: 229 zones, both buffers found, `preset_game`, `skipped=0` in all 24 periodic reports, timing about 1.8 ms average with one 11 ms spike during a handoff, four claim handoffs all ending by explicit `fg=0` (no timeout), no faults. The capture ends at about 120 s, so it adds nothing on rest mode. | Capture. **Note on the hash:** `ba2663e` is the commit this change was first made as; the commit was then amended to add this very paragraph, so that exact hash no longer exists in the repo. The amend touched only `shell-feed/docs/findings.md`, so the source that was built is identical to the source in the current commit. |
 
 ## What this merge's own equivalence checks reproduced
 

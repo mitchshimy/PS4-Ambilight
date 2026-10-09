@@ -101,6 +101,25 @@
 #include <orbis/_types/video.h>   // OrbisVideoOutBufferAttribute only
 
 #include "plugin_common.h"
+
+// [Stage D] Build identity. common/git_ver.h is written by the Makefile on every build (commit, branch,
+// commit count, date) and plugin_common.h includes it; plugin_common.h also defines BUILD_TYPE. The
+// fallbacks only matter for a PC test whose stand-in git_ver.h carries less than the real one.
+#ifndef GIT_COMMIT
+#define GIT_COMMIT "unknown"
+#endif
+#ifndef GIT_VER
+#define GIT_VER "unknown"
+#endif
+#ifndef GIT_NUM
+#define GIT_NUM 0
+#endif
+#ifndef BUILD_DATE
+#define BUILD_DATE "unknown"
+#endif
+#ifndef BUILD_TYPE
+#define BUILD_TYPE "(unknown)"
+#endif
 #if DO_WLED_SEND_INCLUDES
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -2006,6 +2025,9 @@ static void *probe_thread(void *args)
 s32 attr_module_hidden module_start(s64 argc, const void *args)
 {
     printf(TAG " ---- begin v24 compositor hooks + sampler (pid %d) ----\n", (int)getpid());
+    // One line that says exactly which build this is, so a capture can prove what was running. It is the
+    // HEAD at make time: uncommitted edits in the working tree are not reflected in the hash.
+    printf(TAG " BUILD: commit=%s branch=%s num=%d built=%s %s\n", GIT_COMMIT, GIT_VER, (int)GIT_NUM, BUILD_DATE, BUILD_TYPE);
     {   // [v24] one line per compile-time gate: a gate that is off is stated, never silent (the v18 lesson)
         int off = 0, crit = 0;
         for (int i = 0; i < SH_GATE_COUNT; i++) {
