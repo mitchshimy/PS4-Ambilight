@@ -53,6 +53,13 @@ Rough map of `plugin/source/`:
 straight to WLED (Test Strip) so you can check wiring before starting a game, and
 installs or updates the plugin `.prx` from the GitHub releases.
 
+It can also install the optional shell feed (`shell-feed/`, a second plugin that
+lights the strip from the PS4's own screens) and its loader, and turn on the
+loader's autoload. That is off by default (`[shell] enabled`). While it is on, the
+app writes the same `/data/ps4_ambient_state` file a game does whenever it is
+sending to the strip, so the shell feed stays quiet instead of fighting the live
+preview. See [shell-feed-coordination](development/shell-feed-coordination.md).
+
 `color_pipeline.c`, `ddp.c` and `config.c` in the app are copies of the plugin's
 own pipeline, DDP sender and ini parser, so what Test Strip shows is what the
 plugin would send.

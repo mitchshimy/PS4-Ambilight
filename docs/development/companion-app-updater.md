@@ -20,6 +20,30 @@ the latest release build, verifies it and registers it in `plugins.ini` under
 `[default]`, which loads it for every title. Enable only fixes the `plugins.ini`
 entry.
 
+## The shell feed's files
+
+With **Shell feed** on in Set up, the same machinery handles two more files, so Home
+can show one banner and one button for all three: `ps4_shell_feed.prx` (into
+`/data/ps4-ambilight`) and the loader `ps4-ambilight-900.bin` (into `/data/payloads`).
+Each is resolved by name with its `.sha256`, downloaded to a staging file, hashed
+against the published checksum and renamed into place. The loader stages next to the
+`.prx`, not in `/data/payloads`, so a failed download never leaves a half-written file
+in a folder payload menus list. The `.prx` goes first. Whether a file counts as an
+update is the same check as the plugin's: the on-disk file's SHA-256 against the
+published one, and offline an installed file just counts as installed. What Home shows
+and what the button does for every combination is `include/install_plan.h`, tested on a
+PC in `tests/test_install_plan.c`. Autoload at boot edits GoldHEN's payload AutoRun list
+in place, the same keep-every-other-byte approach as `plugins.ini` below
+(`include/payload_ini.h`). With the switch off none of this runs.
+
+## A local update source
+
+For testing, `[dev] update_base_url=http://<pc>:8000` in the app's ini replaces the
+GitHub lookup: every file and its `.sha256` is fetched from `<base>/<file name>`, with no
+`Accept` header. It is read again on each check, so no restart is needed, and the app's
+own save leaves it alone. `tools/serve_local_release.py` serves the three files and
+writes their checksums. See [local-install-testing](local-install-testing.md).
+
 ## Editing `plugins.ini`
 
 That file is GoldHEN's, shared with every other plugin, and it uses a different
@@ -91,9 +115,11 @@ verified. See the `O_TRUNC` entry in [orbis-gotchas](orbis-gotchas.md).
 
 ## Known limits
 
-- The install path is newer than the rest and has not been exercised end to end on
-  every network setup. The fallback is to download the `.prx` from Releases and drop
-  it into GoldHEN's plugin folder by hand.
-- The app resolves assets by the fixed names `ps4_ambient_light.prx` and its
-  `.sha256`. The release workflow publishes exactly those, see
-  [ci-and-releases](ci-and-releases.md).
+- The install path has been run end to end on a console against a local test server
+  over plain `http://`, including checksum failures. It has not been exercised on every
+  network setup. The fallback is to download the files from Releases and put them in
+  place by hand.
+- The app resolves assets by fixed names: `ps4_ambient_light.prx`,
+  `ps4_shell_feed.prx` and `ps4-ambilight-900.bin`, each with a `.sha256`. The release
+  workflow does not publish the last two yet, see [ci-and-releases](ci-and-releases.md);
+  until it does, installing the shell feed from GitHub has nothing to find.

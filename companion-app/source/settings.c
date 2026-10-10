@@ -123,7 +123,7 @@ const MenuItem kMenuItems[] = {
     // payload list, which main.c edits when it is toggled); presets.c and settings_fill_table
     // skip every "ui" row, so it can never leak into the ini.
     { "Shell feed",        "shell",  "enabled",                   FIELD_BOOL,   OFF(shellEnabled),    0,     1,   1, NULL, 0,
-      MENU_SCREEN_SETUP, "Shell feed", "Lights the strip from Home, Settings and the quick menu while no game is doing it. Off keeps this app exactly as it was. The Game preset also drives these screens." },
+      MENU_SCREEN_SETUP, "Shell feed", "Lights the strip from Home, Settings and the quick menu while no game is doing it. The Game preset also drives these screens." },
     { "Autoload at boot",  "ui",     "shell_autoload",            FIELD_BOOL,   OFF(shellAutoload),   0,     1,   1, NULL, 0,
       MENU_SCREEN_SETUP, "Shell feed", NULL },
 

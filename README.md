@@ -37,6 +37,9 @@ LED strip
 
 That is all the hardware: the WLED controller and the strip.
 
+The [shell feed](#shell-feed-optional), which lights the strip outside games too, is optional and
+installs from the same app.
+
 > [!IMPORTANT]
 > Get GoldHEN running first. This project is a GoldHEN plugin plus a standalone companion app,
 > not a jailbreak on its own.
@@ -49,6 +52,8 @@ That is all the hardware: the WLED controller and the strip.
 | GoldHEN | 2.4b18.9 and 2.4b18.10 |
 | LED strip | WS2812B, 229 LEDs (73 top, 41 right, 73 bottom, 42 left), starting at the bottom left and running clockwise |
 | Controller | WLED, latest release |
+
+The shell feed has only been run on firmware 9.00 so far, see [Shell feed](#shell-feed-optional).
 
 Other setups very likely work too, since the plugin only depends on GoldHEN and a WLED controller
 on your network. If you try a different firmware, GoldHEN version or strip, a note in an
@@ -63,6 +68,8 @@ on your network. If you try a different firmware, GoldHEN version or strip, a no
 - Works in games and in streaming apps (Netflix, YouTube), in SDR and with the console's HDR
   setting on
 - Keeps separate Game and Movie presets, and switches to Movie by itself in Netflix and YouTube
+- Optionally lights the strip from the PS4's own Home screen, Settings and quick menu too, with
+  the [shell feed](#shell-feed-optional) (off by default)
 
 <p align="center">
   <img src="companion-app/assets/screenshots/home.jpg" alt="Companion app Home screen" width="45%">
@@ -90,17 +97,20 @@ on your network. If you try a different firmware, GoldHEN version or strip, a no
    - Once it's installed and enabled, the button becomes **Test Strip**.
 4. Go to **Set up** and enter your WLED controller's IP address and your strip's layout. Details
    are in [Set up your strip](#set-up-your-strip). **Test Strip** stays locked until this is
-   done, and pressing it before then shows a reminder.
+   done, and pressing it before then shows a reminder. **Test Strip** also stays hidden while
+   anything on Home is waiting to be installed, updated or repaired.
 5. Press **Test Strip**. It sends live colors from the companion app straight to your WLED
    controller, so you can check wiring, layout and color order before trusting it in a game.
 6. Start a game. There is nothing else to launch: the plugin hooks the video-out path itself, and
    if `wled_host` is set and the strip is reachable, it starts streaming on its own.
+7. Optional: to light the strip outside games as well, set up the
+   [shell feed](#shell-feed-optional).
 
 If something is off, [Help](#help) is next.
 
 ## Help
 
-The companion app's Help screen (Home, then Help) keeps to five short cards. This section is the
+The companion app's Help screen (Home, then Help) keeps to six short cards. This section is the
 longer version. Pressing **△ Triangle** on that screen opens a QR code pointing at this heading,
 so you can read it on a phone without typing a URL on a controller.
 
@@ -154,15 +164,33 @@ It shouldn't happen by design. Sampling runs on its own worker thread, off the g
 render/flip hook, so a slow pass can't stall frame submission. If you do see stutter tied to
 enabling the plugin, please report it.
 
+**Test Strip is missing from Home.**
+It only shows when nothing is waiting. If the plugin, or the shell feed with its switch on, needs
+installing, updating, repairing or enabling, the button on Home does that instead, and Test Strip
+comes back once it's done. Turning the Shell feed switch off removes its part of that check.
+
+**Autoload at boot won't turn on.**
+Pressing the row says what is missing, in this order: the Shell feed switch is off, the plugin
+isn't installed or isn't enabled, or the shell feed files aren't installed yet. Fix that from
+**Home**, then press it again. Turning it off always works.
+
+**The strip flickers between two sources while the companion app is open.**
+That was the app and the shell feed both sending. With the Shell feed switch on, the app claims the
+strip while Set up, Customization or Test Strip is sending and lets go when you leave or press the
+PS button. The shell feed keeps running until you save the switch off, so if you turn it off and
+the strip flickers, press **Save setup**. Update the app if it still happens, and
+[report it](../../issues).
+
 **Home's button shows the wrong state**, for example **Install** after you already installed.
 Fully close and reopen the companion app. A stale in-memory state from before an update can look
 like this until the app restarts.
 
 **The plugin update from Home fails or hangs.**
-That path is newer and, per the known-limitations note in
-[`companion-app/README.md`](companion-app/README.md), hasn't been exercised end to end on every
-network setup. If it fails, download the `.prx` from [Releases](../../releases) and drop it into
-GoldHEN's plugin folder by hand.
+That path hasn't been exercised end to end on every network setup, see the known-limitations note
+in [`companion-app/README.md`](companion-app/README.md). If it fails, download the `.prx` from
+[Releases](../../releases) and drop it into GoldHEN's plugin folder by hand. The same goes for the
+shell feed's two files: put `ps4_shell_feed.prx` in `/data/ps4-ambilight` and
+`ps4-ambilight-900.bin` in `/data/payloads`.
 
 ## Set up your strip
 
@@ -203,6 +231,49 @@ Getting **any one** of start corner, direction or color order wrong tends to loo
 are wrong: colors land in roughly the right *area* but the fine detail is scrambled and channels
 look swapped. Fix them one at a time against **Test Strip**'s live preview rather than guessing
 at a combination.
+
+## Shell feed (optional)
+
+The plugin lights the strip while a game or streaming app is on screen. The **shell feed**,
+[`shell-feed/`](shell-feed/README.md), is a second plugin that lights it from the PS4's own Home
+screen, Settings and quick menu the rest of the time, and steps aside whenever a game starts. It is
+**off by default** and, so far, has only been run on firmware **9.00**
+([support matrix](shell-feed/docs/support-matrix.md)). With it off, the companion app does nothing
+shell-related at all.
+
+1. Open **Set up** and go to the **Shell feed** card. Turn **Shell feed** on and press **Save
+   setup**.
+2. Back on **Home** a **Shell feed** banner appears next to the plugin's. Press the main button. It
+   reads **Install shell feed**, or **Install all (3)** if the plugin isn't installed either. It
+   downloads `ps4_shell_feed.prx` into `/data/ps4-ambilight` and the loader `ps4-ambilight-900.bin`
+   into `/data/payloads` (both folders are created if missing), and checks each file's SHA-256
+   before keeping it. The app then reads **Shell feed installed**.
+3. The loader is what puts the shell feed into the console's compositor, so it has to run after
+   GoldHEN loads. Either run it by hand from GoldHEN's **Payloader**, or turn on **Autoload at
+   boot** on **Set up**. That adds the loader to GoldHEN's AutoRun list
+   (`/data/GoldHEN/payloads.ini`) and leaves every other line in the file alone. If something goes
+   wrong at boot, hold **L1** while GoldHEN loads to skip all AutoRun payloads for that boot
+   ([details](shell-feed/docs/loading.md)).
+
+The main button keeps the three files current afterwards:
+
+| Home shows | Button | Meaning |
+|---|---|---|
+| Shell feed not installed | **Install shell feed** | neither file is on the console |
+| Shell feed needs repair | **Repair shell feed** | one of the two is missing |
+| Shell feed update available | **Update shell feed** | a file differs from the published build |
+| any mix with the plugin | **Install all (n)** / **Update all (n)** | everything pending, plugin first |
+
+While the Shell feed switch is on, the app claims the strip whenever Set up, Customization or Test
+Strip is sending, the same way a game does, so the shell feed doesn't send over it. It lets go when
+you leave those screens or press the PS button. To switch the shell feed off, turn the switch off
+and press **Save setup**: it stops, and the files stay installed. Autoload only turns on once the
+plugin, the shell feed and the loader are installed, and pressing it before then tells you which is
+missing.
+
+To try the install flow without publishing a release, serve the files from your PC with
+[`tools/serve_local_release.py`](tools/serve_local_release.py), see
+[local-install-testing](docs/development/local-install-testing.md).
 
 ## Configuration
 
@@ -420,7 +491,8 @@ driving the strip and once a second while it does, saying whether it's actively 
 plugin in this repo, reads it to know when to back off and drive the strip from the PS4's own Home
 screen and Settings instead. See
 [`docs/development/shell-feed-coordination.md`](docs/development/shell-feed-coordination.md) for
-the handoff protocol and [`shell-feed/README.md`](shell-feed/README.md) for that module itself,
+the handoff protocol, including how the companion app claims the strip while it is sending, and
+[`shell-feed/README.md`](shell-feed/README.md) for that module itself,
 including its current build/hardware status and its own, narrower support matrix (9.00 only, see
 [`shell-feed/docs/support-matrix.md`](shell-feed/docs/support-matrix.md)).
 
@@ -477,7 +549,10 @@ is, its provenance, and its current build/hardware status.
 
 ## Building the companion app
 
-See [`companion-app/README.md`](companion-app/README.md) for its build steps and design notes.
+See [`companion-app/README.md`](companion-app/README.md) for its build steps and design notes. Its
+PC tests are listed in [`docs/development/testing.md`](docs/development/testing.md), and
+[`docs/development/local-install-testing.md`](docs/development/local-install-testing.md) covers
+testing the installer against a local server instead of a GitHub release.
 
 ## Layout
 
@@ -489,10 +564,14 @@ PS4-Ambilight/
 │   ├── config/          # default ps4_ambient_light.ini
 │   └── Makefile
 ├── common/             # plugin_common.{h,c}: shared GoldHEN plugin helpers this build needs
+├── shell-feed/         # optional second plugin: lights the strip from the PS4's own screens
+├── payloads/           # ps4-ambilight-900.bin, the loader that puts shell-feed in place
 ├── companion-app/      # standalone PS4 homebrew app: on-console settings UI + live preview
 │   ├── source/, include/, assets/, sce_sys/, sce_module/
-│   └── tests/           # isolated unit tests for settings/pipeline/layout logic
-├── tools/               # PC-side Python/C helper scripts used for capture and verification
+│   ├── tests/           # isolated unit tests for settings, pipeline, layout and the shell feed logic
+│   └── tools/           # ui_preview: renders Home, Set up and Help to PNG on a PC
+├── tools/               # PC-side Python/C helper scripts for capture, verification and
+│                        # serve_local_release.py (a local stand-in for a GitHub release)
 ├── docs/                # architecture, history, debugging write-ups, dev notes
 ├── patches/             # GoldHEN SDK fix the plugin needs to build (see above)
 ├── .github/             # CI workflow and the Game report issue form

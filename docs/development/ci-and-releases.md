@@ -20,6 +20,14 @@ for those first two by name, see
 [companion-app-updater](companion-app-updater.md). If you rename them, the updater
 breaks.
 
+**Known gap.** The workflow builds `ps4_shell_feed.prx` and uploads it as a build
+artifact, but `publish` does not attach it to the release, and nothing publishes
+`ps4-ambilight-900.bin` (it lives in `payloads/`) or the `.sha256` files for either. The
+companion app's Shell feed install looks for all four by name on the latest release, so
+until the workflow publishes them that install has nothing to find on GitHub. It works
+against a local server, see [local-install-testing](local-install-testing.md). The
+checksum files are the plain `sha256sum` output, the same as the plugin's.
+
 The release is its own job so that the two builds can run in parallel without
 racing each other to create the same release. Only `publish` touches
 `softprops/action-gh-release`.

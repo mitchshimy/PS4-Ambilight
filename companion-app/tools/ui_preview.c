@@ -72,6 +72,15 @@ int main(int argc, char **argv)
     printf("setup content height: %d\n", h);
     st.scrollY = 330.0f;                                                                       render(c, &fonts, &cfg, &st, dir, "setup_scrolled");
 
+    // ---- Set up with a row hint, and Help ----
+    st.scrollY = 330.0f;
+    snprintf(st.settingsHint, sizeof(st.settingsHint), "Autoload needs the Shell feed: turn the Shell feed switch on first.");
+    render(c, &fonts, &cfg, &st, dir, "setup_hint");
+    st.settingsHint[0] = '\0';
+    st.screen = UI_SCREEN_HELP; st.scrollY = 0;
+    render(c, &fonts, &cfg, &st, dir, "help_top");
+    st.scrollY = 700.0f;                                                                       render(c, &fonts, &cfg, &st, dir, "help_scrolled");
+
     ui_canvas_destroy(c); ui_fonts_destroy(&fonts);
     return 0;
 }

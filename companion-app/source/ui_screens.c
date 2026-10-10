@@ -366,7 +366,7 @@ static int build_group_cards(MenuScreen screen, const AmbientConfig *cfg, int fo
 // function, not a constant expression, so it can't sit in a
 // static-storage initializer the way kGroupLayouts' plain ints and
 // strings can.
-#define HELP_CARD_COUNT 5
+#define HELP_CARD_COUNT 6
 
 static void help_cards_init(UiCard out[HELP_CARD_COUNT])
 {
@@ -378,7 +378,8 @@ static void help_cards_init(UiCard out[HELP_CARD_COUNT])
         "what's already on the console. From there, Set up connects WLED "
         "and describes your physical strip, and Customization tunes how "
         "captured colours look. Test strip on Home sends live colours to "
-        "your strip so you can check it before starting a game.",
+        "your strip so you can check it before starting a game. Test strip "
+        "only appears once nothing on Home is waiting to be installed or updated.",
         NULL, 0, -1, NULL, NULL };
 
     out[1] = (UiCard){ COL_AMBER, ICON_WIFI, COL_AMBER, "Set up your strip",
@@ -404,7 +405,18 @@ static void help_cards_init(UiCard out[HELP_CARD_COUNT])
         "with an off white point.",
         NULL, 0, -1, NULL, NULL };
 
-    out[3] = (UiCard){ COL_CYAN, ICON_HELP, COL_CYAN, "Controls",
+    out[3] = (UiCard){ COL_CYAN, ICON_LOOP, COL_CYAN, "Shell feed (optional)",
+        "Lights the strip from the PS4's own Home screen, Settings and quick "
+        "menu while no game is doing it. Turn Shell feed on under Set up, then "
+        "press the button on Home: it installs the shell feed plugin and its "
+        "loader, and later updates or repairs them. Autoload at boot runs the "
+        "loader whenever GoldHEN starts; without it, run the loader from "
+        "GoldHEN's Payloader after each boot. Autoload needs the plugin, the "
+        "shell feed and the loader installed first -- pressing it before then "
+        "tells you what is missing. 9.00 only for now.",
+        NULL, 0, -1, NULL, NULL };
+
+    out[4] = (UiCard){ COL_CYAN, ICON_HELP, COL_CYAN, "Controls",
         "D-Pad moves between fields and cards, and scrolls this screen. "
         "Cross selects a highlighted item, opens the on-screen keyboard "
         "for a text field, or cycles an enum value one step. L1/R1 nudge "
@@ -413,7 +425,7 @@ static void help_cards_init(UiCard out[HELP_CARD_COUNT])
         "Circle goes back a screen. Options saves and quits from Home.",
         NULL, 0, -1, NULL, NULL };
 
-    out[4] = (UiCard){ COL_WARN, ICON_WARNING, COL_WARN, "Troubleshooting",
+    out[5] = (UiCard){ COL_WARN, ICON_WARNING, COL_WARN, "Troubleshooting",
         "Nothing runs in any game: tick Enable Plugins Loader under "
         "GoldHEN's Plugin Settings -- Home can't see that switch. "
         "Strip stays dark: re-check the WLED host/port on Set up, and "
@@ -422,7 +434,8 @@ static void help_cards_init(UiCard out[HELP_CARD_COUNT])
         "direction and colour order together -- getting one wrong usually "
         "looks like the others are wrong too. Light stuck on after "
         "quitting a game: update the plugin from Home, older builds had a "
-        "bug here.",
+        "bug here. Strip flickers between two sources: turn Shell feed on "
+        "(or save it off) so this app and the shell feed stop both sending.",
         NULL, 0, -1, NULL, NULL };
 }
 

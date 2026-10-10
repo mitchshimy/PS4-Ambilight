@@ -644,6 +644,12 @@ color preview and a plugin self-updater.
   `sceSystemServiceGetStatus` (`isInBackgroundExecution`, the same call the plugin uses) twice a
   second, and while backgrounded sends nothing and releases the claim; it takes both back when
   foregrounded.
+- **Help and README for the shell feed.** The app's Help screen has a new **Shell feed (optional)**
+  card (six cards now), and its Getting started and Troubleshooting cards mention the Test strip
+  rule and the two-sources flicker. The main README has a **Shell feed (optional)** section, a
+  quick start step and Help entries for Test Strip being hidden, Autoload not turning on and the
+  strip flickering. The Set up row for **Shell feed** no longer says "Off keeps this app exactly as
+  it was", which meant nothing to someone who never saw the earlier app.
 - **Local update source for testing.** `[dev] update_base_url=http://<pc>:8000` in the ini makes
   every download and its `.sha256` come from that address instead of GitHub; delete the line to go
   back. `tools/serve_local_release.py` serves the three files with their checksums.

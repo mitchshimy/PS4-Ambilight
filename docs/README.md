@@ -5,7 +5,7 @@ or [history](history.md) if you want to know how it got here.
 
 ## Understanding it
 
-- [architecture](architecture.md): plugin, companion app, why they're separate
+- [architecture](architecture.md): plugin, companion app, shell feed, why they're separate
 - [history](history.md): how the project evolved, version by version
 - [sampling-zones](sampling-zones.md): LED geometry and how pixels are chosen
 - [configuration-history](configuration-history.md): ini keys added, removed, changed
@@ -48,6 +48,8 @@ Investigations with the evidence and the wrong turns left in.
   works and broke
 - [ci-and-releases](development/ci-and-releases.md): the workflow and the GoldHEN SDK patch
 - [testing](development/testing.md): telemetry, the tools, and the app's tests
+- [local-install-testing](development/local-install-testing.md): trying the app's installer
+  against your own PC instead of a GitHub release
 - [tools](development/tools.md): what's in `tools/`
 - [shell-feed-coordination](development/shell-feed-coordination.md): the `/data/ps4_ambient_state`
   file, for anyone writing something that reads it
