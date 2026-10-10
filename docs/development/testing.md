@@ -71,6 +71,7 @@ an `mprotect` instead is not something a fake kernel can tell you about another 
 | File | Checks |
 |---|---|
 | `test_settings.c` | menu item count, ini save and load round trip, the `relay_*` keys kept only when the file already had them |
+| `test_github_release_json.c` | the scan that finds one asset's API URL in GitHub's release JSON: each name gets its own asset's url, a name that is only a prefix of another is refused, the spaced JSON form, output size, an asset with no url |
 | `test_ime.c` | the keyboard module `source/ime.c`, driven by fake `sceImeDialog*` calls: opens with the row's label and current value, applies and clamps a typed number, rejects garbage and empty input, handles cancel, edits the string row, reports a refused open, closes once on shutdown. Uses the test-only SDK stand-ins in `tests/stubs/orbis/` |
 | `test_app_version.c` | `APP_VERSION` keeps the `N.NN` form (at most 8 characters) that CI, `build.bat` and the SFO field expect |
 | `test_action_buttons.c` | every `FIELD_ACTION` button has its own text (`Launch Ambilight payload`, `Reset Game`/`Movie`, `Press again to confirm`), none but the preset reset says "Reset", an unknown action is refused, and the menu says "Ambilight payload" rather than loader or launcher |
@@ -120,6 +121,7 @@ gcc -w -I. -Iinclude -I../plugin/include -I/tmp/stub -o /tmp/test_shell_settings
 gcc -w -I. -Iinclude -I../plugin/include -I/tmp/stub -o /tmp/test_action_buttons tests/test_action_buttons.c \
     source/settings.c source/presets.c source/config.c tests/test_sce_stubs.c && /tmp/test_action_buttons
 gcc -w -Iinclude -o /tmp/test_app_version tests/test_app_version.c && /tmp/test_app_version
+gcc -w -Iinclude -o /tmp/test_github_release_json tests/test_github_release_json.c && /tmp/test_github_release_json
 gcc -w -I. -Iinclude -I../plugin/include -I/tmp/stub -Itests/stubs -o /tmp/test_ime tests/test_ime.c \
     source/ime.c source/settings.c source/presets.c source/config.c tests/test_sce_stubs.c && /tmp/test_ime
 ```

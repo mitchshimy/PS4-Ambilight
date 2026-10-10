@@ -140,6 +140,8 @@ UI code, for checking a layout change without a console.
 ## Files
 
 - `source/main.c` -- app entry, SDL2 UI, controller nav, HTTP self-update
+- `source/net_http.c` / `include/net_http.h` -- HTTP(S) downloads (`http_download`, `http_download_text`) and the lookup of where a release asset lives (GitHub's release API, or the `[dev] update_base_url` test server), split out of `main.c`
+- `include/github_release_json.h` -- the scan that pulls one asset's API URL out of GitHub's release JSON (header-only so a PC test can run it)
 - `source/ime.c` / `include/ime.h` -- the on-screen keyboard for the numeric and string rows, split out of `main.c`; it takes everything it needs through an `ImeHost` instead of reaching into `main.c`'s globals
 - `source/text_render.c` / `include/text_render.h` -- FreeType-based text rendering (not SDL2_ttf)
 - `include/app_version.h` -- `APP_VERSION`, the one place the app's version lives (Help screen, and `APP_VER` / `VERSION` in the package, read by CI and `build.bat`)
@@ -156,5 +158,5 @@ UI code, for checking a layout change without a console.
 - `include/payload_ini.h` -- reads and flips the Ambilight payload's entry in GoldHEN's payload AutoRun list without touching other lines
 - `include/claim_file.h` -- the `/data/ps4_ambient_state` record and heartbeat the app writes while it drives the strip
 - `include/update_source.h` -- cleans up `[dev] update_base_url`
-- `tests/test_settings.c`, `tests/test_pipeline.c`, `tests/test_display_units.c`, `tests/test_presets.c`, `tests/test_install_plan.c`, `tests/test_goldhen_config.c`, `tests/test_payload_ini.c`, `tests/test_claim_file.c`, `tests/test_shell_settings.c`, `tests/test_action_buttons.c`, `tests/test_app_version.c`, `tests/test_ime.c` -- isolation tests; `gcc -Iinclude -o test_x test_x.c source/x.c source/config.c tests/test_sce_stubs.c` to rerun (exact commands in `docs/development/testing.md`; `test_settings` still fails at its `relayHost` check, as it did before the shell feed)
+- `tests/test_settings.c`, `tests/test_pipeline.c`, `tests/test_display_units.c`, `tests/test_presets.c`, `tests/test_install_plan.c`, `tests/test_goldhen_config.c`, `tests/test_payload_ini.c`, `tests/test_claim_file.c`, `tests/test_shell_settings.c`, `tests/test_action_buttons.c`, `tests/test_app_version.c`, `tests/test_ime.c`, `tests/test_github_release_json.c` -- isolation tests; `gcc -Iinclude -o test_x test_x.c source/x.c source/config.c tests/test_sce_stubs.c` to rerun (exact commands in `docs/development/testing.md`; `test_settings` still fails at its `relayHost` check, as it did before the shell feed)
 - `tools/ui_preview.c` / `tools/ui_preview.sh` -- renders the UI to PNG on a PC

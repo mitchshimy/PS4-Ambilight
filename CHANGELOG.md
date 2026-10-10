@@ -709,6 +709,17 @@ color preview and a plugin self-updater.
   typed number applied and clamped, garbage and empty input rejected, cancel, the string row, a
   refused open, shutdown); it uses test-only SDK stand-ins in `tests/stubs/orbis/`. Not yet run:
   the CI package build and the keyboard on a console, since `main.c` can't be compiled on a PC.
+- **The downloads and the release lookup moved out of `main.c` into `source/net_http.c`.** The
+  second step of splitting `main.c` (it is 2,500 lines now, from 2,829). `http_download()`,
+  `http_download_text()` and `resolve_asset_url()` are in `net_http.c` with `include/net_http.h`,
+  and the GitHub repo and release API URL with the note on why the API is used are in that header.
+  The code is the same as it ran on hardware. What changed is wiring: the cached `[dev]
+  update_base_url` is now set with `net_set_dev_base_url()` and read with `net_dev_base_url()`
+  instead of a `main.c` global (the ini is still read on the main thread only, in `main.c`), and the
+  JSON scan for an asset's url is a header, `include/github_release_json.h`, so it can be tested:
+  `tests/test_github_release_json.c` is new. Not yet run: the CI package build and an update or
+  install on a console, since `main.c` and `net_http.c` need the OpenOrbis toolchain. A syntax check
+  of `net_http.c` against stand-in headers was clean.
 - **Local update source for testing.** `[dev] update_base_url=http://<pc>:8000` in the ini makes
   every download and its `.sha256` come from that address instead of GitHub; delete the line to go
   back. `tools/serve_local_release.py` serves the three files with their checksums.
