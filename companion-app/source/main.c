@@ -54,6 +54,7 @@
 #include <orbis/SystemService.h>
 
 #include "settings.h"
+#include "ime.h"
 #include "presets.h"
 #include "color_pipeline.h"
 #include "ddp.h"
@@ -2095,138 +2096,11 @@ static void update_live_preview(void)
 
 // ---------------- on-screen keyboard ----------------
 //
-// Real API surface pulled from orbis/ImeDialog.h, orbis/_types/
-// ime_dialog.h and orbis/CommonDialog.h -- see the extensive
-// verification notes this was ported from for exactly what's
-// confirmed vs. assumed (posx/posy units, whether NULL is a valid
-// second sceImeDialogInit argument, whether ORBIS_TYPE_NUMBER's layout
-// includes '-' for negative fields). None of that re-verified this
-// session; ported as-is.
-
-static bool g_imeDialogOpen = false;
-static wchar_t g_imeBuffer[64];
-static int g_imeItemIndex = -1; // which kMenuItems[] entry this dialog is editing
-
-static void widen_ascii(wchar_t *dst, const char *src, size_t dstCount)
+// Lives in ime.c. This is what it needs from here.
+static ImeHost ime_host(void)
 {
-    size_t i = 0;
-    for (; i < dstCount - 1 && src[i] != '\0'; i++) dst[i] = (wchar_t)(unsigned char)src[i];
-    dst[i] = L'\0';
-}
-
-// itemIndex must refer to a FIELD_STRING, FIELD_U32, FIELD_I32, or
-// FIELD_U16 item -- FIELD_ENUM/FIELD_BOOL are cycled/toggled directly
-// by Cross instead (see handle_settings_input()).
-static void open_field_ime_dialog(int itemIndex)
-{
-    if (g_imeDialogOpen || sceCommonDialogIsUsed()) return;
-    const MenuItem *item = &kMenuItems[itemIndex];
-
-    char placeholderAscii[80], titleAscii[80], currentAscii[64];
-    if (item->type == FIELD_STRING) {
-        snprintf(placeholderAscii, sizeof(placeholderAscii), "192.168.x.x");
-        snprintf(currentAscii, sizeof(currentAscii), "%s", g_cfg.wledHost);
-    } else {
-        const char *pct = (item->unit != UNIT_RAW) ? "%" : "";
-        snprintf(placeholderAscii, sizeof(placeholderAscii), "%d to %d%s",
-                 settings_display_min(item), settings_display_max(item), pct);
-        snprintf(currentAscii, sizeof(currentAscii), "%d", settings_to_display(item, settings_get_i32(&g_cfg, item)));
-    }
-    snprintf(titleAscii, sizeof(titleAscii), "%s", item->label);
-
-    static wchar_t placeholderBuf[80], titleBuf[80];
-    widen_ascii(placeholderBuf, placeholderAscii, sizeof(placeholderBuf) / sizeof(placeholderBuf[0]));
-    widen_ascii(titleBuf, titleAscii, sizeof(titleBuf) / sizeof(titleBuf[0]));
-
-    memset(g_imeBuffer, 0, sizeof(g_imeBuffer));
-    widen_ascii(g_imeBuffer, currentAscii, sizeof(g_imeBuffer) / sizeof(g_imeBuffer[0]));
-
-    OrbisImeDialogSetting setting;
-    memset(&setting, 0, sizeof(setting));
-    setting.userId = g_userId;
-    setting.type = (item->type == FIELD_STRING) ? ORBIS_TYPE_BASIC_LATIN : ORBIS_TYPE_NUMBER;
-    setting.supportedLanguages = 0;
-    setting.enterLabel = ORBIS_BUTTON_LABEL_DEFAULT;
-    setting.inputMethod = ORBIS__DEFAULT;
-    setting.filter = NULL;
-    setting.option = 0;
-    setting.maxTextLength = (uint32_t)(sizeof(g_imeBuffer) / sizeof(g_imeBuffer[0]) - 1);
-    setting.inputTextBuffer = g_imeBuffer;
-    setting.posx = FRAME_WIDTH / 2.0f;
-    setting.posy = FRAME_HEIGHT / 2.0f;
-    setting.horizontalAlignment = ORBIS_H_CENTER;
-    setting.verticalAlignment = ORBIS_V_CENTER;
-    setting.placeholder = placeholderBuf;
-    setting.title = titleBuf;
-
-    int32_t ret = sceImeDialogInit(&setting, NULL);
-    printf("[ime] sceImeDialogInit() = %d (field \"%s\")\n", ret, item->label);
-    if (ret == 0) {
-        g_imeDialogOpen = true;
-        g_imeItemIndex = itemIndex;
-    } else {
-        char msg[128];
-        snprintf(msg, sizeof(msg), "Couldn't open the keyboard (sceImeDialogInit = %d).", ret);
-        set_status(msg, true);
-    }
-}
-
-// Call once per frame from the main loop while g_imeDialogOpen.
-static void update_ime_dialog(void)
-{
-    OrbisDialogStatus status = sceImeDialogGetStatus();
-    if (status != ORBIS_DIALOG_STATUS_STOPPED) return;
-
-    OrbisDialogResult result;
-    memset(&result, 0, sizeof(result));
-    sceImeDialogGetResult(&result);
-
-    const MenuItem *item = (g_imeItemIndex >= 0 && g_imeItemIndex < kMenuItemCount) ? &kMenuItems[g_imeItemIndex] : NULL;
-
-    if (result.endstatus == ORBIS_DIALOG_OK && item != NULL) {
-        char typed[64];
-        size_t i = 0;
-        for (; i < sizeof(typed) - 1 && g_imeBuffer[i] != L'\0'; i++) typed[i] = (char)g_imeBuffer[i];
-        typed[i] = '\0';
-
-        char msg[160];
-        if (item->type == FIELD_STRING) {
-            char *dst = (char *)&g_cfg + item->offset;
-            snprintf(dst, (size_t)item->max /* buffer size, see STRBUF() in settings.c */, "%s", typed);
-            snprintf(msg, sizeof(msg), "%s set to %s.", item->label, dst);
-            set_status(msg, false);
-        } else {
-            // strtol, not atoi: atoi can't distinguish "not a number"
-            // from a real 0, and silently writing 0 for garbage input
-            // is exactly the kind of accepted-but-wrong save
-            // settings_load()'s own hardening was written to prevent
-            // on the load side.
-            char *end = NULL;
-            long v = strtol(typed, &end, 10);
-            if (end == typed || *end != '\0') {
-                snprintf(msg, sizeof(msg), "\"%s\" isn't a number -- %s unchanged.", typed, item->label);
-                set_status(msg, true);
-            } else {
-                // What was typed is in DISPLAY units (a percent for the
-                // percent-style rows); settings_from_display converts and
-                // clamps into [item->min, item->max].
-                settings_set_i32(&g_cfg, item, settings_from_display(item, (int32_t)v));
-                char vbuf[24];
-                settings_format_display(item, settings_to_display(item, settings_get_i32(&g_cfg, item)), vbuf, sizeof(vbuf));
-                snprintf(msg, sizeof(msg), "%s set to %s.", item->label, vbuf);
-                set_status(msg, false);
-            }
-        }
-    } else {
-        char msg[128];
-        snprintf(msg, sizeof(msg), "Keyboard cancelled -- %s unchanged.", item ? item->label : "field");
-        set_status(msg, false);
-    }
-
-    sceImeDialogTerm();
-    g_imeDialogOpen = false;
-    g_imeItemIndex = -1;
-    g_dirty = true;
+    ImeHost host = { &g_cfg, g_userId, FRAME_WIDTH / 2.0f, FRAME_HEIGHT / 2.0f, set_status };
+    return host;
 }
 
 // ---------------- Home input ----------------
@@ -2504,7 +2378,7 @@ static void handle_settings_input(bool up, bool down, bool left, bool right,
                 }
             } else if (item->type == FIELD_BOOL) nudge_field(item, +1);
             else if (item->type == FIELD_ENUM) nudge_field(item, +1);
-            else open_field_ime_dialog(start + g_state.focusField);
+            else { ImeHost host = ime_host(); ime_open_field(start + g_state.focusField, &host); }
         }
         g_dirty = true;
     } else if ((l1 || r1) && !onSaveButton) {
@@ -2781,7 +2655,10 @@ int main(void)
 
         poll_background_update_check();
 
-        if (g_imeDialogOpen) update_ime_dialog();
+        if (ime_is_open()) {
+            ImeHost host = ime_host();
+            if (ime_update(&host)) g_dirty = true;
+        }
 
         // wled-relay hand-off signal: this app has no idle/Home-only
         // mode for this purpose -- "driving the strip" here just means
@@ -2906,7 +2783,7 @@ int main(void)
     claim_tick(&g_claim, SDL_GetTicks(), false, claim_write_cb, NULL);
     claim_tick(&g_claim, SDL_GetTicks() + CLAIM_RETRY_MS + 1u, false, claim_write_cb, NULL);
 
-    if (g_imeDialogOpen) sceImeDialogTerm();
+    ime_shutdown();
     // Defensive final "off" if the signal was last left on -- this app
     // has no plugin_unload-style guaranteed teardown hook the way the
     // real plugin does, so this is the closest equivalent (same as v17).

@@ -701,6 +701,14 @@ color preview and a plugin self-updater.
   Bump it when the app changes; `docs/development/ci-and-releases.md` lists it in "Cutting a
   release". `tests/test_app_version.c` keeps its form right. Not yet run: a real CI package
   build and `build.bat` on Windows with the new lookup.
+- **The on-screen keyboard moved out of `main.c` into `source/ime.c`.** The first step of
+  splitting `main.c` (about 135 lines, now 2,829 from 2,952). No behaviour change: the code is the
+  same as it ran on hardware, except that it reads and writes the config, the user id, the dialog
+  position and the status line through an `ImeHost` that `main.c` passes in, so `ime.c` needs none
+  of `main.c`'s globals. `tests/test_ime.c` is new and covers it with a fake keyboard (opening, a
+  typed number applied and clamped, garbage and empty input rejected, cancel, the string row, a
+  refused open, shutdown); it uses test-only SDK stand-ins in `tests/stubs/orbis/`. Not yet run:
+  the CI package build and the keyboard on a console, since `main.c` can't be compiled on a PC.
 - **Local update source for testing.** `[dev] update_base_url=http://<pc>:8000` in the ini makes
   every download and its `.sha256` come from that address instead of GitHub; delete the line to go
   back. `tools/serve_local_release.py` serves the three files with their checksums.
