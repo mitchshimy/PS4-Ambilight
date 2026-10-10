@@ -720,6 +720,21 @@ color preview and a plugin self-updater.
   `tests/test_github_release_json.c` is new. Not yet run: the CI package build and an update or
   install on a console, since `main.c` and `net_http.c` need the OpenOrbis toolchain. A syntax check
   of `net_http.c` against stand-in headers was clean.
+- **`main.c` is split into modules.** The rest of the split, done in one go: the background update
+  check (`source/update_check.c`), plugin install, enable and registration plus GoldHEN's plugin
+  loader switch (`source/plugin_install.c`), the shell feed's install, repair, payload launch,
+  autoload and strip claim (`source/shell_feed.c`), small file and checksum helpers
+  (`source/file_util.c`), the on-console paths and asset names (`include/app_paths.h`) and what
+  `main.c` shares with them (`source/app_state.h`). `main.c` is 1,248 lines now, from 2,952 at the
+  start of the split; the input handlers, the live preview and the main loop stay in it. No
+  behaviour change: the code is the same as it ran on hardware (every old line is accounted for;
+  what changed is `static` on the functions and globals the modules now share, includes, and the
+  doc comment of `ensure_plugin_registered_in_goldhen()`, which had drifted away from it, now sits on
+  it). Checked by compiling the old `main.c` and the new files against stand-in SDK headers and
+  comparing the errors: nothing new in any of them. Not yet run: the CI package build, and the
+  update check, a plugin install, a shell feed install, Launch Ambilight payload and autoload on a
+  console. Since the functions are no longer `static`, a link error about a duplicate symbol, if CI
+  reports one, would be a name that clashes with one in the SDK.
 - **Local update source for testing.** `[dev] update_base_url=http://<pc>:8000` in the ini makes
   every download and its `.sha256` come from that address instead of GitHub; delete the line to go
   back. `tools/serve_local_release.py` serves the three files with their checksums.

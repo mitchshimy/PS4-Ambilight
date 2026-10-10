@@ -302,7 +302,7 @@ jobs:
       # that asset and its checksum sidecar (PLUGIN_CHECKSUM_URL,
       # "<same name>.sha256") from the SAME build_prx artifact, so they
       # can never drift out of sync with each other -- do_plugin_update()
-      # in main.c refuses to install if they don't match. The same
+      # in companion-app/source/plugin_install.c refuses to install if they don't match. The same
       # happens for ps4_shell_feed.prx: the companion app's Shell feed
       # install downloads it and its sidecar by these names and checks one
       # against the other. (The Ambilight payload has its own step below.)

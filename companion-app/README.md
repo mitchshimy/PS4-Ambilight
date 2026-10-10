@@ -139,7 +139,11 @@ UI code, for checking a layout change without a console.
 
 ## Files
 
-- `source/main.c` -- app entry, SDL2 UI, controller nav, HTTP self-update
+- `source/main.c` -- app entry, the main loop, SDL2 drawing, controller nav, the Home / Set up / Help input handlers and the live preview. Everything below was split out of it; `source/app_state.h` lists what `main.c` shares with them (`g_cfg`, `g_state`, `g_dirty`, `set_status()`, `render_and_present()`) and `include/app_paths.h` holds the on-console paths and release asset names
+- `source/file_util.c` / `include/file_util.h` -- small file helpers (`read_small_file`, `write_file_atomic`, `file_size_of`) and the checksum helpers
+- `source/update_check.c` / `include/update_check.h` -- the background update check (worker thread, flags, once-a-frame poll) and the shell feed file bookkeeping `g_assetPresent` / `g_assetUpdate`
+- `source/plugin_install.c` / `source/plugin_install.h` -- installing, enabling and checking the plugin (`do_plugin_update`, `do_plugin_enable`, the `plugins.ini` registration) and reading GoldHEN's plugin loader switch
+- `source/shell_feed.c` / `include/shell_feed.h` -- the shell feed's file work: install and repair, sending the Ambilight payload to the BinLoader, the autoload entry, and the strip claim
 - `source/net_http.c` / `include/net_http.h` -- HTTP(S) downloads (`http_download`, `http_download_text`) and the lookup of where a release asset lives (GitHub's release API, or the `[dev] update_base_url` test server), split out of `main.c`
 - `include/github_release_json.h` -- the scan that pulls one asset's API URL out of GitHub's release JSON (header-only so a PC test can run it)
 - `source/ime.c` / `include/ime.h` -- the on-screen keyboard for the numeric and string rows, split out of `main.c`; it takes everything it needs through an `ImeHost` instead of reaching into `main.c`'s globals
