@@ -254,6 +254,14 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Only for payloads/: the Ambilight payload (ps4-ambilight-900.bin) is a committed binary,
+      # not a build output, so the release takes it from the tagged commit.
+      - name: Checkout (payloads only)
+        uses: actions/checkout@main
+        with:
+          sparse-checkout: payloads
+          sparse-checkout-cone-mode: true
+
       - name: Download plugin (Release)
         uses: actions/download-artifact@main
         with:
@@ -280,15 +288,38 @@ jobs:
       # that asset and its checksum sidecar (PLUGIN_CHECKSUM_URL,
       # "<same name>.sha256") from the SAME build_prx artifact, so they
       # can never drift out of sync with each other -- do_plugin_update()
-      # in main.c refuses to install if they don't match. The same now
-      # happens for ps4_shell_feed.prx; nothing reads its checksum yet,
-      # but publishing it alongside keeps the two plugins' release assets
-      # symmetric from the start.
+      # in main.c refuses to install if they don't match. The same
+      # happens for ps4_shell_feed.prx: the companion app's Shell feed
+      # install downloads it and its sidecar by these names and checks one
+      # against the other. (The Ambilight payload has its own step below.)
       - name: Compute checksums
         working-directory: prx
         run: |
           sha256sum ps4_ambient_light.prx > ps4_ambient_light.prx.sha256
           sha256sum ps4_shell_feed.prx > ps4_shell_feed.prx.sha256
+
+      # The Ambilight payload (payloads/ps4-ambilight-900.bin). The companion app's Shell feed
+      # install fetches it, and its ".sha256" sidecar, by exactly these names from the latest
+      # release, and refuses the file if the two disagree. The sidecar is made from the file
+      # being attached, and the file must also match the hash payloads/CHECKSUMS.md documents,
+      # so a binary replaced without updating that page fails the release instead of shipping.
+      - name: Verify and checksum the Ambilight payload
+        working-directory: payloads
+        run: |
+          set -eu
+          name=ps4-ambilight-900.bin
+          want=$(sed -n "s/^\([0-9a-f]\{64\}\)  $name\$/\1/p" CHECKSUMS.md | head -n1)
+          if [ -z "$want" ]; then
+            echo "::error::no 'sha256  $name' line in payloads/CHECKSUMS.md"
+            exit 1
+          fi
+          have=$(sha256sum "$name" | cut -d' ' -f1)
+          if [ "$have" != "$want" ]; then
+            echo "::error::$name is $have but payloads/CHECKSUMS.md says $want. Update CHECKSUMS.md with the binary, or restore the binary."
+            exit 1
+          fi
+          sha256sum "$name" > "$name.sha256"
+          cat "$name.sha256"
 
       # A tag like v3.9.4-rc1 passes the build_prx version check (see its
       # comment) but must never become the release that "latest" resolves
@@ -313,4 +344,6 @@ jobs:
             prx/ps4_ambient_light.prx.sha256
             prx/ps4_shell_feed.prx
             prx/ps4_shell_feed.prx.sha256
+            payloads/ps4-ambilight-900.bin
+            payloads/ps4-ambilight-900.bin.sha256
             pkg/*.pkg

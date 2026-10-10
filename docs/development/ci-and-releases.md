@@ -9,24 +9,30 @@ app, and on a tag it publishes a release.
 |---|---|---|
 | `build_prx` | ubuntu-latest | checks out the GoldHEN SDK, patches it, builds the plugin in Release and Debug, uploads both |
 | `build_pkg` | ubuntu-22.04 | compiles the companion app against the OpenOrbis toolchain and builds a `.pkg` |
-| `publish` | ubuntu-latest | only on `refs/tags/*`, waits on both builds, computes a checksum, creates the release |
+| `publish` | ubuntu-latest | only on `refs/tags/*`, waits on both builds, computes the `.prx` checksums, verifies and checksums the Ambilight payload, creates the release |
 
 It runs on push, pull request and manual dispatch, and skips pushes that only touch
 `*.md` files. Docs-only commits don't trigger a build.
 
-A tagged release publishes exactly three things: `ps4_ambient_light.prx`,
-`ps4_ambient_light.prx.sha256`, and the `.pkg`. The companion app's updater looks
-for those first two by name, see
-[companion-app-updater](companion-app-updater.md). If you rename them, the updater
-breaks.
+A tagged release publishes seven files:
 
-**Known gap.** The workflow builds `ps4_shell_feed.prx` and uploads it as a build
-artifact, but `publish` does not attach it to the release, and nothing publishes
-`ps4-ambilight-900.bin` (it lives in `payloads/`) or the `.sha256` files for either. The
-companion app's Shell feed install looks for all four by name on the latest release, so
-until the workflow publishes them that install has nothing to find on GitHub. It works
-against a local server, see [local-install-testing](local-install-testing.md). The
-checksum files are the plain `sha256sum` output, the same as the plugin's.
+| File | Comes from |
+|---|---|
+| `ps4_ambient_light.prx` and `.sha256` | `build_prx` (Release) |
+| `ps4_shell_feed.prx` and `.sha256` | `build_prx` (Release) |
+| `ps4-ambilight-900.bin` and `.sha256` | the committed binary in `payloads/` |
+| the `.pkg` | `build_pkg` |
+
+The companion app finds the three `.prx` / `.bin` files and their sidecars by these exact
+names on the latest release, see [companion-app-updater](companion-app-updater.md). If you
+rename any of them, the updater and the Shell feed install break. The `.sha256` files are plain
+`sha256sum` output, made from the very file being attached, so the two can't disagree.
+
+The Ambilight payload is not a build output. The `publish` job checks out `payloads/` at the
+tagged commit, and the step "Verify and checksum the Ambilight payload" refuses to release
+unless the binary's SHA-256 equals the one in `payloads/CHECKSUMS.md`. So when
+`ps4-ambilight-900.bin` is replaced, `CHECKSUMS.md` has to change in the same commit, or the
+tag fails with an error naming both hashes (and no release is created).
 
 The release is its own job so that the two builds can run in parallel without
 racing each other to create the same release. Only `publish` touches
@@ -110,8 +116,8 @@ CI quirk.
    git tag v3.5.0
    git push origin v3.5.0
    ```
-4. CI builds both artifacts and publishes. Check that the release has the `.prx`,
-   the `.sha256` and the `.pkg`.
+4. CI builds both artifacts and publishes. Check that the release has all seven files:
+   the two `.prx`, the `.bin`, their three `.sha256` files and the `.pkg`.
 
 Don't move or re-push an old tag to re-release. Tag the next version instead. Every
 tag stays as its own release, and the companion app's updater just follows `latest`.
@@ -120,8 +126,10 @@ tag stays as its own release, and the companion app's updater just follows `late
 
 The first step of `build_prx` runs on tag pushes and compares the tag with
 `g_pluginVersion`. Only major and minor are compared, so `v3.4.0` and `v3.4.1` both
-pass while the plugin says 3.4. The tag has to look like `v3.4` or `v3.4.0`, so
-`v3.4.0-rc1` or `test` fail on purpose rather than publish something.
+pass while the plugin says 3.4. The tag has to look like `v3.4` or `v3.4.0`, with an
+optional `-rc1` suffix (`v3.4.0-rc1`). An `-rc` tag builds and publishes as a pre-release, so
+`latest`, which the app follows, never resolves to it. Anything else, such as `test`, fails on
+purpose rather than publish something.
 
 It fails before the SDK checkout and builds, and `publish` needs `build_prx`, so a
 mismatch produces no release. The error names both versions. To fix it, correct

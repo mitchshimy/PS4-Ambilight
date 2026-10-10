@@ -148,6 +148,7 @@ verified. See the `O_TRUNC` entry in [orbis-gotchas](orbis-gotchas.md).
   network setup. The fallback is to download the files from Releases and put them in
   place by hand.
 - The app resolves assets by fixed names: `ps4_ambient_light.prx`,
-  `ps4_shell_feed.prx` and `ps4-ambilight-900.bin`, each with a `.sha256`. The release
-  workflow does not publish the last two yet, see [ci-and-releases](ci-and-releases.md);
-  until it does, installing the shell feed from GitHub has nothing to find.
+  `ps4_shell_feed.prx` and `ps4-ambilight-900.bin`, each with a `.sha256`. A tagged release
+  publishes all six, see [ci-and-releases](ci-and-releases.md); a release made before the
+  workflow did so has no shell feed files, and the Shell feed install on it reports that it
+  couldn't find the file at the update source.

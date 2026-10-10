@@ -673,6 +673,15 @@ color preview and a plugin self-updater.
   hint messages, the download progress line). "Plugin loader" and "BinLoader" are GoldHEN's own and
   are unchanged. Not yet tried on a console: the button and the new wording
   ([local-install-testing](docs/development/local-install-testing.md)).
+- **The release now carries the shell feed files.** A tagged release attaches
+  `ps4-ambilight-900.bin` and its `.sha256` next to `ps4_shell_feed.prx` and its `.sha256` (the
+  `.prx` pair was already attached), so the Shell feed install finds all of them on GitHub and
+  no longer works only against the local test server. The `.bin` is the committed file in
+  `payloads/`; the publish job checks it against the hash in `payloads/CHECKSUMS.md` and fails
+  the release if they differ, then writes the sidecar from the file it attaches. A release
+  has seven files now: two `.prx`, the `.bin`, their three `.sha256` files and the `.pkg`.
+  `docs/development/ci-and-releases.md` is updated, and now says that `-rc` tags are allowed
+  (they publish as pre-releases).
 - **Local update source for testing.** `[dev] update_base_url=http://<pc>:8000` in the ini makes
   every download and its `.sha256` come from that address instead of GitHub; delete the line to go
   back. `tools/serve_local_release.py` serves the three files with their checksums.
