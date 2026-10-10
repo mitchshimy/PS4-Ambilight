@@ -52,7 +52,7 @@ as Options) and the person ticks the switch themselves.
 
 With **Shell feed** on in Set up, the same machinery handles two more files, so Home
 can show one banner and one button for all three: `ps4_shell_feed.prx` (into
-`/data/ps4-ambilight`) and the Ambilight payload `ps4-ambilight-900.bin` (into `/data/payloads`).
+`/data/ps4-ambilight`) and the Ambilight payload `ps4-ambilight.bin` (into `/data/payloads`).
 Each is resolved by name with its `.sha256`, downloaded to a staging file, hashed
 against the published checksum and renamed into place. The Ambilight payload stages next to the
 `.prx`, not in `/data/payloads`, so a failed download never leaves a half-written file
@@ -148,7 +148,7 @@ verified. See the `O_TRUNC` entry in [orbis-gotchas](orbis-gotchas.md).
   network setup. The fallback is to download the files from Releases and put them in
   place by hand.
 - The app resolves assets by fixed names: `ps4_ambient_light.prx`,
-  `ps4_shell_feed.prx` and `ps4-ambilight-900.bin`, each with a `.sha256`. A tagged release
+  `ps4_shell_feed.prx` and `ps4-ambilight.bin`, each with a `.sha256`. A tagged release
   publishes all six, see [ci-and-releases](ci-and-releases.md); a release made before the
   workflow did so has no shell feed files, and the Shell feed install on it reports that it
   couldn't find the file at the update source.

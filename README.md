@@ -199,7 +199,7 @@ That path hasn't been exercised end to end on every network setup, see the known
 in [`companion-app/README.md`](companion-app/README.md). If it fails, download the `.prx` from
 [Releases](../../releases) and drop it into GoldHEN's plugin folder by hand. The same goes for the
 shell feed's two files: put `ps4_shell_feed.prx` in `/data/ps4-ambilight` and
-`ps4-ambilight-900.bin` in `/data/payloads`.
+`ps4-ambilight.bin` in `/data/payloads`.
 
 ## Set up your strip
 
@@ -254,7 +254,7 @@ shell-related at all.
    setup**.
 2. Back on **Home** a **Shell feed** banner appears next to the plugin's. Press the main button. It
    reads **Install shell feed**, or **Install all (3)** if the plugin isn't installed either. It
-   downloads `ps4_shell_feed.prx` into `/data/ps4-ambilight` and the Ambilight payload `ps4-ambilight-900.bin`
+   downloads `ps4_shell_feed.prx` into `/data/ps4-ambilight` and the Ambilight payload `ps4-ambilight.bin`
    into `/data/payloads` (both folders are created if missing), and checks each file's SHA-256
    before keeping it. The app then reads **Shell feed installed**.
 3. The Ambilight payload is what puts the shell feed into the console's compositor, so it has to run after
@@ -575,7 +575,7 @@ PS4-Ambilight/
 │   └── Makefile
 ├── common/             # plugin_common.{h,c}: shared GoldHEN plugin helpers this build needs
 ├── shell-feed/         # optional second plugin: lights the strip from the PS4's own screens
-├── payloads/           # ps4-ambilight-900.bin, the Ambilight payload that puts shell-feed in place
+├── payloads/           # ps4-ambilight.bin, the Ambilight payload that puts shell-feed in place
 ├── companion-app/      # standalone PS4 homebrew app: on-console settings UI + live preview
 │   ├── source/, include/, assets/, sce_sys/, sce_module/
 │   ├── tests/           # isolated unit tests for settings, pipeline, layout and the shell feed logic

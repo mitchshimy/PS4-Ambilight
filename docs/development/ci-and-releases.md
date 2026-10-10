@@ -20,7 +20,7 @@ A tagged release publishes seven files:
 |---|---|
 | `ps4_ambient_light.prx` and `.sha256` | `build_prx` (Release) |
 | `ps4_shell_feed.prx` and `.sha256` | `build_prx` (Release) |
-| `ps4-ambilight-900.bin` and `.sha256` | the committed binary in `payloads/` |
+| `ps4-ambilight.bin` and `.sha256` | the committed binary in `payloads/` |
 | the `.pkg` | `build_pkg` |
 
 The companion app finds the three `.prx` / `.bin` files and their sidecars by these exact
@@ -35,7 +35,7 @@ publish step "Verify and checksum the Ambilight payload" runs it again before re
 fails, naming the file's hash and size next to the ones in `payloads/CHECKSUMS.md`, if the binary
 was replaced without the page.
 
-When you replace `payloads/ps4-ambilight-900.bin`, run `sh tools/update_payload_checksum.sh`. It
+When you replace `payloads/ps4-ambilight.bin`, run `sh tools/update_payload_checksum.sh`. It
 rewrites the hash in the `sha256sum -c` block and the size and hash in the table row from the file,
 and nothing else. Edit the table's note about the build by hand, then commit the binary and
 `CHECKSUMS.md` together. See [tools](tools.md#update_payload_checksumsh).

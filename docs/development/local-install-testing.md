@@ -1,7 +1,7 @@
 # Testing the install flow without a release
 
 The companion app downloads three files: `ps4_ambient_light.prx`, `ps4_shell_feed.prx` and
-`ps4-ambilight-900.bin`, each with a `<name>.sha256` beside it. To try that on a console without
+`ps4-ambilight.bin`, each with a `<name>.sha256` beside it. To try that on a console without
 publishing anything to GitHub, serve them from your PC.
 
 1. Build the plugin and the shell feed (`make -C plugin`, `make -C shell-feed`). The payload is
@@ -42,7 +42,7 @@ publishing anything to GitHub, serve them from your PC.
 | Leave the folder empty | Same: Test strip is never offered while a file is missing. |
 | Rebuild one file and restart the server | "Update available" for that file only; the button names it. Two or three files: "Update all (n)". |
 | Stop the server | Nothing is reported as an update (can't tell); installed files still count as installed. |
-| Set up, Autoload at boot on, then open `/data/GoldHEN/payloads.ini` | `/user/data/payloads/ps4-ambilight-900.bin = 1` under `[AutoRun]`, other lines unchanged. Off sets it to `= 0`. |
+| Set up, Autoload at boot on, then open `/data/GoldHEN/payloads.ini` | `/user/data/payloads/ps4-ambilight.bin = 1` under `[AutoRun]`, other lines unchanged. Off sets it to `= 0`. |
 | Press Autoload at boot while Shell feed is off, the plugin or the Ambilight payload is missing | The save bar shows what to do first (amber, replacing "Changes apply after saving."); the next button press clears it. Home's status line is unchanged. |
 | Set up, press **Launch Ambilight payload** (Shell feed card) with everything installed | The button reads "Launch Ambilight payload" (not "Reset ..."). The status says the Ambilight payload was sent to GoldHEN and the shell feed lights the strip without a reboot. Pressing it again while it runs is harmless. |
 | Press **Launch Ambilight payload** with the Shell feed off, the plugin missing or disabled, or a file missing | The save bar says what to fix first; nothing is sent. |

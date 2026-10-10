@@ -63,7 +63,7 @@ default and the app does nothing shell-related while it is off.
   and on returning from the background.
 - **Shell feed (off by default, `[shell] enabled`).** Three files can be pending:
   `ps4_ambient_light.prx`, `ps4_shell_feed.prx` and the Ambilight payload
-  `ps4-ambilight-900.bin`. `install_plan.h` is pure decision logic (no
+  `ps4-ambilight.bin`. `install_plan.h` is pure decision logic (no
   console calls) that turns the plugin's state and the shell feed's state into
   the Home banner and what the one button does; Test strip is offered only when
   nothing is pending. The shell feed's two files download with the plugin's
@@ -75,7 +75,7 @@ default and the app does nothing shell-related while it is off.
   ini. Pressing it while it can't be turned on puts a hint in the save bar
   (`UiState.settingsHint`), because only Home draws the status line.
   **Launch Ambilight payload** (the `shell_run_now` action, also a `ui` row) sends
-  `ps4-ambilight-900.bin` to GoldHEN's BinLoader on port 9090 without a reboot, and is guarded the
+  `ps4-ambilight.bin` to GoldHEN's BinLoader on port 9090 without a reboot, and is guarded the
   same way as Autoload (Shell feed on, plugin installed and enabled, payload and `.prx` present).
   A successful install or repair sends it too. In the UI every mention of this file is
   "Ambilight payload"; "loader" is kept only for GoldHEN's own plugin loader and BinLoader.

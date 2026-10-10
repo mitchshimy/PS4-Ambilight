@@ -23,7 +23,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ASSETS = [
     ("plugin",  "ps4_ambient_light.prx",  ["bin/plugins/prx/ps4_ambient_light.prx", "bin/plugins/prx_final/ps4_ambient_light.prx"]),
     ("shell",   "ps4_shell_feed.prx",     ["bin/plugins/prx/ps4_shell_feed.prx", "shell-feed/bin/plugins/prx/ps4_shell_feed.prx", "bin/plugins/prx_final/ps4_shell_feed.prx"]),
-    ("payload", "ps4-ambilight-900.bin",  ["payloads/ps4-ambilight-900.bin"]),
+    ("payload", "ps4-ambilight.bin",  ["payloads/ps4-ambilight.bin"]),
 ]
 
 

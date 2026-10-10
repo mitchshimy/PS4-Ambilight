@@ -70,7 +70,7 @@
 #define SHELL_PRX_ASSET_NAME  "ps4_shell_feed.prx"
 #define SHELL_PRX_PATH        SHELL_DIR "/" SHELL_PRX_ASSET_NAME
 #define PAYLOADS_DIR          "/data/payloads"
-#define PAYLOAD_ASSET_NAME    "ps4-ambilight-900.bin"
+#define PAYLOAD_ASSET_NAME    "ps4-ambilight.bin"
 #define PAYLOAD_PATH          PAYLOADS_DIR "/" PAYLOAD_ASSET_NAME
 // The Ambilight payload is downloaded next to the .prx, NOT into /data/payloads: a failed download must not
 // leave a half-written ".new" file sitting in a folder that payload menus list.

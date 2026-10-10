@@ -616,7 +616,7 @@ color preview and a plugin self-updater.
   layout, before Live reload) with two switches. **Shell feed** (`[shell] enabled`, default off)
   turns the whole feature on; with it off the app is exactly as before (Home is byte for byte the
   same, nothing shell-related is checked, downloaded or written). **Autoload at boot** edits
-  GoldHEN's payload AutoRun list: `ps4-ambilight-900.bin = 1` runs it at boot, `= 0` keeps the line
+  GoldHEN's payload AutoRun list: `ps4-ambilight.bin = 1` runs it at boot, `= 0` keeps the line
   but doesn't, and every other entry, comment and line ending in that file is left alone.
   Pressing that row while it can't be turned on says what is missing, in the order to fix it (Shell
   feed switch off, plugin not installed or not enabled, loader or shell feed files missing). Set up
@@ -625,7 +625,7 @@ color preview and a plugin self-updater.
   With the Shell feed on, Home shows a **Shell feed** banner to the left of the plugin banner (the
   same height, so the button doesn't move) and one button for everything pending. It installs or
   repairs the shell feed's two files (`ps4_shell_feed.prx` into `/data/ps4-ambilight`, creating the
-  folder if needed, and `ps4-ambilight-900.bin` into `/data/payloads`, creating that too), and
+  folder if needed, and `ps4-ambilight.bin` into `/data/payloads`, creating that too), and
   updates any of the three files that have a newer published build: one button reads "Update shell
   feed", "Install all (3)", and so on. **Test strip appears only once nothing is pending**, the
   same rule the plugin's own update already followed. Downloads use the same staging, sha256 check
@@ -661,20 +661,20 @@ color preview and a plugin self-updater.
   strip flickering. The Set up row for **Shell feed** no longer says "Off keeps this app exactly as
   it was", which meant nothing to someone who never saw the earlier app.
 - **Launch Ambilight payload button.** The Shell feed card on Set up has a new **Ambilight payload**
-  row whose button, **Launch Ambilight payload**, sends `ps4-ambilight-900.bin` to GoldHEN's
+  row whose button, **Launch Ambilight payload**, sends `ps4-ambilight.bin` to GoldHEN's
   BinLoader (port 9090) so the shell feed starts without a reboot or a trip into GoldHEN's menu,
   whether or not Autoload at boot is on. It checks the same things as Autoload first (Shell feed
   on, plugin installed and enabled, payload and `.prx` on the console) and says what is missing.
   A successful install or repair now sends it too. It is a `ui` row, so it never reaches the ini.
   Its text said "Reset Game" because every action button was drawn as the preset reset; it now
   has its own text and icon.
-- **One name for the payload.** Wherever the app, its Help and the docs meant `ps4-ambilight-900.bin`
+- **One name for the payload.** Wherever the app, its Help and the docs meant `ps4-ambilight.bin`
   by "loader" or "launcher" they now say **Ambilight payload** (Set up, Home banners, status and
   hint messages, the download progress line). "Plugin loader" and "BinLoader" are GoldHEN's own and
   are unchanged. Not yet tried on a console: the button and the new wording
   ([local-install-testing](docs/development/local-install-testing.md)).
 - **The release now carries the shell feed files.** A tagged release attaches
-  `ps4-ambilight-900.bin` and its `.sha256` next to `ps4_shell_feed.prx` and its `.sha256` (the
+  `ps4-ambilight.bin` and its `.sha256` next to `ps4_shell_feed.prx` and its `.sha256` (the
   `.prx` pair was already attached), so the Shell feed install finds all of them on GitHub and
   no longer works only against the local test server. The `.bin` is the committed file in
   `payloads/`; the publish job checks it against the hash in `payloads/CHECKSUMS.md` and fails
@@ -690,7 +690,7 @@ color preview and a plugin self-updater.
   has kept `relay_*` keys only when the file already has them since `a4c154c`), so it now seeds
   the file and also checks that a fresh save adds none. No app behaviour changed.
 - **`tools/update_payload_checksum.sh` keeps `payloads/CHECKSUMS.md` current.** After replacing
-  `payloads/ps4-ambilight-900.bin`, run it and it rewrites the hash and size on that page from the
+  `payloads/ps4-ambilight.bin`, run it and it rewrites the hash and size on that page from the
   file (the note about the build stays yours); `--check` only reports. CI runs `--check` on every
   push, not only on a tag, so a binary changed without the page fails straight away rather than
   at release time. The publish job uses the same script instead of its own copy of the check.

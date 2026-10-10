@@ -1,7 +1,7 @@
 // payload_ini.h -- read and flip ONE entry in GoldHEN's payload AutoRun list, touching nothing else.
 //
 //   [AutoRun]
-//   /user/data/payloads/ps4-ambilight-900.bin = 1
+//   /user/data/payloads/ps4-ambilight.bin = 1
 //
 // "= 1" runs the payload when GoldHEN loads, "= 0" keeps the entry but doesn't run it
 // (confirmed on a console). The file belongs to GoldHEN and is shared with every other

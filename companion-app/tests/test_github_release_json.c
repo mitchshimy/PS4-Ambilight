@@ -24,8 +24,8 @@ static const char *kRelease =
     "\"body\":\"notes with { braces } and \\\"quotes\\\"\",\"assets\":["
     ASSET(A1, "101", "ps4_ambient_light.prx.sha256") ","
     ASSET(A2, "102", "ps4_ambient_light.prx") ","
-    ASSET(A3, "103", "ps4-ambilight-900.bin") ","
-    ASSET(A4, "104", "ps4-ambilight-900.bin.sha256")
+    ASSET(A3, "103", "ps4-ambilight.bin") ","
+    ASSET(A4, "104", "ps4-ambilight.bin.sha256")
     "]}";
 
 static bool find(const char *json, const char *name, char *out, size_t n)
@@ -41,8 +41,8 @@ int main(void)
     // between this asset's "url" and the next one's).
     assert(find(kRelease, "ps4_ambient_light.prx", url, sizeof(url)) && !strcmp(url, A2));
     assert(find(kRelease, "ps4_ambient_light.prx.sha256", url, sizeof(url)) && !strcmp(url, A1));
-    assert(find(kRelease, "ps4-ambilight-900.bin", url, sizeof(url)) && !strcmp(url, A3));
-    assert(find(kRelease, "ps4-ambilight-900.bin.sha256", url, sizeof(url)) && !strcmp(url, A4));
+    assert(find(kRelease, "ps4-ambilight.bin", url, sizeof(url)) && !strcmp(url, A3));
+    assert(find(kRelease, "ps4-ambilight.bin.sha256", url, sizeof(url)) && !strcmp(url, A4));
     printf("each asset name resolves to its own url: PASSED\n");
 
     // A name that is only a prefix of another asset's name is not a match.
@@ -55,8 +55,8 @@ int main(void)
 
     // The spaced form ("name": "x") works too, for both fields.
     const char *spaced =
-        "{\"assets\": [{\"url\": \"" A1 "\", \"id\": 1, \"name\": \"ps4-ambilight-900.bin\"}]}";
-    assert(find(spaced, "ps4-ambilight-900.bin", url, sizeof(url)) && !strcmp(url, A1));
+        "{\"assets\": [{\"url\": \"" A1 "\", \"id\": 1, \"name\": \"ps4-ambilight.bin\"}]}";
+    assert(find(spaced, "ps4-ambilight.bin", url, sizeof(url)) && !strcmp(url, A1));
     printf("the spaced JSON form works: PASSED\n");
 
     // The output buffer is respected: an exact fit works, one byte short fails and writes nothing
@@ -70,8 +70,8 @@ int main(void)
     printf("output size is respected: PASSED\n");
 
     // An asset whose object has no "url" before its "name" is refused, not matched to another's.
-    assert(!find("{\"assets\":[{\"name\":\"ps4-ambilight-900.bin\",\"id\":1}]}",
-                 "ps4-ambilight-900.bin", url, sizeof(url)));
+    assert(!find("{\"assets\":[{\"name\":\"ps4-ambilight.bin\",\"id\":1}]}",
+                 "ps4-ambilight.bin", url, sizeof(url)));
     printf("an asset with no url is refused: PASSED\n");
 
     printf("ALL GITHUB RELEASE JSON CHECKS PASSED\n");

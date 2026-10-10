@@ -1,5 +1,5 @@
 #!/bin/sh
-# Keeps payloads/CHECKSUMS.md in step with payloads/ps4-ambilight-900.bin, the Ambilight payload.
+# Keeps payloads/CHECKSUMS.md in step with payloads/ps4-ambilight.bin, the Ambilight payload.
 #
 #   sh tools/update_payload_checksum.sh           rewrite the hash and size in CHECKSUMS.md from the file
 #   sh tools/update_payload_checksum.sh --check   change nothing; exit 1 if CHECKSUMS.md is stale
@@ -12,7 +12,7 @@ set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 dir="$root/payloads"
-name=ps4-ambilight-900.bin
+name=ps4-ambilight.bin
 bin="$dir/$name"
 doc="$dir/CHECKSUMS.md"
 

@@ -20,7 +20,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@main
 
-      # payloads/CHECKSUMS.md is what people verify ps4-ambilight-900.bin against, and the
+      # payloads/CHECKSUMS.md is what people verify ps4-ambilight.bin against, and the
       # release attaches that binary. Fail here, on every push, if the binary was replaced
       # without the page. Fix: sh tools/update_payload_checksum.sh, then commit both.
       - name: Check payloads/CHECKSUMS.md matches the Ambilight payload
@@ -266,7 +266,7 @@ jobs:
       contents: write
     steps:
       # Only for payloads/ and the script that checks it: the Ambilight payload
-      # (ps4-ambilight-900.bin) is a committed binary, not a build output, so the release takes
+      # (ps4-ambilight.bin) is a committed binary, not a build output, so the release takes
       # it from the tagged commit.
       - name: Checkout (payloads and tools only)
         uses: actions/checkout@main
@@ -312,7 +312,7 @@ jobs:
           sha256sum ps4_ambient_light.prx > ps4_ambient_light.prx.sha256
           sha256sum ps4_shell_feed.prx > ps4_shell_feed.prx.sha256
 
-      # The Ambilight payload (payloads/ps4-ambilight-900.bin). The companion app's Shell feed
+      # The Ambilight payload (payloads/ps4-ambilight.bin). The companion app's Shell feed
       # install fetches it, and its ".sha256" sidecar, by exactly these names from the latest
       # release, and refuses the file if the two disagree. The sidecar is made from the file
       # being attached. build_prx already ran this check on the push; running it again on the
@@ -322,8 +322,8 @@ jobs:
           set -eu
           sh tools/update_payload_checksum.sh --check
           cd payloads
-          sha256sum ps4-ambilight-900.bin > ps4-ambilight-900.bin.sha256
-          cat ps4-ambilight-900.bin.sha256
+          sha256sum ps4-ambilight.bin > ps4-ambilight.bin.sha256
+          cat ps4-ambilight.bin.sha256
 
       # A tag like v3.9.4-rc1 passes the build_prx version check (see its
       # comment) but must never become the release that "latest" resolves
@@ -348,6 +348,6 @@ jobs:
             prx/ps4_ambient_light.prx.sha256
             prx/ps4_shell_feed.prx
             prx/ps4_shell_feed.prx.sha256
-            payloads/ps4-ambilight-900.bin
-            payloads/ps4-ambilight-900.bin.sha256
+            payloads/ps4-ambilight.bin
+            payloads/ps4-ambilight.bin.sha256
             pkg/*.pkg

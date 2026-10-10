@@ -1,6 +1,6 @@
 # Payload checksums
 
-`ps4-ambilight-900.bin` is a from-scratch kernel-exploit loader (not Orbis
+`ps4-ambilight.bin` is a from-scratch kernel-exploit loader (not Orbis
 Toolbox lineage, no third-party licensing question) that injects one SPRX
 into one process (`GnmCompositor` by default). It's what loads either
 `plugin/`'s or `shell-feed/`'s built `.prx` onto a 9.00 console.
@@ -14,13 +14,13 @@ that project's evidence lives.
 
 ```
 sha256sum -c <<'SUMS'
-5c922cd7d8cb83c5d5b294625566f5b32d0cec1aea3e8e0eac8798cc6c83b272  ps4-ambilight-900.bin
+18ccf799ba4d272ca00b5f147313a465802eec2d6e9b94ade97249a800260ad6  ps4-ambilight.bin
 SUMS
 ```
 
 | File | Size (bytes) | sha256 | Note |
 |---|---|---|---|
-| `ps4-ambilight-900.bin` | 14,264 | `5c922cd7d8cb83c5d5b294625566f5b32d0cec1aea3e8e0eac8798cc6c83b272` | Targets `GnmCompositor` by prefix match, tries `ps4_shell_feed.prx` then falls back to `shell_probe.sprx`, no re-injection, mounts never torn down. 9.00 only -- see `shell-feed/docs/support-matrix.md`. Previous build (14,072 bytes, `a1e996d...`) superseded. |
+| `ps4-ambilight.bin` | 22,816 | `18ccf799ba4d272ca00b5f147313a465802eec2d6e9b94ade97249a800260ad6` | Targets `GnmCompositor` by prefix match, tries `ps4_shell_feed.prx` then falls back to `shell_probe.sprx`, no re-injection, mounts never torn down. 9.00 only -- see `shell-feed/docs/support-matrix.md`. Previous build (14,072 bytes, `a1e996d...`) superseded. |
 
 After replacing the binary, run `sh tools/update_payload_checksum.sh` from the repo root: it
 rewrites the hash and size above from the file (the note is yours to edit), and CI fails if they

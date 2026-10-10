@@ -5,7 +5,7 @@
 #include <assert.h>
 #include <stdio.h>
 
-#define FN    "ps4-ambilight-900.bin"
+#define FN    "ps4-ambilight.bin"
 #define ENTRY "/user/data/payloads/" FN
 
 static AutoloadState st(const char *t) { return payload_autoload_state(t, strlen(t), FN); }
