@@ -8,7 +8,7 @@ int main(void) {
     AmbientConfig cfg1;
     settings_set_defaults(&cfg1);
     printf("Menu item count: %d\n", kMenuItemCount);
-    assert(kMenuItemCount == 33); // 33 in the repo as shipped (its old assert of 32 was already stale) minus the two hidden letterbox debounce rows (stability, recheck) plus the two Preset-card rows (selector + reset) -- see settings.c
+    assert(kMenuItemCount == 35); // 33 before the shell feed rows (Shell feed + Autoload at boot, added on Set up), 33 in the repo as shipped (its old assert of 32 was already stale) minus the two hidden letterbox debounce rows (stability, recheck) plus the two Preset-card rows (selector + reset) -- see settings.c
 
     // save defaults to a temp file, reload, confirm round-trip
     assert(settings_save(&cfg1, "/tmp/test_ambient.ini"));

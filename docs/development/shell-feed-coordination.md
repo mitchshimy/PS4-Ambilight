@@ -77,3 +77,16 @@ v1 fg=1 seq=000123 title=CUSA00000
   string logic, host-testable.
 - [`plugin/source/state.c`](../../plugin/source/state.c) -- the thread and the file I/O.
 - [`tools/test_state.c`](../../tools/test_state.c) -- the host test.
+
+## The companion app writes it too
+
+The companion app is not a game, but it drives the same strip: the live preview on Set up and
+Customization, and Test strip. Without a claim the shell feed sent alongside it and WLED
+alternated between the two (a flicker, seen on hardware). So while the Shell feed switch is on
+and the app is sending, it writes the same record (same format, same rules) with
+`title=COMPANION`: `fg=1` the moment it starts sending, a heartbeat once a second, and `fg=0`
+when it stops, the switch is turned off, or the app quits. A crash expires like a crashed game.
+`seq` continues from whatever is already in the file, so the next record always differs from the
+last one a reader saw. With the switch off the app never touches the file. The code is
+`companion-app/include/claim_file.h`; `tests/test_claim_file.c` checks it against the plugin's
+real `state_format()`.

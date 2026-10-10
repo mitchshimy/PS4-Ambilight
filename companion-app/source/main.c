@@ -67,6 +67,10 @@
 #include "led_frame.h"
 #include "ui_widgets.h"   // CONTENT_TOP / CONTENT_H for scroll clamping
 #include "help_qr.h"
+#include "install_plan.h"  // shell feed + plugin: what is pending, what the Home button does
+#include "claim_file.h"    // /data/ps4_ambient_state: keeps the shell feed off the strip while this app drives it
+#include "payload_ini.h"   // one-entry edits to GoldHEN's payload AutoRun list
+#include "update_source.h"  // cleans up [dev] update_base_url
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -151,11 +155,53 @@
 // primary source of "what's actually installed right now."
 #define PLUGIN_INSTALLED_CHECKSUM_PATH PLUGIN_PRX_PATH ".sha256"
 
+// ---- Shell feed files (shell-feed/) ----
+// Three files make up an install: the plugin above, the shell feed's own .prx, and the small
+// loader payload that puts that .prx into the console's compositor. The loader finds the .prx
+// at SHELL_PRX_PATH (shell-feed/docs/loading.md). Nothing in this block is touched while the
+// "Shell feed" switch in Set up is off.
+#define SHELL_DIR             "/data/ps4-ambilight"
+#define SHELL_PRX_ASSET_NAME  "ps4_shell_feed.prx"
+#define SHELL_PRX_PATH        SHELL_DIR "/" SHELL_PRX_ASSET_NAME
+#define PAYLOADS_DIR          "/data/payloads"
+#define PAYLOAD_ASSET_NAME    "ps4-ambilight-900.bin"
+#define PAYLOAD_PATH          PAYLOADS_DIR "/" PAYLOAD_ASSET_NAME
+// The loader is downloaded next to the .prx, NOT into /data/payloads: a failed download must not
+// leave a half-written ".new" file sitting in a folder that payload menus list.
+#define PAYLOAD_STAGING_PATH  SHELL_DIR "/" PAYLOAD_ASSET_NAME ".new"
+#define SHELL_PRX_STAGING_PATH SHELL_PRX_PATH ".new"
+// GoldHEN's own list of payloads to run when it loads. Confirmed on a console. If a GoldHEN version
+// ever names it differently, this one line is the only thing to change.
+#define GOLDHEN_PAYLOADS_INI  "/data/GoldHEN/payloads.ini"
+#define GOLDHEN_DIR           "/data/GoldHEN"
+// How GoldHEN's own UI writes the entry (the console sees /data as /user/data). payload_ini.h
+// matches an existing entry by file name, so a line added by hand in the other spelling is found too.
+#define PAYLOAD_AUTORUN_ENTRY "/user/data/payloads/" PAYLOAD_ASSET_NAME
+
+// sceKernelMkdir is the SDK's POSIX-mirroring name, but no code in this repo has called it before.
+// If it fails to link, change this one macro to POSIX mkdir() (<sys/stat.h>), which does the same.
+#define APP_MKDIR(path) sceKernelMkdir((path), 0777)
+
 // ---------------- global state ----------------
 
 static AmbientConfig g_cfg;
 static UiState g_state;
 static bool g_dirty = true;
+
+// [shell] enabled as it is in the ini on disk (set at startup and after every successful save).
+// The shell feed reads that file, so it keeps running until the OFF is saved: the strip claim
+// below has to follow this, not just the unsaved switch in Set up, or turning the switch off
+// releases the claim while the shell feed is still sending and the strip flickers until Save.
+static bool g_shellEnabledOnDisk = false;
+
+// True while the PS button has put this app in the background. While it is, the app sends nothing to
+// the strip and drops its claim, so the shell feed / a game / WLED's own source can have it back.
+// Polled from sceSystemServiceGetStatus (see poll_background_state()).
+static bool g_appBackgrounded = false;
+
+// Set up / Customization have no status line (only Home draws it), so a hint for the row you just
+// pressed goes in g_state.settingsHint, which the save bar shows in place of "Changes apply after
+// saving." It is cleared by the next button press on that screen.
 
 // Held so do_plugin_update() can force an interim "Downloading..."
 // frame before its blocking network/file I/O -- same reasoning as the
@@ -669,6 +715,102 @@ static bool github_resolve_asset_api_url(const char *assetName, char *outUrl, si
 // (comments + our section + an unrelated section with its own real
 // entry), running it twice in a row (must not duplicate the line),
 // and a file that has no [default] section at all yet.
+// ---------------- update source: GitHub, or a local test server ----------------
+//
+// Normally every download resolves through GitHub's release API (above). For testing builds
+// without publishing a release, put this in the ini the plugin already reads:
+//
+//   [dev]
+//   update_base_url=http://192.168.2.117:8000
+//
+// and every download (the plugin, the shell feed .prx, the loader) and its ".sha256" sidecar is
+// fetched from <base>/<file name> instead -- e.g. `python tools/serve_local_release.py`, which
+// serves a folder with python's http.server. Delete the line to go back to GitHub. Read fresh each
+// time, so editing the ini needs no restart. [dev] already exists for dev_ip/dev_logging, and the
+// app's own save leaves unknown keys alone, so this survives a Save.
+//
+// Plain http:// through sceHttpCreateConnectionWithURL works on a console (checked with the update
+// check, installs and the checksum failure paths).
+static bool dev_update_base_url(char *out, size_t outSize)
+{
+    out[0] = '\0';
+    ini_table_s *table = ini_table_create();
+    if (!table) return false;
+    bool ok = false;
+    if (ini_table_read_from_file(table, AMBIENT_CONFIG_PATH)) {
+        ok = update_source_normalize(ini_table_get_entry(table, "dev", "update_base_url"), out, outSize);
+    }
+    ini_table_destroy(table);
+    return ok;
+}
+
+// The override above, cached. It is read from the ini on the MAIN thread only (refresh_dev_base_url()
+// below) because config.c reads the file with fopen(), which this codebase does not trust from a
+// worker thread (see the note on http_download()); the update-check thread only ever reads this copy.
+static char g_devBaseUrl[200];
+
+// Where to fetch release asset `assetName` from, and which Accept header to send with it
+// (GitHub's asset API needs one; a plain file server must not get one).
+static bool resolve_asset_url(const char *assetName, char *outUrl, size_t outUrlSize, const char **outAccept)
+{
+    if (g_devBaseUrl[0]) {
+        int n = snprintf(outUrl, outUrlSize, "%s/%s", g_devBaseUrl, assetName);
+        *outAccept = NULL;
+        return n > 0 && (size_t)n < outUrlSize;
+    }
+    *outAccept = "application/octet-stream";
+    return github_resolve_asset_api_url(assetName, outUrl, outUrlSize);
+}
+
+// ---------------- shell feed: files on disk ----------------
+
+// Size in bytes, or -1 if it can't be opened. Same open/lseek idiom as the plugins.ini reader below
+// (stat() is not trusted on this SDK -- see the plugin side).
+static long file_size_of(const char *path)
+{
+    int32_t fd = sceKernelOpen(path, 0 /* O_RDONLY */, 0777);
+    if (fd < 0) return -1;
+    long size = sceKernelLseek(fd, 0, SEEK_END);
+    sceKernelClose(fd);
+    return size;
+}
+
+// Whole file into a malloc'd, NUL-terminated buffer (caller frees). NULL if it can't be opened,
+// is empty, or is implausibly large for the small ini files this is used on.
+static char *read_small_file(const char *path, size_t *outLen)
+{
+    *outLen = 0;
+    int32_t fd = sceKernelOpen(path, 0 /* O_RDONLY */, 0777);
+    if (fd < 0) return NULL;
+    long size = sceKernelLseek(fd, 0, SEEK_END);
+    sceKernelLseek(fd, 0, SEEK_SET);
+    if (size <= 0 || size > 256 * 1024) { sceKernelClose(fd); return NULL; }
+    char *buf = (char *)malloc((size_t)size + 1);
+    if (!buf) { sceKernelClose(fd); return NULL; }
+    long n = sceKernelRead(fd, buf, (size_t)size);
+    sceKernelClose(fd);
+    if (n <= 0) { free(buf); return NULL; }
+    buf[n] = '\0';
+    *outLen = (size_t)n;
+    return buf;
+}
+
+// Writes `len` bytes to `path` by way of "<path>.new" + fsync + rename, so a failure part way
+// never leaves a half-written file where GoldHEN (or anything else) will read it.
+static bool write_file_atomic(const char *path, const char *data, size_t len)
+{
+    char staging[256];
+    if (snprintf(staging, sizeof(staging), "%s.new", path) >= (int)sizeof(staging)) return false;
+    int32_t fd = sceKernelOpen(staging, ORBIS_O_CREAT_TRUNC_WRONLY, 0777);
+    if (fd < 0) return false;
+    bool ok = (len == 0) || (sceKernelWrite(fd, data, len) == (long)len);
+    if (ok && fsync(fd) < 0) ok = false;
+    sceKernelClose(fd);
+    if (!ok) { sceKernelUnlink(staging); return false; }
+    if (sceKernelRename(staging, path) < 0) { sceKernelUnlink(staging); return false; }
+    return true;
+}
+
 static bool plugin_exists(void); // defined below; forward-declared for plugin_registration_state()
 
 // Read-only scan of GoldHEN's plugins.ini for an exact, active (i.e.
@@ -824,13 +966,14 @@ static bool check_for_plugin_update(void)
     }
 
     char shaAssetUrl[256];
-    if (!github_resolve_asset_api_url(PLUGIN_CHECKSUM_ASSET_NAME, shaAssetUrl, sizeof(shaAssetUrl))) {
-        printf("[update-check] FAILED: github_resolve_asset_api_url(%s)\n", PLUGIN_CHECKSUM_ASSET_NAME);
+    const char *acceptHdr = NULL;
+    if (!resolve_asset_url(PLUGIN_CHECKSUM_ASSET_NAME, shaAssetUrl, sizeof(shaAssetUrl), &acceptHdr)) {
+        printf("[update-check] FAILED: resolve_asset_url(%s)\n", PLUGIN_CHECKSUM_ASSET_NAME);
         return false;
     }
 
     char remoteHex[512]; // checksum sidecar is tiny; generous vs. a bare 65
-    if (!http_download_text(shaAssetUrl, remoteHex, sizeof(remoteHex), "application/octet-stream")) {
+    if (!http_download_text(shaAssetUrl, remoteHex, sizeof(remoteHex), acceptHdr)) {
         printf("[update-check] FAILED: http_download_text(%s)\n", shaAssetUrl);
         return false;
     }
@@ -841,6 +984,37 @@ static bool check_for_plugin_update(void)
            matches ? "up to date" : "UPDATE AVAILABLE");
 
     return !matches;
+}
+
+// Same question as check_for_plugin_update(), for one of the two shell feed files: is what is on
+// disk what the update source publishes? Returns 1 = newer build available, 0 = up to date,
+// -1 = couldn't tell (not installed, no network, source unreachable) -- which callers treat as
+// "nothing to report", same fail-quiet rule as the plugin check.
+static int check_shell_asset_update(const char *assetName, const char *path)
+{
+    char installedHex[SHA256_HEX_SIZE];
+    if (!sha256_hex_of_file(path, installedHex, sizeof(installedHex))) {
+        printf("[update-check] %s: couldn't hash %s\n", assetName, path);
+        return -1;
+    }
+    char sidecarName[96];
+    snprintf(sidecarName, sizeof(sidecarName), "%s.sha256", assetName);
+
+    char shaUrl[256];
+    const char *acceptHdr = NULL;
+    if (!resolve_asset_url(sidecarName, shaUrl, sizeof(shaUrl), &acceptHdr)) {
+        printf("[update-check] %s: couldn't resolve %s\n", assetName, sidecarName);
+        return -1;
+    }
+    char remoteHex[512];
+    if (!http_download_text(shaUrl, remoteHex, sizeof(remoteHex), acceptHdr)) {
+        printf("[update-check] %s: couldn't fetch %s\n", assetName, shaUrl);
+        return -1;
+    }
+    bool matches = sha256_hex_matches(installedHex, remoteHex);
+    printf("[update-check] %s\n  installed=%s\n  remote_url=%s\n  remote=%.64s\n  result=%s\n",
+           assetName, installedHex, shaUrl, remoteHex, matches ? "up to date" : "UPDATE AVAILABLE");
+    return matches ? 0 : 1;
 }
 
 // ---------------- background update check ----------------
@@ -888,8 +1062,29 @@ static bool check_for_plugin_update(void)
 #define UPDATE_CHECK_THREAD_STACK_SIZE (256 * 1024)
 
 static SDL_atomic_t g_updateCheckDone;      // 0 = not finished yet, 1 = finished
-static SDL_atomic_t g_updateCheckAvailable; // valid only once g_updateCheckDone == 1
+static SDL_atomic_t g_updateCheckAvailable; // valid only once g_updateCheckDone == 1: bitmask of AssetId (1 << id) with a newer build
+static SDL_atomic_t g_updateCheckKnown;     // valid only once g_updateCheckDone == 1: bitmask of AssetId whose check actually got an answer
 static bool g_updateCheckStarted = false;
+static int  g_checkWantMask = 0;            // which assets this run checks; written before the thread starts, read only by it
+static bool g_recheckWanted = false;        // something asked for a check while one was already running
+
+// Re-reads [dev] update_base_url. Main thread only. Skipped while a check thread is running so the
+// string it reads can't change under it; the next call after it finishes picks up an edit.
+static void refresh_dev_base_url(void)
+{
+    if (g_updateCheckStarted) return;
+    char fresh[200];
+    dev_update_base_url(fresh, sizeof(fresh));
+    if (strcmp(fresh, g_devBaseUrl) != 0) {
+        memcpy(g_devBaseUrl, fresh, sizeof(g_devBaseUrl));
+        if (fresh[0]) printf("[update-source] using the local test server: %s\n", fresh);
+        else          printf("[update-source] back to GitHub releases\n");
+    }
+}
+
+// Shell feed bookkeeping shared with the Home plan (see "shell feed" section below).
+static bool g_assetPresent[ASSET_COUNT];    // only the two shell assets are used
+static bool g_assetUpdate[ASSET_COUNT];     // last answer from the update source, for all three
 
 // scePthreadCreate's expected entry-point shape (void *(*)(void *)),
 // same as plugin/source/sample_thread.c's ambient_sample_thread --
@@ -898,9 +1093,26 @@ static bool g_updateCheckStarted = false;
 static void *update_check_thread_fn(void *unused)
 {
     (void)unused;
-    bool available = check_for_plugin_update();
-    SDL_AtomicSet(&g_updateCheckAvailable, available ? 1 : 0);
-    SDL_AtomicSet(&g_updateCheckDone, 1); // set last -- this publishes the result above
+    int want = g_checkWantMask;
+    int available = 0, known = 0;
+    if (want & (1 << ASSET_PLUGIN)) {
+        // Unchanged semantics: false covers both "up to date" and "couldn't check".
+        if (check_for_plugin_update()) available |= 1 << ASSET_PLUGIN;
+        known |= 1 << ASSET_PLUGIN;
+    }
+    if (want & (1 << ASSET_SHELL_PRX)) {
+        int r = check_shell_asset_update(SHELL_PRX_ASSET_NAME, SHELL_PRX_PATH);
+        if (r >= 0) known |= 1 << ASSET_SHELL_PRX;
+        if (r == 1) available |= 1 << ASSET_SHELL_PRX;
+    }
+    if (want & (1 << ASSET_PAYLOAD)) {
+        int r = check_shell_asset_update(PAYLOAD_ASSET_NAME, PAYLOAD_PATH);
+        if (r >= 0) known |= 1 << ASSET_PAYLOAD;
+        if (r == 1) available |= 1 << ASSET_PAYLOAD;
+    }
+    SDL_AtomicSet(&g_updateCheckAvailable, available);
+    SDL_AtomicSet(&g_updateCheckKnown, known);
+    SDL_AtomicSet(&g_updateCheckDone, 1); // set last -- this publishes the results above
     return NULL;
 }
 
@@ -910,6 +1122,23 @@ static void *update_check_thread_fn(void *unused)
 // while it runs.
 static void start_background_update_check(void)
 {
+    // What there is to check right now: the plugin when it is installed and enabled (NONE/DISABLED
+    // have their own button and outrank "is there something newer"), and each shell feed file that
+    // is on disk, but only with the Shell feed switch on -- off means nothing shell-related runs.
+    int want = 0;
+    if (g_state.install == UI_INSTALL_OK) want |= 1 << ASSET_PLUGIN;
+    if (g_cfg.shellEnabled) {
+        if (g_assetPresent[ASSET_SHELL_PRX]) want |= 1 << ASSET_SHELL_PRX;
+        if (g_assetPresent[ASSET_PAYLOAD])   want |= 1 << ASSET_PAYLOAD;
+    }
+    if (want == 0) return;
+
+    // One check at a time: a request that arrives mid-run (the Shell feed switch was just turned
+    // on, say) is remembered and run when the current one finishes.
+    if (g_updateCheckStarted) { g_recheckWanted = true; return; }
+
+    refresh_dev_base_url();
+    g_checkWantMask = want;
     SDL_AtomicSet(&g_updateCheckDone, 0);
 
     OrbisPthreadAttr attr;
@@ -942,8 +1171,16 @@ static void poll_background_update_check(void)
     if (!SDL_AtomicGet(&g_updateCheckDone)) return;
 
     g_updateCheckStarted = false;
-    if (SDL_AtomicGet(&g_updateCheckAvailable)) {
-        g_state.install = UI_INSTALL_UPDATE;
+    int available = SDL_AtomicGet(&g_updateCheckAvailable);
+    int known = SDL_AtomicGet(&g_updateCheckKnown);
+
+    if (available & (1 << ASSET_PLUGIN)) g_state.install = UI_INSTALL_UPDATE;
+    // Shell files: an answer replaces what we knew; "couldn't tell" leaves it alone.
+    for (int id = ASSET_SHELL_PRX; id <= ASSET_PAYLOAD; id++) {
+        if (known & (1 << id)) g_assetUpdate[id] = (available & (1 << id)) != 0;
+    }
+
+    if (available) {
         set_status("Update available.", false);
     } else if (!g_state.statusIsError) {
         // Only overwrite a still-neutral "Checking for updates..." --
@@ -952,6 +1189,8 @@ static void poll_background_update_check(void)
         // leave it alone rather than stomping on it late.
         set_status("Ready.", false);
     }
+
+    if (g_recheckWanted) { g_recheckWanted = false; start_background_update_check(); }
 }
 
 static bool ensure_plugin_registered_in_goldhen(void)
@@ -1083,7 +1322,8 @@ static bool plugin_exists(void)
 // already installed.
 static void do_plugin_update(void)
 {
-    set_status("Looking up latest release...", false);
+    refresh_dev_base_url();
+    set_status(g_devBaseUrl[0] ? "Looking up the release on the local test server..." : "Looking up latest release...", false);
     render_and_present();   // one frame of feedback before the blocking I/O below
 
     // First hop: resolve both assets' own small api.github.com URLs
@@ -1094,12 +1334,13 @@ static void do_plugin_update(void)
     // the top of this file for why this replaces a direct GET of
     // PLUGIN_UPDATE_URL.
     char prxAssetUrl[256];
-    if (!github_resolve_asset_api_url(PLUGIN_ASSET_NAME, prxAssetUrl, sizeof(prxAssetUrl))) {
+    const char *acceptHdr = NULL;   // NULL when the source is a plain local file server
+    if (!resolve_asset_url(PLUGIN_ASSET_NAME, prxAssetUrl, sizeof(prxAssetUrl), &acceptHdr)) {
         set_status("Update failed: couldn't find " PLUGIN_ASSET_NAME " in the latest release.", true);
         return;
     }
     char shaAssetUrl[256];
-    if (!github_resolve_asset_api_url(PLUGIN_CHECKSUM_ASSET_NAME, shaAssetUrl, sizeof(shaAssetUrl))) {
+    if (!resolve_asset_url(PLUGIN_CHECKSUM_ASSET_NAME, shaAssetUrl, sizeof(shaAssetUrl), &acceptHdr)) {
         set_status("Update failed: couldn't find " PLUGIN_CHECKSUM_ASSET_NAME " in the latest release.", true);
         return;
     }
@@ -1112,7 +1353,7 @@ static void do_plugin_update(void)
     // to the asset bytes instead of its default JSON metadata body.
     const char *tmpPath = "/data/ps4_ambient_light_update.tmp";
     uint8_t digest[SHA256_DIGEST_SIZE];
-    if (!http_download(prxAssetUrl, tmpPath, digest, "application/octet-stream")) {
+    if (!http_download(prxAssetUrl, tmpPath, digest, acceptHdr)) {
         set_status("Download FAILED -- check your network and try again.", true);
         return;
     }
@@ -1121,7 +1362,7 @@ static void do_plugin_update(void)
     render_and_present();
 
     char expectedHex[512]; // checksum sidecar is tiny; generous vs. a bare 65
-    if (!http_download_text(shaAssetUrl, expectedHex, sizeof(expectedHex), "application/octet-stream")) {
+    if (!http_download_text(shaAssetUrl, expectedHex, sizeof(expectedHex), acceptHdr)) {
         // NOT YET VERIFIED (same status as the IME-dialog and L1/R1
         // conventions flagged at the top of this file): sceKernelUnlink
         // matches libkernel's usual POSIX-mirroring naming
@@ -1242,6 +1483,273 @@ static void do_plugin_enable(void)
     }
     g_state.install = UI_INSTALL_OK;
     set_status("Plugin enabled. Relaunch your game to load it.", false);
+}
+
+// ---------------- shell feed: install, repair, autoload, claim ----------------
+//
+// Everything below runs only while "Shell feed" is on in Set up (g_cfg.shellEnabled); with it off
+// the only code here that executes is the cheap bookkeeping that keeps g_state.shell at SHELL_OFF.
+// The decisions (what to show, what the button does, whether Test strip is offered) live in
+// install_plan.h and are tested on a PC; this section only does the file and network work.
+
+// Re-reads which of the two shell files are on disk. A zero-byte file counts as missing: a
+// download cut off before its first byte must not look like an install.
+static void rescan_shell_files(void)
+{
+    g_assetPresent[ASSET_SHELL_PRX] = file_size_of(SHELL_PRX_PATH) > 0;
+    g_assetPresent[ASSET_PAYLOAD]   = file_size_of(PAYLOAD_PATH) > 0;
+    if (!g_assetPresent[ASSET_SHELL_PRX]) g_assetUpdate[ASSET_SHELL_PRX] = false;
+    if (!g_assetPresent[ASSET_PAYLOAD])   g_assetUpdate[ASSET_PAYLOAD]   = false;
+}
+
+// Recomputes the shell feed's summary for Home from the facts above. Cheap (no I/O), called every
+// frame, so the banner and button follow the files, the update check and the switch without anyone
+// having to remember to refresh them.
+static void sync_shell_summary(void)
+{
+    AssetStatus prx = !g_assetPresent[ASSET_SHELL_PRX] ? ASSET_MISSING
+                    : g_assetUpdate[ASSET_SHELL_PRX]   ? ASSET_UPDATE : ASSET_PRESENT;
+    AssetStatus bin = !g_assetPresent[ASSET_PAYLOAD]   ? ASSET_MISSING
+                    : g_assetUpdate[ASSET_PAYLOAD]     ? ASSET_UPDATE : ASSET_PRESENT;
+    ShellSummary now = shell_summarize(g_cfg.shellEnabled != 0, prx, bin);
+    if (!shell_summary_equal(&now, &g_state.shell)) {
+        g_state.shell = now;
+        g_dirty = true;
+    }
+}
+
+// Downloads one file from the update source into its own staging path, checks it against the
+// published sha256, and only then renames it over the live file -- the same sequence do_plugin_update()
+// uses, so a failure at any point leaves whatever was installed before exactly as it was.
+// On failure writes a short reason into `err`.
+static bool install_shell_asset(const char *assetName, const char *dstPath, const char *stagingPath,
+                                char *err, size_t errSize)
+{
+    char sidecarName[96];
+    snprintf(sidecarName, sizeof(sidecarName), "%s.sha256", assetName);
+
+    char binUrl[256], shaUrl[256];
+    const char *acceptHdr = NULL;
+    if (!resolve_asset_url(assetName, binUrl, sizeof(binUrl), &acceptHdr)) {
+        snprintf(err, errSize, "couldn't find %s at the update source.", assetName);
+        return false;
+    }
+    if (!resolve_asset_url(sidecarName, shaUrl, sizeof(shaUrl), &acceptHdr)) {
+        snprintf(err, errSize, "couldn't find %s at the update source.", sidecarName);
+        return false;
+    }
+
+    uint8_t digest[SHA256_DIGEST_SIZE];
+    if (!http_download(binUrl, stagingPath, digest, acceptHdr)) {
+        sceKernelUnlink(stagingPath);
+        snprintf(err, errSize, "download failed -- check your network and the update source.");
+        return false;
+    }
+
+    char expectedHex[512];
+    if (!http_download_text(shaUrl, expectedHex, sizeof(expectedHex), acceptHdr)) {
+        sceKernelUnlink(stagingPath);
+        snprintf(err, errSize, "couldn't fetch the checksum for verification.");
+        return false;
+    }
+    char actualHex[SHA256_HEX_SIZE];
+    sha256_to_hex(digest, actualHex);
+    if (!sha256_hex_matches(actualHex, expectedHex)) {
+        sceKernelUnlink(stagingPath);
+        snprintf(err, errSize, "checksum mismatch -- downloaded file rejected.");
+        return false;
+    }
+
+    // Durability, as in do_plugin_update(): get the verified bytes onto storage before the rename.
+    int32_t fd = sceKernelOpen(stagingPath, 0 /* O_RDONLY */, 0777);
+    if (fd < 0) { snprintf(err, errSize, "couldn't reopen the downloaded file."); return false; }
+    bool synced = (fsync(fd) >= 0);
+    sceKernelClose(fd);
+    if (!synced) {
+        sceKernelUnlink(stagingPath);
+        snprintf(err, errSize, "couldn't flush the downloaded file to storage.");
+        return false;
+    }
+
+    if (sceKernelRename(stagingPath, dstPath) < 0) {
+        sceKernelUnlink(stagingPath);
+        snprintf(err, errSize, "couldn't move it into place.");
+        return false;
+    }
+    int32_t verifyFd = sceKernelOpen(dstPath, 0, 0777);
+    if (verifyFd >= 0) { fsync(verifyFd); sceKernelClose(verifyFd); }
+    return true;
+}
+
+// The Home button's shell feed half: creates the folders if they aren't there, then fetches
+// whatever is missing or out of date. The .prx goes first so the loader is never on disk
+// without the thing it loads.
+static void do_shell_repair(void)
+{
+    // Both folders may not exist yet (first install) -- or may exist and be empty. Either way, make
+    // them; an already-existing folder is not an error.
+    refresh_dev_base_url();
+    APP_MKDIR(SHELL_DIR);
+    APP_MKDIR(PAYLOADS_DIR);
+    rescan_shell_files();
+
+    struct { AssetId id; const char *name; const char *dst; const char *stage; const char *label; } jobs[2] = {
+        { ASSET_SHELL_PRX, SHELL_PRX_ASSET_NAME, SHELL_PRX_PATH, SHELL_PRX_STAGING_PATH, "shell feed" },
+        { ASSET_PAYLOAD,   PAYLOAD_ASSET_NAME,   PAYLOAD_PATH,   PAYLOAD_STAGING_PATH,   "loader" },
+    };
+
+    int installed = 0, updated = 0;
+    for (int i = 0; i < 2; i++) {
+        bool wasThere = g_assetPresent[jobs[i].id];
+        if (wasThere && !g_assetUpdate[jobs[i].id]) continue;   // fine as it is
+
+        char msg[200];
+        snprintf(msg, sizeof(msg), "Downloading %s%s...", jobs[i].label, g_devBaseUrl[0] ? " from the local server" : "");
+        set_status(msg, false);
+        render_and_present();
+
+        char err[128];
+        if (!install_shell_asset(jobs[i].name, jobs[i].dst, jobs[i].stage, err, sizeof(err))) {
+            snprintf(msg, sizeof(msg), "Shell feed: %s %s", jobs[i].label, err);
+            set_status(msg, true);
+            rescan_shell_files();
+            return;
+        }
+        g_assetPresent[jobs[i].id] = true;
+        g_assetUpdate[jobs[i].id] = false;
+        if (wasThere) updated++; else installed++;
+    }
+    rescan_shell_files();
+
+    if (installed > 0)
+        set_status(g_cfg.shellAutoload ? "Shell feed installed. It loads next time GoldHEN starts."
+                                       : "Shell feed installed. Run the loader from GoldHEN, or turn on Autoload in Set up.", false);
+    else if (updated > 0)
+        set_status("Shell feed updated. Restart the console (or re-run the loader) to apply it.", false);
+}
+
+// What the Home button does whenever it isn't Test strip: all pending work, plugin first (it is
+// the part people notice is missing), then the shell feed files. Stops at the first failure so the
+// status line keeps the reason.
+static void do_pending_actions(void)
+{
+    if (g_state.install == UI_INSTALL_DISABLED) {
+        do_plugin_enable();
+        if (g_state.install != UI_INSTALL_OK) return;
+    } else if (g_state.install != UI_INSTALL_OK) {
+        do_plugin_update();
+        if (g_state.install != UI_INSTALL_OK) return;
+    }
+    if (g_state.shell.state != SHELL_OFF && g_state.shell.state != SHELL_OK) {
+        do_shell_repair();
+    }
+}
+
+// ---- autoload: GoldHEN's payload list ----
+
+static bool read_autoload_on(void)
+{
+    size_t len;
+    char *buf = read_small_file(GOLDHEN_PAYLOADS_INI, &len);
+    if (!buf) return false;
+    bool on = payload_autoload_state(buf, len, PAYLOAD_ASSET_NAME) == AUTOLOAD_ON;
+    free(buf);
+    return on;
+}
+
+// Sets this payload's entry in GoldHEN's list to 1 or 0 without touching any other line.
+static bool write_autoload(bool on)
+{
+    size_t len = 0;
+    char *old = read_small_file(GOLDHEN_PAYLOADS_INI, &len);   // NULL for a missing or empty file
+    const char *src = old ? old : "";
+
+    size_t newLen; bool changed;
+    char *text = payload_autoload_apply(src, len, PAYLOAD_AUTORUN_ENTRY, PAYLOAD_ASSET_NAME, on, &newLen, &changed);
+    free(old);
+    if (!text) return false;
+
+    bool ok = true;
+    if (changed) {
+        APP_MKDIR(GOLDHEN_DIR);
+        ok = write_file_atomic(GOLDHEN_PAYLOADS_INI, text, newLen);
+    }
+    free(text);
+    return ok;
+}
+
+// "Autoload at boot" was toggled in Set up. Unlike every other row it takes effect immediately
+// (it edits GoldHEN's file, not this app's ini), so the status line says what happened.
+static void autoload_hint(const char *msg)
+{
+    snprintf(g_state.settingsHint, sizeof(g_state.settingsHint), "%s", msg);
+    g_dirty = true;
+}
+
+static void toggle_autoload(void)
+{
+    bool want = !g_cfg.shellAutoload;
+    if (want) {
+        // Tell the person what is missing, in the order they would fix it.
+        if (!g_cfg.shellEnabled) {
+            autoload_hint("Autoload needs the Shell feed: turn the Shell feed switch on first.");
+            return;
+        }
+        if (g_state.install == UI_INSTALL_NONE) {
+            autoload_hint("Autoload needs the plugin: install it from Home first.");
+            return;
+        }
+        if (g_state.install == UI_INSTALL_DISABLED) {
+            autoload_hint("Autoload needs the plugin enabled: enable it from Home first.");
+            return;
+        }
+        if (!g_assetPresent[ASSET_PAYLOAD] || !g_assetPresent[ASSET_SHELL_PRX]) {
+            autoload_hint("Autoload needs the loader and shell feed files: install them from Home first.");
+            return;
+        }
+    }
+    if (!write_autoload(want)) {
+        set_status("Couldn't update GoldHEN's payload list -- autoload unchanged.", true);
+        return;
+    }
+    g_cfg.shellAutoload = want ? 1 : 0;
+    set_status(want ? "Autoload at boot: On -- the loader runs when GoldHEN starts."
+                    : "Autoload at boot: Off.", false);
+}
+
+// "Shell feed" was toggled in Set up (the value is already flipped in g_cfg).
+static void on_shell_enabled_changed(void)
+{
+    rescan_shell_files();
+    g_cfg.shellAutoload = read_autoload_on() ? 1 : 0;
+    sync_shell_summary();
+    g_dirty = true;
+    if (g_cfg.shellEnabled) start_background_update_check();
+}
+
+// ---- claim: keep the shell feed off the strip while this app is driving it ----
+
+static ClaimRun g_claim;
+
+static int claim_write_cb(void *ctx, const char *text, size_t len)
+{
+    (void)ctx;
+    // Same open flags as the plugin's writer (O_WRONLY | O_CREAT, deliberately NO O_TRUNC): the
+    // record is overwritten in place at offset 0, so a reader never sees an empty file.
+    int32_t fd = sceKernelOpen(CLAIM_PATH, 0x0001 | 0x0200, 0777);
+    if (fd < 0) return -1;
+    long n = sceKernelWrite(fd, text, len);
+    sceKernelClose(fd);
+    return (n == (long)len) ? 0 : -1;
+}
+
+static void claim_start(void)
+{
+    uint32_t seq = 0;
+    size_t len;
+    char *buf = read_small_file(CLAIM_PATH, &len);
+    if (buf) { claim_parse_seq(buf, len, &seq); free(buf); }
+    claim_init(&g_claim, seq);
 }
 
 // ---------------- live preview / test strip ----------------
@@ -1575,10 +2083,11 @@ static void handle_home_input(bool up, bool down, bool left, bool right, bool cr
 
     switch (g_state.homeFocus) {
         case HOME_FOCUS_CTA:
-            if (g_state.install == UI_INSTALL_DISABLED) {
-                do_plugin_enable();
-            } else if (g_state.install != UI_INSTALL_OK) {
-                do_plugin_update();
+            // Anything pending (plugin or, with the Shell feed on, its files) takes the button;
+            // Test strip is only offered once nothing is. With the Shell feed off this is exactly
+            // the old plugin-only rule.
+            if (home_plan(g_state.install, g_state.shell).cta != CTA_TEST_STRIP) {
+                do_pending_actions();
             } else if (g_state.testRunning) {
                 g_state.testRunning = false;
                 set_status("Test strip stopped.", false);
@@ -1611,6 +2120,42 @@ static void handle_home_input(bool up, bool down, bool left, bool right, bool cr
     g_dirty = true;
 }
 
+// ---------------- foreground / background ----------------
+//
+// The same call the plugin uses to notice a suspended game (plugin/source/sample_thread.c). The
+// OpenOrbis header declares sceSystemServiceGetStatus() with no arguments, so it is bound here under
+// another C name to the same symbol (the app already links -lSceSystemService). The struct is the
+// plugin's AmbientSystemServiceStatus (field layout from shadPS4's source), padded well past the known
+// fields in case the firmware writes more. Confirmed on a console (the PS button flips it). If the call
+// ever fails or the field never flips, g_appBackgrounded just stays false and the app behaves as before.
+typedef struct {
+    int32_t eventNum;
+    bool isSystemUiOverlaid;
+    bool isInBackgroundExecution;
+    bool isCpuMode7CpuNormal;
+    bool isGameLiveStreamingOnAir;
+    bool isOutOfVrPlayArea;
+    uint8_t reservedPadding[128];
+} AppSystemServiceStatus;
+extern int32_t app_sceSystemServiceGetStatus(AppSystemServiceStatus *status) __asm__("sceSystemServiceGetStatus");
+
+static void poll_background_state(uint32_t nowMs)
+{
+    static uint32_t lastPollMs = 0;
+    if (nowMs - lastPollMs < 500u) return;      // twice a second is plenty for a button press
+    lastPollMs = nowMs;
+
+    AppSystemServiceStatus st;
+    memset(&st, 0, sizeof(st));
+    if (app_sceSystemServiceGetStatus(&st) != 0) return;
+    bool bg = st.isInBackgroundExecution;
+    if (bg != g_appBackgrounded) {
+        g_appBackgrounded = bg;
+        printf("[main] %s\n", bg ? "backgrounded -- releasing the strip" : "foregrounded -- driving the strip again");
+        g_dirty = true;
+    }
+}
+
 // ---------------- Settings screen input ----------------
 
 // How long the Save button shows its "Saved!" confirmation state
@@ -1623,7 +2168,9 @@ static uint32_t g_saveConfirmUntilMs = 0;
 // whole ini in one pass (setup values, [presets] and both preset sections).
 static bool save_config(void)
 {
-    return presets_save(&g_cfg, AMBIENT_CONFIG_PATH);
+    bool ok = presets_save(&g_cfg, AMBIENT_CONFIG_PATH);
+    if (ok) g_shellEnabledOnDisk = g_cfg.shellEnabled != 0;
+    return ok;
 }
 
 static void do_save(void)
@@ -1675,6 +2222,12 @@ static void nudge_field(const MenuItem *item, int dir)
 
     if (item->type == FIELD_ACTION) return; // buttons are pressed (cross), not nudged
 
+    if (!strcmp(item->key, "shell_autoload")) {
+        // Edits GoldHEN's payload list, not this app's ini -- see toggle_autoload().
+        toggle_autoload();
+        return;
+    }
+
     if (!strcmp(item->key, "smoothing_preset")) {
         // Not a real field -- see settings.h/settings.c -- so it can't
         // go through settings_get_i32/set_i32 below, which only know
@@ -1708,6 +2261,7 @@ static void nudge_field(const MenuItem *item, int dir)
         next = cur + dir * item->step;
     }
     settings_set_i32(&g_cfg, item, next);
+    if (!strcmp(item->section, "shell") && !strcmp(item->key, "enabled")) on_shell_enabled_changed();
 
     char msg[128];
     if (item->type == FIELD_BOOL) snprintf(msg, sizeof(msg), "%s: %s.", item->label, next ? "On" : "Off");
@@ -1738,6 +2292,9 @@ static void handle_settings_input(bool up, bool down, bool left, bool right,
     if (moved || l1 || r1 || circle) { preset_reset_disarm(); g_dirty = true; }
 
     bool onSaveButton = (g_state.focusField >= fieldCount);
+
+    // The row hint (see autoload_hint) lasts until the next press; a press that needs it again re-sets it.
+    if (moved || cross || circle || l1 || r1) g_state.settingsHint[0] = '\0';
 
     if (cross) {
         if (onSaveButton) {
@@ -1839,6 +2396,7 @@ int main(void)
     // After settings_load/defaults: reads the Game/Movie presets, migrates an
     // ini from before presets existed, and leaves g_cfg showing the active one.
     presets_init(&g_cfg, AMBIENT_CONFIG_PATH);
+    g_shellEnabledOnDisk = g_cfg.shellEnabled != 0;
     colorpipeline_rebuild_perchannel_gamma_luts(&g_cfg);
 
     // Not SDL_INIT_JOYSTICK: input comes from the native scePad API
@@ -1924,6 +2482,12 @@ int main(void)
     memset(&g_state, 0, sizeof(g_state));
     g_state.screen = UI_SCREEN_HOME;
     g_state.install = plugin_registration_state();
+    // Shell feed: what is on disk, and GoldHEN's autoload entry. Pure bookkeeping while the switch
+    // is off (the summary stays SHELL_OFF), so this costs two file opens and changes nothing visible.
+    rescan_shell_files();
+    g_cfg.shellAutoload = read_autoload_on() ? 1 : 0;
+    sync_shell_summary();
+    claim_start();
     g_state.setupComplete = g_cfg.wledHost[0] != '\0' &&
         (g_cfg.ledCountTop + g_cfg.ledCountRight + g_cfg.ledCountBottom + g_cfg.ledCountLeft) > 0;
     g_state.homeFocus = HOME_FOCUS_CTA;
@@ -1945,7 +2509,7 @@ int main(void)
     // source of "the app feels slow to open". Now the home screen
     // renders and takes input immediately; the status line just
     // updates in place once the check comes back.
-    if (g_state.install == UI_INSTALL_OK) {
+    if (g_state.install == UI_INSTALL_OK || (g_cfg.shellEnabled && (g_assetPresent[ASSET_SHELL_PRX] || g_assetPresent[ASSET_PAYLOAD]))) {
         set_status("Checking for updates...", false);
         start_background_update_check();
     } else {
@@ -2056,8 +2620,28 @@ int main(void)
         // LED edge frame either and nothing on screen a live preview
         // would even show, so it's excluded the same way Home is.
         bool screenHasLedFrame = (g_state.screen == UI_SCREEN_SETUP || g_state.screen == UI_SCREEN_CUSTOMIZATION);
-        if (screenHasLedFrame || g_state.testRunning) {
+        poll_background_state(nowMs);
+        // Sending stops while the app is in the background (PS button), otherwise it keeps holding the strip.
+        if ((screenHasLedFrame || g_state.testRunning) && !g_appBackgrounded) {
             update_live_preview();
+        }
+
+        // While this app is sending to the strip (the same condition as above) and the Shell feed is
+        // on, claim it the way a game does, so the shell feed stays silent instead of fighting the
+        // live preview for WLED (which is what made the LEDs flicker). Off => never writes the file.
+        // Released (fg=0) as soon as the app stops sending or the switch is turned off.
+        {
+            static bool s_wasOnHome = true;
+            bool onHome = (g_state.screen == UI_SCREEN_HOME);
+            // Coming back to Home is when a hand-copied or deleted file is noticed.
+            if (onHome && !s_wasOnHome && g_cfg.shellEnabled) rescan_shell_files();
+            s_wasOnHome = onHome;
+
+            // Held while EITHER the switch or the saved ini says on (see g_shellEnabledOnDisk).
+            claim_tick(&g_claim, nowMs, (g_cfg.shellEnabled || g_shellEnabledOnDisk) && !g_appBackgrounded &&
+                                        (screenHasLedFrame || g_state.testRunning),
+                       claim_write_cb, NULL);
+            sync_shell_summary();
         }
 
         g_state.saveJustConfirmed = (nowMs < g_saveConfirmUntilMs);
@@ -2112,6 +2696,11 @@ int main(void)
     // (status line / "Saved!" confirmation) since the app is already
     // on its way out.
     save_config();
+
+    // Release the strip claim so the shell feed doesn't wait out the 2.5 s expiry. Called twice, a
+    // retry interval apart, in case the first write was refused.
+    claim_tick(&g_claim, SDL_GetTicks(), false, claim_write_cb, NULL);
+    claim_tick(&g_claim, SDL_GetTicks() + CLAIM_RETRY_MS + 1u, false, claim_write_cb, NULL);
 
     if (g_imeDialogOpen) sceImeDialogTerm();
     // Defensive final "off" if the signal was last left on -- this app

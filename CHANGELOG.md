@@ -612,6 +612,45 @@ The companion app is a standalone PS4 homebrew UI (not a GoldHEN
 plugin) for editing the plugin's ini config on-console, with a live
 color preview and a plugin self-updater.
 
+- **Shell feed support (off by default).** A new **Shell feed** card on Set up (after LED strip
+  layout, before Live reload) with two switches. **Shell feed** (`[shell] enabled`, default off)
+  turns the whole feature on; with it off the app is exactly as before (Home is byte for byte the
+  same, nothing shell-related is checked, downloaded or written). **Autoload at boot** edits
+  GoldHEN's payload AutoRun list: `ps4-ambilight-900.bin = 1` runs it at boot, `= 0` keeps the line
+  but doesn't, and every other entry, comment and line ending in that file is left alone.
+  Pressing that row while it can't be turned on says what is missing, in the order to fix it (Shell
+  feed switch off, plugin not installed or not enabled, loader or shell feed files missing). Set up
+  has no status line, so the hint goes in the save bar in place of "Changes apply after saving." and
+  clears on the next button press.
+  With the Shell feed on, Home shows a **Shell feed** banner to the left of the plugin banner (the
+  same height, so the button doesn't move) and one button for everything pending. It installs or
+  repairs the shell feed's two files (`ps4_shell_feed.prx` into `/data/ps4-ambilight`, creating the
+  folder if needed, and `ps4-ambilight-900.bin` into `/data/payloads`, creating that too), and
+  updates any of the three files that have a newer published build: one button reads "Update shell
+  feed", "Install all (3)", and so on. **Test strip appears only once nothing is pending**, the
+  same rule the plugin's own update already followed. Downloads use the same staging, sha256 check
+  and rename as the plugin's. The app now saves `[shell] enabled` explicitly (the shell feed
+  treats a missing key as on, so "off" has to be written); the plugin ignores it
+  (`tools/test_plugin_config.c` loads the new golden ini through the plugin's real loader).
+- **Fixed: LED flicker while the app was open.** With the shell feed running, the app's live
+  preview (Set up, Customization, Test strip) and the shell feed both sent to WLED, which
+  alternated between them. While the Shell feed switch is on and the app is sending, it now claims
+  the strip through `/data/ps4_ambient_state` the way a game does (see
+  [shell-feed-coordination](docs/development/shell-feed-coordination.md)). The claim follows the
+  saved `[shell] enabled` as well as the switch, because the shell feed keeps running until the OFF
+  is saved; it is released once the OFF is saved (or the app is closed, which saves).
+- **Fixed: the app kept holding the LEDs after the PS button.** On Set up, Customization and Test
+  strip it kept sending (and kept its strip claim) while in the background. It now polls
+  `sceSystemServiceGetStatus` (`isInBackgroundExecution`, the same call the plugin uses) twice a
+  second, and while backgrounded sends nothing and releases the claim; it takes both back when
+  foregrounded.
+- **Local update source for testing.** `[dev] update_base_url=http://<pc>:8000` in the ini makes
+  every download and its `.sha256` come from that address instead of GitHub; delete the line to go
+  back. `tools/serve_local_release.py` serves the three files with their checksums.
+  Plain `http://` works on the console.
+- **Build:** `sceKernelMkdir` (a first use in this repo) creates the two folders; it links and works on
+  a console. `APP_MKDIR` in `main.c` is the one line to swap if a later SDK breaks it.
+
 - The app now writes the short ini and needs plugin v3.8. Both presets are saved in full to
   `[preset_game]` and `[preset_movie]` with `[presets] active=`, and the old flat copies of
   those values are removed from `[layout]`, `[color]` and `[timing]`, which keep setup values

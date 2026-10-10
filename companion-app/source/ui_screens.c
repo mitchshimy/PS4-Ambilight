@@ -79,6 +79,8 @@ static UiIconId icon_for_key(const char *key)
     if (!strcmp(key, "led_start_corner"))                                return ICON_CORNER;
     if (!strcmp(key, "color_order"))                                     return ICON_GLOBE;
     if (!strcmp(key, "config_reload_check_seconds"))                    return ICON_REFRESH;
+    if (!strcmp(key, "enabled"))                                        return ICON_ACTIVITY;   // [shell] enabled
+    if (!strcmp(key, "shell_autoload"))                                 return ICON_LOOP;
     if (!strcmp(key, "scan_depth"))                                      return ICON_FRAME;
     if (!strcmp(key, "auto_letterbox_enabled"))                          return ICON_FRAME;
     if (!strcmp(key, "auto_letterbox_threshold"))                        return ICON_MOON;
@@ -129,6 +131,7 @@ static bool fixed_width_for_key(const char *key, float *outBasis)
     if (!strcmp(key, "smoothing_enabled"))           { *outBasis = 240.0f; return true; }
     if (!strcmp(key, "auto_letterbox_enabled"))      { *outBasis = 240.0f; return true; }
     if (!strcmp(key, "config_reload_check_seconds")) { *outBasis = 300.0f; return true; }
+    if (!strcmp(key, "enabled") || !strcmp(key, "shell_autoload")) { *outBasis = 300.0f; return true; }
     return false;
 }
 
@@ -182,6 +185,7 @@ static const GroupLayout kGroupLayouts[] = {
     { "Preset",              ICON_LEVELS,      {2},    1, 0.0f,  false },
     { "WLED connection",     ICON_WIFI,        {3},    1, 0.0f,  false },
     { "LED strip layout",    ICON_LED_STRIP,   {4,4},  2, 0.0f,  true  },
+    { "Shell feed",          ICON_ACTIVITY,    {2},    1, 0.0f,  false },
     { "Live reload",         ICON_REFRESH,     {1},    1, 0.0f,  false },
     { "Screen sampling",     ICON_FRAME,       {1},    1, 0.0f,  false },
     { "Auto letterbox",      ICON_FRAME,       {2},    1, 0.0f,  false },
@@ -669,7 +673,8 @@ static void render_settings_screen(UiCanvas *c, const UiFonts *f, const AmbientC
 
         float noteBoxTop = barY + 36.0f;
         ui_text_draw_box(c, f->note, PAGE_MARGIN_X, noteBoxTop, 0.0f,
-                          "Changes apply after saving.", COL_TEXT_BODY);
+                          st->settingsHint[0] ? st->settingsHint : "Changes apply after saving.",
+                          st->settingsHint[0] ? COL_WARN : COL_TEXT_BODY);
 
         float hintsTop = noteBoxTop + ui_font_line_normal(f->note) + 12.0f;
         float hintsBase = hintsTop + ui_hint_row_baseline_above(f);
@@ -732,6 +737,168 @@ static void render_settings_screen(UiCanvas *c, const UiFonts *f, const AmbientC
 
 static void render_home_credit(UiCanvas *c, const UiFonts *f);
 
+// ---- Home banners and button (plugin + shell feed) ----------------------------------------
+//
+// With the shell feed off, Home draws ONE banner (the plugin's) at full width, exactly as it
+// always did. With it on, two banners of the same height sit side by side: "Shell feed" on the
+// left, the plugin's on the right. Same height means the button below doesn't move, so the
+// compact banners trade padding for a second line of description text.
+
+// Splits `text` into at most two lines that each fit `maxW`, breaking at spaces. A second
+// line that still doesn't fit is cut short with "...". ASCII only, which every string here is.
+static void fit_two_lines(UiFont *font, const char *text, float maxW,
+                          char *l1, size_t n1, char *l2, size_t n2)
+{
+    l1[0] = l2[0] = '\0';
+    if (ui_text_width(font, text) <= maxW) { snprintf(l1, n1, "%s", text); return; }
+
+    size_t len = strlen(text), cut = 0;
+    char probe[256];
+    for (size_t i = 1; i <= len && i < sizeof(probe); i++) {
+        if (text[i] != ' ' && text[i] != '\0') continue;
+        memcpy(probe, text, i); probe[i] = '\0';
+        if (ui_text_width(font, probe) <= maxW) cut = i; else break;
+    }
+    if (cut == 0) cut = (len < n1 - 1) ? len : n1 - 1;       // one unbreakable word: hard cut
+    snprintf(l1, n1, "%.*s", (int)cut, text);
+
+    const char *rest = text + cut;
+    while (*rest == ' ') rest++;
+    snprintf(l2, n2, "%s", rest);
+    if (ui_text_width(font, l2) > maxW) {
+        size_t m = strlen(l2);
+        while (m > 3) {
+            m--;
+            l2[m] = '\0';
+            char tmp[260]; snprintf(tmp, sizeof(tmp), "%s...", l2);
+            if (ui_text_width(font, tmp) <= maxW) { snprintf(l2, n2, "%s", tmp); break; }
+        }
+    }
+}
+
+static void draw_banner(UiCanvas *c, const UiFonts *f, UiRect b, UiColor accent,
+                        const char *title, const char *desc, bool compact)
+{
+    float h2h = ui_font_line_normal(f->cardTitle);
+    float ph = 1.55f * 15.0f;
+    float block = h2h + 6.0f + ph * (compact ? 2.0f : 1.0f);
+    float padX = compact ? 28.0f : 40.0f;
+    float padY = compact ? (b.h - 2.0f - block) * 0.5f : 32.0f;
+
+    ui_fill_round_rect(c, b, ui_radius_all(RADIUS_PANEL), COL_PANEL_BG);
+    ui_stroke_round_rect(c, b, ui_radius_all(RADIUS_PANEL), 1.0f, COL_PANEL_BORDER);
+    ui_clip_push(c, ui_rect(b.x, b.y, 3.0f, b.h));
+    ui_stroke_round_rect(c, b, ui_radius_all(RADIUS_PANEL), 3.0f, accent);
+    ui_clip_pop(c);
+
+    float cx = b.x + 3.0f + padX;
+    float cy = b.y + 1.0f + padY;
+
+    // .dot with its 4px box-shadow halo
+    float dcx = cx + 6.0f, dcy = cy + block * 0.5f;
+    ui_fill_circle(c, dcx, dcy, 10.0f, ui_fade(accent, 0.16f));
+    ui_fill_circle(c, dcx, dcy, 6.0f, accent);
+
+    float tx = cx + 12.0f + 22.0f;
+    ui_text_draw_box(c, f->cardTitle, tx, cy, 0.0f, title, COL_TEXT_HEADING);
+    float dy = cy + h2h + 6.0f;
+    if (!compact) {
+        ui_text_draw_box(c, f->monoBanner, tx, dy, ph, desc, COL_TEXT_BODY);
+    } else {
+        char l1[200], l2[200];
+        float maxW = (b.x + b.w) - 1.0f - padX - tx;
+        fit_two_lines(f->monoBanner, desc, maxW, l1, sizeof(l1), l2, sizeof(l2));
+        ui_text_draw_box(c, f->monoBanner, tx, dy, ph, l1, COL_TEXT_BODY);
+        if (l2[0]) ui_text_draw_box(c, f->monoBanner, tx, dy + ph, ph, l2, COL_TEXT_BODY);
+    }
+}
+
+static void plugin_banner_text(UiInstallState install, UiColor *accent, const char **title, const char **desc)
+{
+    switch (install) {
+        case UI_INSTALL_NONE:
+            *accent = COL_TEXT_BODY;
+            *title = "Plugin not installed";
+            *desc = "Install ps4_ambient_light.prx to enable ambient lighting.";
+            break;
+        case UI_INSTALL_UPDATE:
+            *accent = COL_WARN;
+            *title = "Update available";
+            *desc = "A newer version of ps4_ambient_light.prx is ready.";
+            break;
+        case UI_INSTALL_DISABLED:
+            *accent = COL_WARN;
+            *title = "Plugin disabled";
+            *desc = "ps4_ambient_light.prx is installed, but not active in plugins.ini.";
+            break;
+        default:
+            *accent = COL_OK;
+            *title = "Plugin installed";
+            *desc = "ps4_ambient_light.prx is registered and up to date.";
+            break;
+    }
+}
+
+// "the loader", "ps4_shell_feed.prx" or "the loader and ps4_shell_feed.prx", for a SHELL_BIT_* mask.
+static void shell_file_names(int mask, char *out, size_t n)
+{
+    if ((mask & SHELL_BIT_PAYLOAD) && (mask & SHELL_BIT_PRX)) snprintf(out, n, "the loader and ps4_shell_feed.prx");
+    else if (mask & SHELL_BIT_PAYLOAD)                         snprintf(out, n, "the loader");
+    else                                                       snprintf(out, n, "ps4_shell_feed.prx");
+}
+
+static void shell_banner_text(const UiState *st, const AmbientConfig *cfg, UiColor *accent,
+                              const char **title, char *desc, size_t dn)
+{
+    char names[96];
+    switch (st->shell.state) {
+        case SHELL_NOT_INSTALLED:
+            *accent = COL_TEXT_BODY;
+            *title = "Shell feed not installed";
+            snprintf(desc, dn, "Needs the loader and ps4_shell_feed.prx. Press the button to install both.");
+            break;
+        case SHELL_INCOMPLETE:
+            *accent = COL_WARN;
+            *title = "Shell feed needs repair";
+            shell_file_names(st->shell.missingMask, names, sizeof(names));
+            snprintf(desc, dn, "Missing: %s. Press the button to restore %s.", names,
+                     st->shell.missing > 1 ? "them" : "it");
+            break;
+        case SHELL_UPDATE_AVAILABLE:
+            *accent = COL_WARN;
+            *title = "Shell feed update available";
+            shell_file_names(st->shell.updateMask, names, sizeof(names));
+            snprintf(desc, dn, "A newer build of %s is ready. Press the button to update.", names);
+            break;
+        default:
+            *accent = COL_OK;
+            *title = "Shell feed installed";
+            snprintf(desc, dn, cfg->shellAutoload
+                     ? "Loader and ps4_shell_feed.prx are in place. Autoload at boot is on."
+                     : "Loader and ps4_shell_feed.prx are in place. Autoload is off: run the loader from GoldHEN, or turn it on in Set up.");
+            break;
+    }
+}
+
+static void home_cta_label(const UiState *st, const HomePlan *plan, char *label, size_t n,
+                           UiIconId *icon, UiColor *fill)
+{
+    *fill = COL_AMBER;
+    switch (plan->cta) {
+        case CTA_INSTALL_PLUGIN: snprintf(label, n, "Install plugin");       *icon = ICON_DOWNLOAD; return;
+        case CTA_UPDATE_PLUGIN:  snprintf(label, n, "Update plugin");        *icon = ICON_REFRESH;  return;
+        case CTA_ENABLE_PLUGIN:  snprintf(label, n, "Enable plugin");        *icon = ICON_REFRESH;  return;
+        case CTA_INSTALL_SHELL:  snprintf(label, n, "Install shell feed");   *icon = ICON_DOWNLOAD; return;
+        case CTA_REPAIR_SHELL:   snprintf(label, n, "Repair shell feed");    *icon = ICON_REFRESH;  return;
+        case CTA_UPDATE_SHELL:   snprintf(label, n, "Update shell feed");    *icon = ICON_REFRESH;  return;
+        case CTA_INSTALL_ALL:    snprintf(label, n, "Install all (%d)", plan->pending); *icon = ICON_DOWNLOAD; return;
+        case CTA_UPDATE_ALL:     snprintf(label, n, "Update all (%d)", plan->pending);  *icon = ICON_REFRESH;  return;
+        default: break;
+    }
+    if (st->testRunning) { snprintf(label, n, "Stop test");  *icon = ICON_STOP;     *fill = COL_CYAN; }
+    else                 { snprintf(label, n, "Test strip"); *icon = ICON_ACTIVITY; }
+}
+
 void ui_render_home_static(UiCanvas *c, const UiFonts *f, const AmbientConfig *cfg, const UiState *st)
 {
     ui_draw_scene(c);
@@ -763,65 +930,33 @@ void ui_render_home_static(UiCanvas *c, const UiFonts *f, const AmbientConfig *c
                           "Add your WLED connection and strip layout on Set Up first.", COL_TEXT_LABEL);
     }
 
-    // .banner
+    // .banner -- one at full width (shell feed off: exactly as before), or two side by side
     {
         UiColor accent; const char *title; const char *desc;
-        switch (st->install) {
-            case UI_INSTALL_NONE:
-                accent = COL_TEXT_BODY;
-                title = "Plugin not installed";
-                desc = "Install ps4_ambient_light.prx to enable ambient lighting.";
-                break;
-            case UI_INSTALL_UPDATE:
-                accent = COL_WARN;
-                title = "Update available";
-                desc = "A newer version of ps4_ambient_light.prx is ready.";
-                break;
-            case UI_INSTALL_DISABLED:
-                accent = COL_WARN;
-                title = "Plugin disabled";
-                desc = "ps4_ambient_light.prx is installed, but not active in plugins.ini.";
-                break;
-            default:
-                accent = COL_OK;
-                title = "Plugin installed";
-                desc = "ps4_ambient_light.prx is registered and up to date.";
-                break;
-        }
+        plugin_banner_text(st->install, &accent, &title, &desc);
 
         float h2h = ui_font_line_normal(f->cardTitle);
         float ph = 1.55f * 15.0f;
         float block = h2h + 6.0f + ph;
-        float bh = 1.0f + 32.0f + block + 32.0f + 1.0f;
-        UiRect b = ui_rect(PAGE_MARGIN_X, 330.0f, CONTENT_W, bh);
+        float bh = 1.0f + 32.0f + block + 32.0f + 1.0f;   // the single banner's height; the pair match it
 
-        ui_fill_round_rect(c, b, ui_radius_all(RADIUS_PANEL), COL_PANEL_BG);
-        ui_stroke_round_rect(c, b, ui_radius_all(RADIUS_PANEL), 1.0f, COL_PANEL_BORDER);
-        ui_clip_push(c, ui_rect(b.x, b.y, 3.0f, bh));
-        ui_stroke_round_rect(c, b, ui_radius_all(RADIUS_PANEL), 3.0f, accent);
-        ui_clip_pop(c);
-
-        float cx = b.x + 3.0f + 40.0f;
-        float cy = b.y + 1.0f + 32.0f;
-
-        // .dot with its 4px box-shadow halo
-        float dcx = cx + 6.0f, dcy = cy + block * 0.5f;
-        ui_fill_circle(c, dcx, dcy, 10.0f, ui_fade(accent, 0.16f));
-        ui_fill_circle(c, dcx, dcy, 6.0f, accent);
-
-        float tx = cx + 12.0f + 22.0f;
-        ui_text_draw_box(c, f->cardTitle, tx, cy, 0.0f, title, COL_TEXT_HEADING);
-        ui_text_draw_box(c, f->monoBanner, tx, cy + h2h + 6.0f, ph, desc, COL_TEXT_BODY);
+        if (st->shell.state == SHELL_OFF) {
+            draw_banner(c, f, ui_rect(PAGE_MARGIN_X, 330.0f, CONTENT_W, bh), accent, title, desc, false);
+        } else {
+            float gap = 24.0f;
+            float w = (CONTENT_W - gap) * 0.5f;
+            UiColor shellAccent; const char *shellTitle; char shellDesc[200];
+            shell_banner_text(st, cfg, &shellAccent, &shellTitle, shellDesc, sizeof(shellDesc));
+            draw_banner(c, f, ui_rect(PAGE_MARGIN_X, 330.0f, w, bh), shellAccent, shellTitle, shellDesc, true);
+            draw_banner(c, f, ui_rect(PAGE_MARGIN_X + w + gap, 330.0f, w, bh), accent, title, desc, true);
+        }
     }
 
     // .cta
     {
-        const char *label; UiIconId icon; UiColor fill = COL_AMBER;
-        if (st->install == UI_INSTALL_NONE)        { label = "Install plugin"; icon = ICON_DOWNLOAD; }
-        else if (st->install == UI_INSTALL_UPDATE) { label = "Update plugin";  icon = ICON_REFRESH; }
-        else if (st->install == UI_INSTALL_DISABLED) { label = "Enable plugin"; icon = ICON_REFRESH; }
-        else if (st->testRunning)                  { label = "Stop test";      icon = ICON_STOP; fill = COL_CYAN; }
-        else                                        { label = "Test strip";     icon = ICON_ACTIVITY; }
+        HomePlan plan = home_plan(st->install, st->shell);
+        char label[40]; UiIconId icon; UiColor fill;
+        home_cta_label(st, &plan, label, sizeof(label), &icon, &fill);
 
         UiRect r = ui_rect(PAGE_MARGIN_X, 472.0f, CONTENT_W, 96.0f);
         ui_fill_round_rect(c, r, ui_radius_all(RADIUS_PANEL), fill);

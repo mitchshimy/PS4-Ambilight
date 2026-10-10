@@ -54,6 +54,12 @@ typedef struct {
     int smoothingEnabled;
     uint32_t settlingTimeMs;
     uint32_t configReloadCheckSeconds;
+    // [shell] -- the shell feed (shell-feed/), the second plugin that lights the strip from the
+    // console's own screens. Both are Set up rows. Default OFF: with it off the app behaves as it
+    // did before the shell feed existed.
+    int shellEnabled;    // ini [shell] enabled -- the same key the shell feed itself reads
+    int shellAutoload;   // NOT an ini key: mirrors GoldHEN's payload AutoRun list (main.c reads
+                         // and writes that file, see payload_ini.h). Never saved with the ini.
 } AmbientConfig;
 
 // Must be called once whenever gammaR/gammaG/gammaB change (config

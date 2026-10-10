@@ -13,6 +13,7 @@
 #include "color_pipeline.h"
 #include "settings.h"
 #include "layout.h"
+#include "install_plan.h"   // UiInstallState (the plugin's states), ShellSummary, HomePlan
 
 typedef enum {
     UI_SCREEN_HOME,
@@ -20,15 +21,6 @@ typedef enum {
     UI_SCREEN_CUSTOMIZATION,
     UI_SCREEN_HELP
 } UiScreenId;
-
-typedef enum {
-    UI_INSTALL_NONE,     // "Plugin not installed"
-    UI_INSTALL_UPDATE,   // "Update available"
-    UI_INSTALL_DISABLED, // .prx is present, but its plugins.ini entry is
-                          // commented out or missing entirely -- reuses
-                          // the same CTA slot as Install/Update
-    UI_INSTALL_OK        // "Plugin installed"
-} UiInstallState;
 
 #define HOME_FOCUS_CTA   0
 #define HOME_FOCUS_HELP  1
@@ -44,6 +36,11 @@ typedef struct {
 
     // Home
     UiInstallState install;
+    // The shell feed's side of Home: zero-initialised means SHELL_OFF, which draws Home exactly as
+    // it was before the shell feed existed. What the button does and whether Test strip is offered
+    // is home_plan(install, shell) (install_plan.h) -- computed from these two on demand, so the
+    // renderer and main.c can never disagree about it.
+    ShellSummary shell;
     bool setupComplete;
     bool testRunning;
     bool toastVisible;
@@ -63,6 +60,9 @@ typedef struct {
     // otherwise the whole line renders in one colour (warn-amber for
     // statusIsError, muted grey otherwise).
     char statusLine[256];
+    // Set up / Customization: a one-line hint for the row just pressed (empty = none). Those screens
+    // draw no status line, so the save bar shows this in place of its usual note.
+    char settingsHint[160];
     bool statusIsSaved;
     bool statusIsError;
 

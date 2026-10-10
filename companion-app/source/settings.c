@@ -117,6 +117,16 @@ const MenuItem kMenuItems[] = {
     { "Colour order",      "color",   "color_order",                FIELD_ENUM,   OFF(colorOrder),      0,     5,   1, kColorOrderNames, 6,
       MENU_SCREEN_SETUP, "LED strip layout", NULL },
 
+    // Shell feed: the second plugin, which lights the strip from Home, Settings and the quick menu
+    // while no game is doing it. "enabled" is the real [shell] key the shell feed itself reads.
+    // "shell_autoload" is section "ui" on purpose (not an ini key -- it lives in GoldHEN's own
+    // payload list, which main.c edits when it is toggled); presets.c and settings_fill_table
+    // skip every "ui" row, so it can never leak into the ini.
+    { "Shell feed",        "shell",  "enabled",                   FIELD_BOOL,   OFF(shellEnabled),    0,     1,   1, NULL, 0,
+      MENU_SCREEN_SETUP, "Shell feed", "Lights the strip from Home, Settings and the quick menu while no game is doing it. Off keeps this app exactly as it was. The Game preset also drives these screens." },
+    { "Autoload at boot",  "ui",     "shell_autoload",            FIELD_BOOL,   OFF(shellAutoload),   0,     1,   1, NULL, 0,
+      MENU_SCREEN_SETUP, "Shell feed", NULL },
+
     { "Reload check (seconds)", "timing", "config_reload_check_seconds", FIELD_U32, OFF(configReloadCheckSeconds), 0, 60, 1, NULL, 0,
       MENU_SCREEN_SETUP, "Live reload", "How often the plugin checks this file for changes while it's running, so updates apply without closing the game. Set to 0 to only read the file once, at load." },
 
@@ -356,6 +366,11 @@ bool settings_load(AmbientConfig *cfg, const char *path)
     if (ini_table_get_entry_as_int(table, "timing", "settling_time_ms", &iv)) cfg->settlingTimeMs = (uint32_t)clamp_to_schema("timing", "settling_time_ms", iv);
     if (ini_table_get_entry_as_int(table, "timing", "config_reload_check_seconds", &iv)) cfg->configReloadCheckSeconds = (uint32_t)clamp_to_schema("timing", "config_reload_check_seconds", iv);
 
+    // Absent means OFF here (the app's default), even though the shell feed itself treats an absent
+    // key as on: an install that never touched this setting shows it off, and the first save writes
+    // it out explicitly so the two agree from then on.
+    if (ini_table_get_entry_as_bool(table, "shell", "enabled", &bv)) cfg->shellEnabled = bv ? 1 : 0;
+
     ini_table_destroy(table);
     return true;
 }
@@ -461,6 +476,10 @@ void settings_fill_table(ini_table_s *table, const AmbientConfig *cfg, bool pres
     ini_table_create_entry(table, "timing", "smoothing_enabled", cfg->smoothingEnabled ? "true" : "false");
     SET_INT("timing", "settling_time_ms", cfg->settlingTimeMs);
     SET_INT("timing", "config_reload_check_seconds", cfg->configReloadCheckSeconds);
+
+    // Always written (unlike the relay keys above): the shell feed reads a missing key as ON, so
+    // leaving "off" unwritten would not actually turn it off for someone who has it installed.
+    ini_table_create_entry(table, "shell", "enabled", cfg->shellEnabled ? "true" : "false");
 
     #undef SET_INT
 

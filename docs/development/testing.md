@@ -71,6 +71,10 @@ an `mprotect` instead is not something a fake kernel can tell you about another 
 | File | Checks |
 |---|---|
 | `test_settings.c` | menu item count, ini save and load round trip |
+| `test_shell_settings.c` | `[shell] enabled` round trip, other sections (`[dev] update_base_url`, `[compat]`, unknown `[shell]` keys) surviving a save, the autoload row never reaching the ini, the two Set up rows' place and card, `[dev] update_base_url` cleanup |
+| `test_install_plan.c` | every combination of plugin state and shell feed state: banner state, what the Home button does and says, and that Test strip is offered only when nothing is pending |
+| `test_claim_file.c` | the companion's `/data/ps4_ambient_state` record byte for byte against the plugin's real `state_format()`, and the heartbeat on a simulated clock (start, 1 s beats, stop, failed writes, wrap) |
+| `test_payload_ini.c` | adding, reading and flipping one entry in GoldHEN's payload AutoRun list while every other line, comment and line ending comes through unchanged |
 | `test_presets.c` | Game and Movie shipped values, switching and reset, save and reload, migrating an ini from before presets, other ini sections surviving a save |
 | `test_display_units.c` | percent display conversion, and the load time bounds on the hidden letterbox keys |
 | `test_pipeline.c` | color order remap, gamma against known values |
@@ -101,12 +105,23 @@ gcc -w -I. -Iinclude -I/tmp/stub -o /tmp/test_pipeline tests/test_pipeline.c \
     source/settings.c source/config.c source/color_pipeline.c source/layout.c \
     source/sha256.c tests/test_sce_stubs.c
 /tmp/test_pipeline
+
+# the shell feed pieces (the first three need no stub header; test_claim_file needs ../plugin/include)
+gcc -Wall -Wextra -Iinclude -o /tmp/test_install_plan tests/test_install_plan.c && /tmp/test_install_plan
+gcc -Wall -Wextra -Iinclude -o /tmp/test_payload_ini tests/test_payload_ini.c && /tmp/test_payload_ini
+gcc -Wall -Wextra -Iinclude -I../plugin/include -o /tmp/test_claim_file tests/test_claim_file.c && /tmp/test_claim_file
+gcc -w -I. -Iinclude -I../plugin/include -I/tmp/stub -o /tmp/test_shell_settings tests/test_shell_settings.c \
+    source/settings.c source/presets.c source/config.c tests/test_sce_stubs.c && /tmp/test_shell_settings
 ```
 
+`tools/ui_preview.sh` renders Home and Set up to PNG with the app's real UI code (no console, no SDL), for
+checking a layout change by eye. Compared against the code before the shell feed, Home with the
+Shell feed off is byte for byte identical.
+
 Current state: `test_display_units`, `test_pipeline`, `test_layout`, `test_sha256` and
-`test_presets` pass. `test_settings` still fails at the `relayHost` round trip. That failure
+`test_presets` pass, and so do the four new ones above. `test_settings` still fails at the `relayHost` round trip. That failure
 predates the current work and is noted in the changelog. Its menu item assert
-is 33 (it was a stale 31; the two Preset card rows are the difference).
+is 35 (33 plus the two Shell feed rows on Set up; it was a stale 31 before the Preset card rows).
 
 CI doesn't run these, see [ci-and-releases](ci-and-releases.md). Nothing in the
 workflow calls them, so run them yourself before a release if you touched `settings.c`,
