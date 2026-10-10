@@ -6,7 +6,7 @@
 
 static HomePlan plan(UiInstallState pl, bool shellOn, AssetStatus prx, AssetStatus bin)
 {
-    return home_plan(pl, shell_summarize(shellOn, prx, bin));
+    return home_plan(pl, shell_summarize(shellOn, prx, bin), LOADER_UNKNOWN);
 }
 
 int main(void)
@@ -82,6 +82,31 @@ int main(void)
                     assert((q.cta == CTA_TEST_STRIP) == q.testAvailable);
                     assert(q.pending <= 3);
                 }
-    printf("exhaustive: ok\nALL PASSED\n");
+    printf("exhaustive: ok\n");
+
+    // ---- GoldHEN's plugin loader: a definite OFF outranks every other state; UNKNOWN is the same as ON ----
+    for (int pl = 0; pl <= UI_INSTALL_OK; pl++)
+        for (int on = 0; on <= 1; on++)
+            for (int a = 0; a <= 2; a++)
+                for (int b = 0; b <= 2; b++) {
+                    ShellSummary sh = shell_summarize(on, (AssetStatus)a, (AssetStatus)b);
+                    HomePlan off = home_plan((UiInstallState)pl, sh, LOADER_OFF);
+                    assert(off.cta == CTA_LOADER_OFF && off.loaderAction && !off.testAvailable);
+                    assert(off.pending == 1 && !off.pluginAction && !off.shellAction);
+                    HomePlan un = home_plan((UiInstallState)pl, sh, LOADER_UNKNOWN);
+                    HomePlan yes = home_plan((UiInstallState)pl, sh, LOADER_ON);
+                    assert(home_plan_equal(&un, &yes) && !un.loaderAction);   // never blocks on a guess
+                    assert(!home_plan_equal(&off, &yes));
+                }
+    {   // Everything fine except the loader: no Test strip until it is on.
+        HomePlan off = home_plan(UI_INSTALL_OK, shell_summarize(false, ASSET_PRESENT, ASSET_PRESENT), LOADER_OFF);
+        assert(off.cta == CTA_LOADER_OFF && !off.testAvailable);
+        HomePlan on  = home_plan(UI_INSTALL_OK, shell_summarize(false, ASSET_PRESENT, ASSET_PRESENT), LOADER_ON);
+        assert(on.cta == CTA_TEST_STRIP && on.testAvailable);
+        // Plugin missing AND loader off: the loader notice first, then the install button once it is on.
+        assert(home_plan(UI_INSTALL_NONE, shell_summarize(false, ASSET_PRESENT, ASSET_PRESENT), LOADER_OFF).cta == CTA_LOADER_OFF);
+        assert(home_plan(UI_INSTALL_NONE, shell_summarize(false, ASSET_PRESENT, ASSET_PRESENT), LOADER_ON).cta == CTA_INSTALL_PLUGIN);
+    }
+    printf("plugin loader outranks everything: ok\nALL PASSED\n");
     return 0;
 }

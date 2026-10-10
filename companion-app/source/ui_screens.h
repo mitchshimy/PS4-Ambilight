@@ -36,6 +36,9 @@ typedef struct {
 
     // Home
     UiInstallState install;
+    // GoldHEN's "Enable Plugins Loader", read from its config. Zero is LOADER_UNKNOWN, which Home
+    // treats as on: only a definite OFF changes what Home shows or what its button does.
+    PluginLoaderState loader;
     // The shell feed's side of Home: zero-initialised means SHELL_OFF, which draws Home exactly as
     // it was before the shell feed existed. What the button does and whether Test strip is offered
     // is home_plan(install, shell) (install_plan.h) -- computed from these two on demand, so the

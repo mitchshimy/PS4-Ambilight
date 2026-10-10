@@ -9,6 +9,12 @@
 //
 // Shell feed OFF is the default and means "behave exactly as before": shell_summarize()
 // returns SHELL_OFF, home_plan() ignores it, and the Test strip rule is the old one.
+//
+// GoldHEN's own "Enable Plugins Loader" switch outranks everything: with it off GoldHEN loads
+// no plugin at all, so installing, updating or testing the plugin would only look like it worked.
+// It is read from GoldHEN's config (goldhen_config.h). Only a definite OFF changes anything. The app
+// can't turn it on (GoldHEN keeps the live value in memory and won't change it while an app runs),
+// so the button for it just closes the app so the person can.
 #ifndef INSTALL_PLAN_H
 #define INSTALL_PLAN_H
 
@@ -23,6 +29,14 @@ typedef enum {
                           // the same CTA slot as Install/Update
     UI_INSTALL_OK        // "Plugin installed"
 } UiInstallState;
+
+// GoldHEN's "Enable Plugins Loader". UNKNOWN (zero, so a zero-initialised UiState is UNKNOWN) means
+// the config couldn't be read or doesn't say, and is treated exactly like ON: never block on a guess.
+typedef enum {
+    LOADER_UNKNOWN = 0,
+    LOADER_ON,
+    LOADER_OFF
+} PluginLoaderState;
 
 // The three downloadable files. ASSET_SHELL_PRX and ASSET_PAYLOAD together are "the shell feed".
 typedef enum {
@@ -79,6 +93,7 @@ static inline ShellSummary shell_summarize(bool shellOn, AssetStatus prx, AssetS
 // What the big button on Home does. Everything except CTA_TEST_STRIP is "do the pending work".
 typedef enum {
     CTA_TEST_STRIP = 0,
+    CTA_LOADER_OFF,          // GoldHEN's plugin loader is off: close the app so it can be turned on
     CTA_INSTALL_PLUGIN,
     CTA_UPDATE_PLUGIN,
     CTA_ENABLE_PLUGIN,
@@ -95,6 +110,7 @@ typedef struct {
     bool anyMissing;     // something is not installed at all (decides "Install" vs "Update" wording)
     bool pluginAction;
     bool shellAction;
+    bool loaderAction;   // GoldHEN's plugin loader is off (outranks and replaces every other action)
     bool testAvailable;  // Test strip may be offered: nothing at all is pending
 } HomePlan;
 
@@ -102,7 +118,7 @@ static inline bool home_plan_equal(const HomePlan *a, const HomePlan *b)
 {
     return a->cta == b->cta && a->pending == b->pending && a->anyMissing == b->anyMissing &&
            a->pluginAction == b->pluginAction && a->shellAction == b->shellAction &&
-           a->testAvailable == b->testAvailable;
+           a->loaderAction == b->loaderAction && a->testAvailable == b->testAvailable;
 }
 
 static inline bool shell_summary_equal(const ShellSummary *a, const ShellSummary *b)
@@ -111,9 +127,18 @@ static inline bool shell_summary_equal(const ShellSummary *a, const ShellSummary
            a->missingMask == b->missingMask && a->updateMask == b->updateMask;
 }
 
-static inline HomePlan home_plan(UiInstallState plugin, ShellSummary shell)
+static inline HomePlan home_plan(UiInstallState plugin, ShellSummary shell, PluginLoaderState loader)
 {
-    HomePlan p = { CTA_TEST_STRIP, 0, false, false, false, false };
+    HomePlan p = { CTA_TEST_STRIP, 0, false, false, false, false, false };
+
+    // First check of all: a plugin can't do anything while GoldHEN's loader is off, and nothing
+    // else on Home can fix that.
+    if (loader == LOADER_OFF) {
+        p.cta = CTA_LOADER_OFF;
+        p.pending = 1;
+        p.loaderAction = true;
+        return p;
+    }
 
     if (plugin != UI_INSTALL_OK) {
         p.pluginAction = true;

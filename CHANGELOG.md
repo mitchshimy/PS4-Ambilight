@@ -644,6 +644,16 @@ color preview and a plugin self-updater.
   `sceSystemServiceGetStatus` (`isInBackgroundExecution`, the same call the plugin uses) twice a
   second, and while backgrounded sends nothing and releases the claim; it takes both back when
   foregrounded.
+- **Home checks GoldHEN's plugin loader.** With **Enable Plugins Loader** off in Settings > GoldHEN >
+  Plugin Settings, GoldHEN loads no plugin for any game, and Home couldn't tell. The app now reads
+  that switch from `/data/GoldHEN/config.ini` (`[PluginLoader] PluginLoader_Enabled`) and, when it
+  is off, makes it the first thing Home shows: a "Plugin loader is off" banner and a **Close app to
+  turn on plugin loader** button. Install, Update, Enable and Test strip wait until it is on. The app
+  only reads the file: GoldHEN keeps the live value in memory and won't change it while an app is
+  running, so writing it from here doesn't work (tried: the file said 1, GoldHEN's menu still showed
+  it off). It's re-read every couple of seconds on Home and on coming back to the app. A missing file
+  or key (an older GoldHEN) is treated as on. The in-app Help and the README no longer say Home
+  can't see this switch.
 - **Help and README for the shell feed.** The app's Help screen has a new **Shell feed (optional)**
   card (six cards now), and its Getting started and Troubleshooting cards mention the Test strip
   rule and the two-sources flicker. The main README has a **Shell feed (optional)** section, a

@@ -30,6 +30,11 @@ publishing anything to GitHub, serve them from your PC.
 
 | Do this | Expect |
 |---|---|
+| With GoldHEN's plugin loader off (Settings > GoldHEN > Plugin Settings), open the app | Home says "Plugin loader is off" in the plugin banner and the button reads "Close app to turn on plugin loader"; Test strip, Install and Update are not offered. |
+| Press that button | The app closes (saving its settings like Options does). `/data/GoldHEN/config.ini` is not touched. |
+| With the app closed, tick Enable Plugins Loader in GoldHEN, then open the app | Home no longer mentions the loader and the usual button returns. |
+| Turn it off in GoldHEN's menu while the app is in the background, then come back | Home shows the loader banner again within about two seconds. |
+| Start a game with the loader on | The plugin loads. |
 | Shell feed off (the default) | Home and everything else exactly as before. No requests for the shell files in the server log. |
 | Set up, Shell feed on | Home gets a Shell feed banner on the left. Nothing installed: "Shell feed not installed", button "Install shell feed" (or "Install all (3)" if the plugin is missing too). Test strip is gone. |
 | Press the button | `/data/ps4-ambilight` and `/data/payloads` are created if missing; the `.prx` then the loader are downloaded, checked and moved into place; Test strip comes back. Other files in `/data/payloads` are untouched. |

@@ -70,6 +70,7 @@
 #include "install_plan.h"  // shell feed + plugin: what is pending, what the Home button does
 #include "claim_file.h"    // /data/ps4_ambient_state: keeps the shell feed off the strip while this app drives it
 #include "payload_ini.h"   // one-entry edits to GoldHEN's payload AutoRun list
+#include "goldhen_config.h" // GoldHEN's own "Enable Plugins Loader" switch, read and flipped in place
 #include "update_source.h"  // cleans up [dev] update_base_url
 
 #ifndef M_PI
@@ -174,6 +175,7 @@
 // ever names it differently, this one line is the only thing to change.
 #define GOLDHEN_PAYLOADS_INI  "/data/GoldHEN/payloads.ini"
 #define GOLDHEN_DIR           "/data/GoldHEN"
+#define GOLDHEN_CONFIG_INI    "/data/GoldHEN/config.ini"   // [PluginLoader] PluginLoader_Enabled, see goldhen_config.h
 // How GoldHEN's own UI writes the entry (the console sees /data as /user/data). payload_ini.h
 // matches an existing entry by file name, so a line added by hand in the other spelling is found too.
 #define PAYLOAD_AUTORUN_ENTRY "/user/data/payloads/" PAYLOAD_ASSET_NAME
@@ -1485,6 +1487,44 @@ static void do_plugin_enable(void)
     set_status("Plugin enabled. Relaunch your game to load it.", false);
 }
 
+// ---------------- GoldHEN's plugin loader switch ----------------
+//
+// Settings > GoldHEN > Plugin Settings > Enable Plugins Loader is saved in /data/GoldHEN/config.ini
+// ([PluginLoader] PluginLoader_Enabled, goldhen_config.h). With it off GoldHEN loads no plugin for
+// any game, and for a long time Home couldn't tell. Now Home reads it and shows it ahead of every
+// other check. The app only READS it: GoldHEN keeps the live value in memory and doesn't re-read
+// the file (writing 1 left its menu showing the switch off), and it won't change the switch at all
+// while a game or app is running, which includes this one. So the button just closes the app.
+// Only a definite 0 counts as off: a missing file or key (an older GoldHEN) is UNKNOWN.
+
+static bool g_quitRequested = false;   // set by the loader-off button; the main loop quits like Options
+
+static PluginLoaderState read_plugin_loader_state(void)
+{
+    size_t len = 0;
+    char *buf = read_small_file(GOLDHEN_CONFIG_INI, &len);
+    if (!buf) return LOADER_UNKNOWN;
+    PluginLoaderState s = goldhen_plugin_loader_state(buf, len);
+    free(buf);
+    return s;
+}
+
+// Re-reads the switch and updates Home when it changed. Cheap (the file is about 1 KB), and the
+// person can flip it in GoldHEN's own menu while this app sits in the background, so Home calls
+// this every couple of seconds and right after coming back to the foreground.
+static void refresh_plugin_loader_state(void)
+{
+    PluginLoaderState s = read_plugin_loader_state();
+    if (s == g_state.loader) return;
+    PluginLoaderState was = g_state.loader;
+    g_state.loader = s;
+    g_dirty = true;
+    if (s == LOADER_OFF)
+        set_status("GoldHEN's plugin loader is off -- close this app and tick it in Settings > GoldHEN > Plugin Settings.", true);
+    else if (was == LOADER_OFF && s == LOADER_ON)
+        set_status("GoldHEN's plugin loader is on.", false);
+}
+
 // ---------------- shell feed: install, repair, autoload, claim ----------------
 //
 // Everything below runs only while "Shell feed" is on in Set up (g_cfg.shellEnabled); with it off
@@ -1633,6 +1673,14 @@ static void do_shell_repair(void)
 // status line keeps the reason.
 static void do_pending_actions(void)
 {
+    // GoldHEN's plugin loader comes first: nothing below can work while it is off, and the app can't
+    // change it (see the note above read_plugin_loader_state()). Close the app, the same save and quit
+    // as Options, so GoldHEN will let the person tick the switch.
+    if (g_state.loader == LOADER_OFF) {
+        set_status("Closing -- now tick Enable Plugins Loader in Settings > GoldHEN > Plugin Settings.", false);
+        g_quitRequested = true;
+        return;
+    }
     if (g_state.install == UI_INSTALL_DISABLED) {
         do_plugin_enable();
         if (g_state.install != UI_INSTALL_OK) return;
@@ -2086,7 +2134,7 @@ static void handle_home_input(bool up, bool down, bool left, bool right, bool cr
             // Anything pending (plugin or, with the Shell feed on, its files) takes the button;
             // Test strip is only offered once nothing is. With the Shell feed off this is exactly
             // the old plugin-only rule.
-            if (home_plan(g_state.install, g_state.shell).cta != CTA_TEST_STRIP) {
+            if (home_plan(g_state.install, g_state.shell, g_state.loader).cta != CTA_TEST_STRIP) {
                 do_pending_actions();
             } else if (g_state.testRunning) {
                 g_state.testRunning = false;
@@ -2517,6 +2565,12 @@ int main(void)
                    "Plugin not installed yet.", false);
     }
 
+    // GoldHEN's plugin loader: read it once now so the very first frame of Home is right; a definite
+    // OFF replaces whatever the line above said, because nothing else matters while it is off.
+    g_state.loader = read_plugin_loader_state();
+    if (g_state.loader == LOADER_OFF)
+        set_status("GoldHEN's plugin loader is off -- close this app and tick it in Settings > GoldHEN > Plugin Settings.", true);
+
     OrbisPadData pad, prevPad;
     memset(&pad, 0, sizeof(pad));
     memset(&prevPad, 0, sizeof(prevPad));
@@ -2574,7 +2628,7 @@ int main(void)
             bool crossUp = !(pad.buttons & ORBIS_PAD_BUTTON_CROSS) && (prevPad.buttons & ORBIS_PAD_BUTTON_CROSS);
             #undef PRESSED
 
-            if (options) running = false;
+            if (options || g_quitRequested) running = false;
 
             if (!commonDialogUsed) {
                 if (g_state.screen == UI_SCREEN_HOME)
@@ -2621,6 +2675,17 @@ int main(void)
         // would even show, so it's excluded the same way Home is.
         bool screenHasLedFrame = (g_state.screen == UI_SCREEN_SETUP || g_state.screen == UI_SCREEN_CUSTOMIZATION);
         poll_background_state(nowMs);
+        {   // GoldHEN's plugin loader switch: every 2 s on Home, and at once on coming back to the app
+            static uint32_t lastLoaderPollMs = 0;
+            static bool wasBackgrounded = false;
+            bool justForegrounded = wasBackgrounded && !g_appBackgrounded;
+            wasBackgrounded = g_appBackgrounded;
+            if (g_state.screen == UI_SCREEN_HOME && !g_appBackgrounded &&
+                (justForegrounded || nowMs - lastLoaderPollMs >= 2000u)) {
+                lastLoaderPollMs = nowMs;
+                refresh_plugin_loader_state();
+            }
+        }
         // Sending stops while the app is in the background (PS button), otherwise it keeps holding the strip.
         if ((screenHasLedFrame || g_state.testRunning) && !g_appBackgrounded) {
             update_live_preview();

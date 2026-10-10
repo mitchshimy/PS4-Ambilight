@@ -372,7 +372,9 @@ static void help_cards_init(UiCard out[HELP_CARD_COUNT])
 {
     out[0] = (UiCard){ COL_CYAN, ICON_DOWNLOAD, COL_CYAN, "Getting started",
         "First, in GoldHEN's Plugin Settings, tick Enable Plugins Loader -- "
-        "with it off no plugin runs at all, and Home can't tell. Then "
+        "with it off no plugin runs at all. If it is off, Home says so; GoldHEN "
+        "won't let you change it while this app is open, so close the app "
+        "first. Then "
         "install ps4_ambient_light.prx from Home -- "
         "the button there reads Install, Update or Enable depending on "
         "what's already on the console. From there, Set up connects WLED "
@@ -426,8 +428,9 @@ static void help_cards_init(UiCard out[HELP_CARD_COUNT])
         NULL, 0, -1, NULL, NULL };
 
     out[5] = (UiCard){ COL_WARN, ICON_WARNING, COL_WARN, "Troubleshooting",
-        "Nothing runs in any game: tick Enable Plugins Loader under "
-        "GoldHEN's Plugin Settings -- Home can't see that switch. "
+        "Nothing runs in any game: if Home says the plugin loader is off, "
+        "close this app and tick Enable Plugins Loader under GoldHEN's "
+        "Plugin Settings (GoldHEN won't change it while an app is open). "
         "Strip stays dark: re-check the WLED host/port on Set up, and "
         "that WLED's realtime UDP listener is actually reachable on your "
         "network. Colours land on the wrong LEDs: revisit start corner, "
@@ -826,8 +829,15 @@ static void draw_banner(UiCanvas *c, const UiFonts *f, UiRect b, UiColor accent,
     }
 }
 
-static void plugin_banner_text(UiInstallState install, UiColor *accent, const char **title, const char **desc)
+static void plugin_banner_text(PluginLoaderState loader, UiInstallState install,
+                               UiColor *accent, const char **title, const char **desc)
 {
+    if (loader == LOADER_OFF) {     // outranks the plugin's own state: nothing loads while it is off
+        *accent = COL_WARN;
+        *title = "Plugin loader is off";
+        *desc = "No plugin loads while it is off. Close this app, then tick Settings > GoldHEN > Plugin Settings > Enable Plugins Loader.";
+        return;
+    }
     switch (install) {
         case UI_INSTALL_NONE:
             *accent = COL_TEXT_BODY;
@@ -898,6 +908,7 @@ static void home_cta_label(const UiState *st, const HomePlan *plan, char *label,
 {
     *fill = COL_AMBER;
     switch (plan->cta) {
+        case CTA_LOADER_OFF:     snprintf(label, n, "Close app to turn on plugin loader"); *icon = ICON_REFRESH; return;
         case CTA_INSTALL_PLUGIN: snprintf(label, n, "Install plugin");       *icon = ICON_DOWNLOAD; return;
         case CTA_UPDATE_PLUGIN:  snprintf(label, n, "Update plugin");        *icon = ICON_REFRESH;  return;
         case CTA_ENABLE_PLUGIN:  snprintf(label, n, "Enable plugin");        *icon = ICON_REFRESH;  return;
@@ -946,7 +957,7 @@ void ui_render_home_static(UiCanvas *c, const UiFonts *f, const AmbientConfig *c
     // .banner -- one at full width (shell feed off: exactly as before), or two side by side
     {
         UiColor accent; const char *title; const char *desc;
-        plugin_banner_text(st->install, &accent, &title, &desc);
+        plugin_banner_text(st->loader, st->install, &accent, &title, &desc);
 
         float h2h = ui_font_line_normal(f->cardTitle);
         float ph = 1.55f * 15.0f;
@@ -967,7 +978,7 @@ void ui_render_home_static(UiCanvas *c, const UiFonts *f, const AmbientConfig *c
 
     // .cta
     {
-        HomePlan plan = home_plan(st->install, st->shell);
+        HomePlan plan = home_plan(st->install, st->shell, st->loader);
         char label[40]; UiIconId icon; UiColor fill;
         home_cta_label(st, &plan, label, sizeof(label), &icon, &fill);
 

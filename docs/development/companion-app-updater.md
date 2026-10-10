@@ -20,6 +20,34 @@ the latest release build, verifies it and registers it in `plugins.ini` under
 `[default]`, which loads it for every title. Enable only fixes the `plugins.ini`
 entry.
 
+## GoldHEN's plugin loader switch
+
+GoldHEN loads no plugin at all while **Enable Plugins Loader** is off, so every plugin button
+in the app is pointless until it is on. GoldHEN saves the setting in `/data/GoldHEN/config.ini`:
+
+```
+[PluginLoader]
+PluginLoader_Enabled = 1
+```
+
+That was found by saving the file from a console with the switch off and with it on; the one
+value was the only difference. `include/goldhen_config.h` reads it. Only a definite `0` counts as
+off. A missing file, a missing key (an older GoldHEN) or any other value is "unknown", which Home
+treats as on, so an unfamiliar config can never block the plugin's buttons.
+
+It is the first check on Home (`home_plan()` in `install_plan.h`): when it is off, Home shows
+"Plugin loader is off" and its button reads **Close app to turn on plugin loader**; Install,
+Update, Enable and Test strip aren't offered. Home re-reads the file at startup, every couple of
+seconds while on Home, and straight away on coming back to the app.
+
+**The app does not write it.** The first version did: it set the value to 1 and read it back. On a
+console the file said 1 but GoldHEN's menu still showed the switch off, because GoldHEN keeps the
+live value in memory and never re-reads the file. That also made the file disagree with the real
+state, so Home would have said the loader was on while it was off. And GoldHEN refuses to change the
+switch at all while a game or app is running, which this app counts as. Both are GoldHEN's behaviour
+rather than something the app can work around, so the button closes the app (the same save and quit
+as Options) and the person ticks the switch themselves.
+
 ## The shell feed's files
 
 With **Shell feed** on in Set up, the same machinery handles two more files, so Home

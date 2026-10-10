@@ -52,6 +52,15 @@ default and the app does nothing shell-related while it is off.
   `render_qr_modal()`, `ui_screens.c`) pointing at this repo's own
   README `## Help` section, for anyone who wants the long version
   without typing a URL on a controller.
+- **GoldHEN's plugin loader switch.** With "Enable Plugins Loader" off, GoldHEN loads no plugin for
+  any game, which used to be invisible from Home. The app now reads
+  `[PluginLoader] PluginLoader_Enabled` from `/data/GoldHEN/config.ini` (`goldhen_config.h`, tested
+  against two real console files) and, when it is a definite 0, `home_plan()` puts a loader-off
+  notice ahead of every other action, including Test strip. It never writes the file: GoldHEN keeps
+  the live value in memory (an edit left its menu showing the switch off) and won't change the
+  switch while an app is running, so the button closes the app so the person can. Unknown (no file,
+  no key) is treated as on, so it never blocks on a guess. Home re-reads it every couple of seconds
+  and on returning from the background.
 - **Shell feed (off by default, `[shell] enabled`).** Three files can be pending:
   `ps4_ambient_light.prx`, `ps4_shell_feed.prx` and the loader
   `ps4-ambilight-900.bin`. `install_plan.h` is pure decision logic (no
@@ -135,9 +144,10 @@ UI code, for checking a layout change without a console.
 - `source/layout.c` / `include/layout.h` -- full-strip LED layout geometry (physical wire order + on-screen position)
 - `source/help_qr.c` / `include/help_qr.h` -- builds and caches the Help screen's QR bitmap (points at this repo's README `## Help` section)
 - `source/qrcodegen.c` / `include/qrcodegen.h` -- vendored, unmodified: [Project Nayuki's QR Code generator library](https://github.com/nayuki/QR-Code-generator) (C edition, MIT license)
+- `include/goldhen_config.h` -- reads GoldHEN's "Enable Plugins Loader" value from `/data/GoldHEN/config.ini` (read-only); Home puts it ahead of every other check
 - `include/install_plan.h` -- what Home shows and what its one button does, once the shell feed is part of it (header-only, no console calls)
 - `include/payload_ini.h` -- reads and flips the loader's entry in GoldHEN's payload AutoRun list without touching other lines
 - `include/claim_file.h` -- the `/data/ps4_ambient_state` record and heartbeat the app writes while it drives the strip
 - `include/update_source.h` -- cleans up `[dev] update_base_url`
-- `tests/test_settings.c`, `tests/test_pipeline.c`, `tests/test_display_units.c`, `tests/test_presets.c`, `tests/test_install_plan.c`, `tests/test_payload_ini.c`, `tests/test_claim_file.c`, `tests/test_shell_settings.c` -- isolation tests; `gcc -Iinclude -o test_x test_x.c source/x.c source/config.c tests/test_sce_stubs.c` to rerun (exact commands in `docs/development/testing.md`; `test_settings` still fails at its `relayHost` check, as it did before the shell feed)
+- `tests/test_settings.c`, `tests/test_pipeline.c`, `tests/test_display_units.c`, `tests/test_presets.c`, `tests/test_install_plan.c`, `tests/test_goldhen_config.c`, `tests/test_payload_ini.c`, `tests/test_claim_file.c`, `tests/test_shell_settings.c` -- isolation tests; `gcc -Iinclude -o test_x test_x.c source/x.c source/config.c tests/test_sce_stubs.c` to rerun (exact commands in `docs/development/testing.md`; `test_settings` still fails at its `relayHost` check, as it did before the shell feed)
 - `tools/ui_preview.c` / `tools/ui_preview.sh` -- renders the UI to PNG on a PC

@@ -65,6 +65,13 @@ int main(int argc, char **argv)
     st.install = UI_INSTALL_OK; st.testRunning = true; st.homeFocus = HOME_FOCUS_CTA;         render(c, &fonts, &cfg, &st, dir, "home_on_testing");
     st.testRunning = false; st.homeFocus = 0;
 
+    // ---- GoldHEN's plugin loader off: outranks every other state ----
+    st.install = UI_INSTALL_OK; st.loader = LOADER_OFF;
+    cfg.shellEnabled = 0; st.shell = shell_summarize(false, ASSET_PRESENT, ASSET_PRESENT);     render(c, &fonts, &cfg, &st, dir, "home_loader_off");
+    cfg.shellEnabled = 1; st.shell = shell_summarize(true, ASSET_PRESENT, ASSET_PRESENT);      render(c, &fonts, &cfg, &st, dir, "home_loader_off_shell_on");
+    st.install = UI_INSTALL_NONE;                                                              render(c, &fonts, &cfg, &st, dir, "home_loader_off_plugin_missing");
+    st.loader = LOADER_UNKNOWN; st.install = UI_INSTALL_OK;
+
     // ---- Set up ----
     st.screen = UI_SCREEN_SETUP; st.scrollY = 0;
     render(c, &fonts, &cfg, &st, dir, "setup_top");

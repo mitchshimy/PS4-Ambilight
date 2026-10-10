@@ -84,7 +84,9 @@ on your network. If you try a different firmware, GoldHEN version or strip, a no
 
 1. In GoldHEN, turn on the plugin loader: open **Settings**, choose **★ GoldHEN ★**, go to
    **Plugin Settings** and tick **Enable Plugins Loader**. With it off, GoldHEN loads no plugins
-   at all, this one included, and nothing in the companion app will tell you.
+   at all, this one included. The companion app checks this switch too: if it's off, Home says so
+   ahead of everything else, but GoldHEN won't let you change it while an app is open, so you
+   turn it on yourself with the app closed.
 2. Install the companion app `.pkg` from [Releases](../../releases) like any other homebrew
    package. (To build it yourself, see [`companion-app/README.md`](companion-app/README.md).)
 3. Open it. On **Home**, press the main button. It reads **Install**, **Update** or **Enable**,
@@ -114,12 +116,19 @@ The companion app's Help screen (Home, then Help) keeps to six short cards. This
 longer version. Pressing **△ Triangle** on that screen opens a QR code pointing at this heading,
 so you can read it on a phone without typing a URL on a controller.
 
-**Nothing happens in any game, even though Home says the plugin is installed and enabled.**
-Check that GoldHEN's plugin loader is switched on: **Settings**, **★ GoldHEN ★**, **Plugin
-Settings**, then tick **Enable Plugins Loader**. It's a separate switch from the plugin's own
-`plugins.ini` entry. Home only checks that `ps4_ambient_light.prx` is installed and listed in
-`plugins.ini`, and it can't see whether the loader itself is on. With the loader off, GoldHEN
-loads no plugins for any game.
+**Home says "Plugin loader is off", or nothing happens in any game.**
+GoldHEN's plugin loader is a separate switch from the plugin's own `plugins.ini` entry, and with it
+off GoldHEN loads no plugins for any game. Home reads the switch from GoldHEN's own settings file
+(`/data/GoldHEN/config.ini`, `PluginLoader_Enabled` under `[PluginLoader]`) and, when it's off, puts
+that first: Install, Update and Test Strip wait until it's on. Turn it on under **Settings**,
+**★ GoldHEN ★**, **Plugin Settings**, **Enable Plugins Loader**. GoldHEN won't change it while a game
+or app is running, and the companion app counts as one, so close the app first. The Home button for
+this does exactly that, and Home picks the change up within a couple of seconds of you coming back.
+The app only reads that file and never edits it: GoldHEN keeps the live value in memory, so editing
+the file by hand doesn't turn the loader on and GoldHEN's menu would still show it off. If Home
+never mentions the loader and a game still shows nothing, the settings file may not have that entry
+(an older GoldHEN): Home only acts when the file says the loader is off. Check the switch in
+GoldHEN's menu, and if the plugin still doesn't load after turning it on, restart GoldHEN.
 
 **The strip stays completely dark.**
 Re-check `wled_host` and `wled_port` under **Set up**. Confirm WLED's realtime UDP listener is
