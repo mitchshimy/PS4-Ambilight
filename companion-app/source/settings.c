@@ -126,6 +126,12 @@ const MenuItem kMenuItems[] = {
       MENU_SCREEN_SETUP, "Shell feed", "Lights the strip from Home, Settings and the quick menu while no game is doing it. The Game preset also drives these screens." },
     { "Autoload at boot",  "ui",     "shell_autoload",            FIELD_BOOL,   OFF(shellAutoload),   0,     1,   1, NULL, 0,
       MENU_SCREEN_SETUP, "Shell feed", NULL },
+    // FIELD_ACTION: sends the Ambilight payload (ps4-ambilight-900.bin) to GoldHEN's BinLoader (port 9090).
+    // Section "ui", so presets.c/settings_fill_table never touch it. The dummy offset reuses
+    // shellAutoload (same pattern as preset_reset / smoothing_preset). main.c dispatches on
+    // key == "shell_run_now"; it guards the send on the Ambilight payload and .prx both being present.
+    { "Ambilight payload", "ui",     "shell_run_now",             FIELD_ACTION, OFF(shellAutoload),   0,     0,   1, NULL, 0,
+      MENU_SCREEN_SETUP, "Shell feed", NULL },
 
     { "Reload check (seconds)", "timing", "config_reload_check_seconds", FIELD_U32, OFF(configReloadCheckSeconds), 0, 60, 1, NULL, 0,
       MENU_SCREEN_SETUP, "Live reload", "How often the plugin checks this file for changes while it's running, so updates apply without closing the game. Set to 0 to only read the file once, at load." },

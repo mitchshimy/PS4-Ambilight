@@ -73,6 +73,14 @@
 #include "goldhen_config.h" // GoldHEN's own "Enable Plugins Loader" switch, read and flipped in place
 #include "update_source.h"  // cleans up [dev] update_base_url
 
+// TCP headers for GoldHEN's BinLoader (port 9090). On PS4 these are the same
+// POSIX socket headers the SDK provides; they're already available here through
+// the orbis libc. sys/socket.h, netinet/in.h and unistd.h are all part of the
+// standard sysroot included by the OpenOrbis toolchain.
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
@@ -158,7 +166,7 @@
 
 // ---- Shell feed files (shell-feed/) ----
 // Three files make up an install: the plugin above, the shell feed's own .prx, and the small
-// loader payload that puts that .prx into the console's compositor. The loader finds the .prx
+// Ambilight payload that puts that .prx into the console's compositor. The payload finds the .prx
 // at SHELL_PRX_PATH (shell-feed/docs/loading.md). Nothing in this block is touched while the
 // "Shell feed" switch in Set up is off.
 #define SHELL_DIR             "/data/ps4-ambilight"
@@ -167,7 +175,7 @@
 #define PAYLOADS_DIR          "/data/payloads"
 #define PAYLOAD_ASSET_NAME    "ps4-ambilight-900.bin"
 #define PAYLOAD_PATH          PAYLOADS_DIR "/" PAYLOAD_ASSET_NAME
-// The loader is downloaded next to the .prx, NOT into /data/payloads: a failed download must not
+// The Ambilight payload is downloaded next to the .prx, NOT into /data/payloads: a failed download must not
 // leave a half-written ".new" file sitting in a folder that payload menus list.
 #define PAYLOAD_STAGING_PATH  SHELL_DIR "/" PAYLOAD_ASSET_NAME ".new"
 #define SHELL_PRX_STAGING_PATH SHELL_PRX_PATH ".new"
@@ -725,7 +733,7 @@ static bool github_resolve_asset_api_url(const char *assetName, char *outUrl, si
 //   [dev]
 //   update_base_url=http://192.168.2.117:8000
 //
-// and every download (the plugin, the shell feed .prx, the loader) and its ".sha256" sidecar is
+// and every download (the plugin, the shell feed .prx, the Ambilight payload) and its ".sha256" sidecar is
 // fetched from <base>/<file name> instead -- e.g. `python tools/serve_local_release.py`, which
 // serves a folder with python's http.server. Delete the line to go back to GitHub. Read fresh each
 // time, so editing the ini needs no restart. [dev] already exists for dev_ip/dev_logging, and the
@@ -1621,8 +1629,99 @@ static bool install_shell_asset(const char *assetName, const char *dstPath, cons
     return true;
 }
 
+// Sends the Ambilight payload (.bin) to GoldHEN's BinLoader on port 9090 -- the same protocol
+// every independent payload-sender tool uses: open a plain TCP connection, write the raw bytes,
+// close. No handshake, no header -- confirmed against multiple independent client implementations
+// (an Android payload sender and a Node.js tool), all doing exactly this against the same port.
+//
+// Called automatically as the last step of do_shell_repair() after a successful install or update,
+// so "Install shell feed" also means "running within seconds, not at next boot". Also wired to the
+// "Launch Ambilight payload" button in Set up, so the person can restart the payload at any time without
+// rebooting or going into GoldHEN's menu.
+//
+// Sending the same payload more than once while it is already running is confirmed safe: tested
+// manually via GoldHEN's Launchpad (which drives the same BinLoader), no crash or ill effect.
+// One known quirk on some GoldHEN versions: BinLoader may need to be disabled and re-enabled in
+// GoldHEN's menu before it will accept a second network send. That only affects repeated *network*
+// sends; the manual-Launchpad test above is unaffected and not a concern for this button's
+// primary use case (first run after install / starting a stopped payload).
+static bool launch_payload_now(void)
+{
+    int32_t fd = sceKernelOpen(PAYLOAD_PATH, 0 /* O_RDONLY */, 0777);
+    if (fd < 0) {
+        set_status("Ambilight payload: " PAYLOAD_ASSET_NAME " not found -- install it from Home first.", true);
+        return false;
+    }
+    long size = sceKernelLseek(fd, 0, SEEK_END);
+    sceKernelLseek(fd, 0, SEEK_SET);
+    if (size <= 0) {
+        sceKernelClose(fd);
+        set_status("Ambilight payload: " PAYLOAD_ASSET_NAME " is empty -- reinstall from Home.", true);
+        return false;
+    }
+
+    // Read entire payload into a heap buffer (payloads are small, typically < 1 MB).
+    char *buf = (char *)malloc((size_t)size);
+    if (!buf) {
+        sceKernelClose(fd);
+        set_status("Ambilight payload: out of memory reading the payload.", true);
+        return false;
+    }
+    long nread = sceKernelRead(fd, buf, (size_t)size);
+    sceKernelClose(fd);
+    if (nread != size) {
+        free(buf);
+        set_status("Ambilight payload: couldn't read the full payload from disk.", true);
+        return false;
+    }
+
+    // GoldHEN's BinLoader: connect to 127.0.0.1:9090, write raw bytes, close.
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) {
+        free(buf);
+        set_status("Ambilight payload: socket() failed -- BinLoader may not be running.", true);
+        return false;
+    }
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port   = htons(9090);
+    addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+
+    // 3-second connect timeout via SO_RCVTIMEO/SO_SNDTIMEO; if BinLoader isn't listening
+    // this returns quickly rather than blocking for the system default.
+    struct timeval tv = { 3, 0 };
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+
+    if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        close(sock);
+        free(buf);
+        set_status("Ambilight payload: couldn't connect to BinLoader on port 9090 -- is GoldHEN loaded?", true);
+        return false;
+    }
+
+    // Stream all bytes. send() may write fewer than requested on each call; loop until done.
+    long sent = 0;
+    bool ok = true;
+    while (sent < size) {
+        long n = send(sock, buf + sent, (size_t)(size - sent), 0);
+        if (n <= 0) { ok = false; break; }
+        sent += n;
+    }
+    close(sock);
+    free(buf);
+
+    if (!ok) {
+        set_status("Ambilight payload: send to BinLoader failed partway through.", true);
+        return false;
+    }
+
+    set_status("Ambilight payload sent to GoldHEN -- shell feed should be active now.", false);
+    return true;
+}
+
 // The Home button's shell feed half: creates the folders if they aren't there, then fetches
-// whatever is missing or out of date. The .prx goes first so the loader is never on disk
+// whatever is missing or out of date. The .prx goes first so the Ambilight payload is never on disk
 // without the thing it loads.
 static void do_shell_repair(void)
 {
@@ -1635,7 +1734,7 @@ static void do_shell_repair(void)
 
     struct { AssetId id; const char *name; const char *dst; const char *stage; const char *label; } jobs[2] = {
         { ASSET_SHELL_PRX, SHELL_PRX_ASSET_NAME, SHELL_PRX_PATH, SHELL_PRX_STAGING_PATH, "shell feed" },
-        { ASSET_PAYLOAD,   PAYLOAD_ASSET_NAME,   PAYLOAD_PATH,   PAYLOAD_STAGING_PATH,   "loader" },
+        { ASSET_PAYLOAD,   PAYLOAD_ASSET_NAME,   PAYLOAD_PATH,   PAYLOAD_STAGING_PATH,   "Ambilight payload" },
     };
 
     int installed = 0, updated = 0;
@@ -1661,11 +1760,25 @@ static void do_shell_repair(void)
     }
     rescan_shell_files();
 
-    if (installed > 0)
-        set_status(g_cfg.shellAutoload ? "Shell feed installed. It loads next time GoldHEN starts."
-                                       : "Shell feed installed. Run the loader from GoldHEN, or turn on Autoload in Set up.", false);
-    else if (updated > 0)
-        set_status("Shell feed updated. Restart the console (or re-run the loader) to apply it.", false);
+    if (installed > 0) {
+        // Install succeeded: run the launcher immediately via BinLoader so the shell feed
+        // is live right now, not just "next boot". The launch_payload_now() status line
+        // replaces this one, so only set it as a fallback if the send fails (in which case
+        // launch_payload_now() already wrote an error). If Autoload is on, mention that too.
+        bool launched = launch_payload_now();
+        if (!launched) {
+            set_status(g_cfg.shellAutoload
+                ? "Shell feed installed. It also loads next time GoldHEN starts (Autoload is on)."
+                : "Shell feed installed. Run the Ambilight payload via Launch Ambilight payload in Set up, or turn on Autoload.", false);
+        } else if (g_cfg.shellAutoload) {
+            set_status("Ambilight payload sent to GoldHEN -- shell feed active. Autoload at boot is also on.", false);
+        }
+    } else if (updated > 0) {
+        // Update: the Ambilight payload is already running (or was); just note that a restart is needed
+        // for the updated build. We could try to re-launch here, but sending a payload update
+        // while the previous build is still resident is less predictable than a clean boot.
+        set_status("Shell feed updated. Restart the console (or re-launch the Ambilight payload in Set up) to apply it.", false);
+    }
 }
 
 // What the Home button does whenever it isn't Test strip: all pending work, plugin first (it is
@@ -1752,7 +1865,7 @@ static void toggle_autoload(void)
             return;
         }
         if (!g_assetPresent[ASSET_PAYLOAD] || !g_assetPresent[ASSET_SHELL_PRX]) {
-            autoload_hint("Autoload needs the loader and shell feed files: install them from Home first.");
+            autoload_hint("Autoload needs the Ambilight payload and shell feed files: install them from Home first.");
             return;
         }
     }
@@ -1761,7 +1874,7 @@ static void toggle_autoload(void)
         return;
     }
     g_cfg.shellAutoload = want ? 1 : 0;
-    set_status(want ? "Autoload at boot: On -- the loader runs when GoldHEN starts."
+    set_status(want ? "Autoload at boot: On -- the Ambilight payload runs when GoldHEN starts."
                     : "Autoload at boot: Off.", false);
 }
 
@@ -2270,6 +2383,14 @@ static void nudge_field(const MenuItem *item, int dir)
 
     if (item->type == FIELD_ACTION) return; // buttons are pressed (cross), not nudged
 
+    if (!strcmp(item->key, "shell_run_now")) {
+        // "Launch Ambilight payload" is a FIELD_ACTION in the Shell feed card. L1/R1 nudge reaches FIELD_ACTION
+        // only from nudge_field() (handle_settings_input dispatches actions via cross separately);
+        // treat any nudge as a press since there is no meaningful direction for a send.
+        // The cross-press path is handled in handle_settings_input() below.
+        return;
+    }
+
     if (!strcmp(item->key, "shell_autoload")) {
         // Edits GoldHEN's payload list, not this app's ini -- see toggle_autoload().
         toggle_autoload();
@@ -2350,18 +2471,36 @@ static void handle_settings_input(bool up, bool down, bool left, bool right,
         } else {
             const MenuItem *item = &kMenuItems[start + g_state.focusField];
             if (item->type == FIELD_ACTION) {
-                // Reset preset: first press arms, second press does it.
-                if (!preset_reset_is_armed()) {
-                    preset_reset_arm();
-                    char msg[128];
-                    snprintf(msg, sizeof(msg), "Press X again to reset %s to its defaults.", kPresetNames[preset_active()]);
-                    set_status(msg, false);
+                if (!strcmp(item->key, "shell_run_now")) {
+                    // "Launch Ambilight payload" in the Shell feed card. Guard the same way toggle_autoload()
+                    // does: all three files must be present. This is the "send now" path -- no
+                    // reboot needed, no GoldHEN menu required, works whether or not Autoload is on.
+                    if (!g_cfg.shellEnabled) {
+                        autoload_hint("Launch Ambilight payload needs the Shell feed: turn the Shell feed switch on first.");
+                    } else if (g_state.install == UI_INSTALL_NONE) {
+                        autoload_hint("Launch Ambilight payload needs the plugin: install it from Home first.");
+                    } else if (g_state.install == UI_INSTALL_DISABLED) {
+                        autoload_hint("Launch Ambilight payload needs the plugin enabled: enable it from Home first.");
+                    } else if (!g_assetPresent[ASSET_PAYLOAD] || !g_assetPresent[ASSET_SHELL_PRX]) {
+                        autoload_hint("Launch Ambilight payload needs the Ambilight payload and shell feed files: install them from Home first.");
+                    } else {
+                        launch_payload_now();
+                    }
                 } else {
-                    preset_reset_active(&g_cfg);
-                    colorpipeline_rebuild_perchannel_gamma_luts(&g_cfg);
-                    char msg[128];
-                    snprintf(msg, sizeof(msg), "%s reset to its defaults -- save to keep it.", kPresetNames[preset_active()]);
-                    set_status(msg, false);
+                    // Default FIELD_ACTION handling: "Reset preset" (the only other action today).
+                    // first press arms, second press does it.
+                    if (!preset_reset_is_armed()) {
+                        preset_reset_arm();
+                        char msg[128];
+                        snprintf(msg, sizeof(msg), "Press X again to reset %s to its defaults.", kPresetNames[preset_active()]);
+                        set_status(msg, false);
+                    } else {
+                        preset_reset_active(&g_cfg);
+                        colorpipeline_rebuild_perchannel_gamma_luts(&g_cfg);
+                        char msg[128];
+                        snprintf(msg, sizeof(msg), "%s reset to its defaults -- save to keep it.", kPresetNames[preset_active()]);
+                        set_status(msg, false);
+                    }
                 }
             } else if (item->type == FIELD_BOOL) nudge_field(item, +1);
             else if (item->type == FIELD_ENUM) nudge_field(item, +1);

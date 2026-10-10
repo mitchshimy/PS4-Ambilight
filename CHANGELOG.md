@@ -660,6 +660,19 @@ color preview and a plugin self-updater.
   quick start step and Help entries for Test Strip being hidden, Autoload not turning on and the
   strip flickering. The Set up row for **Shell feed** no longer says "Off keeps this app exactly as
   it was", which meant nothing to someone who never saw the earlier app.
+- **Launch Ambilight payload button.** The Shell feed card on Set up has a new **Ambilight payload**
+  row whose button, **Launch Ambilight payload**, sends `ps4-ambilight-900.bin` to GoldHEN's
+  BinLoader (port 9090) so the shell feed starts without a reboot or a trip into GoldHEN's menu,
+  whether or not Autoload at boot is on. It checks the same things as Autoload first (Shell feed
+  on, plugin installed and enabled, payload and `.prx` on the console) and says what is missing.
+  A successful install or repair now sends it too. It is a `ui` row, so it never reaches the ini.
+  Its text said "Reset Game" because every action button was drawn as the preset reset; it now
+  has its own text and icon.
+- **One name for the payload.** Wherever the app, its Help and the docs meant `ps4-ambilight-900.bin`
+  by "loader" or "launcher" they now say **Ambilight payload** (Set up, Home banners, status and
+  hint messages, the download progress line). "Plugin loader" and "BinLoader" are GoldHEN's own and
+  are unchanged. Not yet tried on a console: the button and the new wording
+  ([local-install-testing](docs/development/local-install-testing.md)).
 - **Local update source for testing.** `[dev] update_base_url=http://<pc>:8000` in the ini makes
   every download and its `.sha256` come from that address instead of GitHub; delete the line to go
   back. `tools/serve_local_release.py` serves the three files with their checksums.

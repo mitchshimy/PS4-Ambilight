@@ -254,12 +254,13 @@ shell-related at all.
    setup**.
 2. Back on **Home** a **Shell feed** banner appears next to the plugin's. Press the main button. It
    reads **Install shell feed**, or **Install all (3)** if the plugin isn't installed either. It
-   downloads `ps4_shell_feed.prx` into `/data/ps4-ambilight` and the loader `ps4-ambilight-900.bin`
+   downloads `ps4_shell_feed.prx` into `/data/ps4-ambilight` and the Ambilight payload `ps4-ambilight-900.bin`
    into `/data/payloads` (both folders are created if missing), and checks each file's SHA-256
    before keeping it. The app then reads **Shell feed installed**.
-3. The loader is what puts the shell feed into the console's compositor, so it has to run after
-   GoldHEN loads. Either run it by hand from GoldHEN's **Payloader**, or turn on **Autoload at
-   boot** on **Set up**. That adds the loader to GoldHEN's AutoRun list
+3. The Ambilight payload is what puts the shell feed into the console's compositor, so it has to run after
+   GoldHEN loads. Either run it by hand from GoldHEN's **Payloader**, press **Launch Ambilight payload** on
+   **Set up** (it sends the payload to GoldHEN's BinLoader, no reboot needed), or turn on
+   **Autoload at boot** there. Autoload adds the Ambilight payload to GoldHEN's AutoRun list
    (`/data/GoldHEN/payloads.ini`) and leaves every other line in the file alone. If something goes
    wrong at boot, hold **L1** while GoldHEN loads to skip all AutoRun payloads for that boot
    ([details](shell-feed/docs/loading.md)).
@@ -277,7 +278,7 @@ While the Shell feed switch is on, the app claims the strip whenever Set up, Cus
 Strip is sending, the same way a game does, so the shell feed doesn't send over it. It lets go when
 you leave those screens or press the PS button. To switch the shell feed off, turn the switch off
 and press **Save setup**: it stops, and the files stay installed. Autoload only turns on once the
-plugin, the shell feed and the loader are installed, and pressing it before then tells you which is
+plugin, the shell feed and the Ambilight payload are installed, and pressing it before then tells you which is
 missing.
 
 To try the install flow without publishing a release, serve the files from your PC with
@@ -574,7 +575,7 @@ PS4-Ambilight/
 │   └── Makefile
 ├── common/             # plugin_common.{h,c}: shared GoldHEN plugin helpers this build needs
 ├── shell-feed/         # optional second plugin: lights the strip from the PS4's own screens
-├── payloads/           # ps4-ambilight-900.bin, the loader that puts shell-feed in place
+├── payloads/           # ps4-ambilight-900.bin, the Ambilight payload that puts shell-feed in place
 ├── companion-app/      # standalone PS4 homebrew app: on-console settings UI + live preview
 │   ├── source/, include/, assets/, sce_sys/, sce_module/
 │   ├── tests/           # isolated unit tests for settings, pipeline, layout and the shell feed logic

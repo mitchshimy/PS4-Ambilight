@@ -5,7 +5,7 @@ editing `/data/ps4_ambient_light.ini` through a controller-driven UI,
 with a live color preview against your real WLED light, and for
 installing and updating the plugin binary from your GitHub repo. It can
 also install and keep current the optional shell feed (a second plugin
-plus its loader) that lights the strip outside games; that is off by
+plus its Ambilight payload) that lights the strip outside games; that is off by
 default and the app does nothing shell-related while it is off.
 
 ## Design notes
@@ -62,7 +62,7 @@ default and the app does nothing shell-related while it is off.
   no key) is treated as on, so it never blocks on a guess. Home re-reads it every couple of seconds
   and on returning from the background.
 - **Shell feed (off by default, `[shell] enabled`).** Three files can be pending:
-  `ps4_ambient_light.prx`, `ps4_shell_feed.prx` and the loader
+  `ps4_ambient_light.prx`, `ps4_shell_feed.prx` and the Ambilight payload
   `ps4-ambilight-900.bin`. `install_plan.h` is pure decision logic (no
   console calls) that turns the plugin's state and the shell feed's state into
   the Home banner and what the one button does; Test strip is offered only when
@@ -74,6 +74,11 @@ default and the app does nothing shell-related while it is off.
   ending is kept. It is a `ui`-section row, so it never reaches this app's own
   ini. Pressing it while it can't be turned on puts a hint in the save bar
   (`UiState.settingsHint`), because only Home draws the status line.
+  **Launch Ambilight payload** (the `shell_run_now` action, also a `ui` row) sends
+  `ps4-ambilight-900.bin` to GoldHEN's BinLoader on port 9090 without a reboot, and is guarded the
+  same way as Autoload (Shell feed on, plugin installed and enabled, payload and `.prx` present).
+  A successful install or repair sends it too. In the UI every mention of this file is
+  "Ambilight payload"; "loader" is kept only for GoldHEN's own plugin loader and BinLoader.
 - **Strip claim.** While the Shell feed switch is on (in memory or in the saved
   ini) and the app is sending to the strip, it writes `/data/ps4_ambient_state`
   like a game does (`claim_file.h`), so the shell feed doesn't send at the same
@@ -146,7 +151,7 @@ UI code, for checking a layout change without a console.
 - `source/qrcodegen.c` / `include/qrcodegen.h` -- vendored, unmodified: [Project Nayuki's QR Code generator library](https://github.com/nayuki/QR-Code-generator) (C edition, MIT license)
 - `include/goldhen_config.h` -- reads GoldHEN's "Enable Plugins Loader" value from `/data/GoldHEN/config.ini` (read-only); Home puts it ahead of every other check
 - `include/install_plan.h` -- what Home shows and what its one button does, once the shell feed is part of it (header-only, no console calls)
-- `include/payload_ini.h` -- reads and flips the loader's entry in GoldHEN's payload AutoRun list without touching other lines
+- `include/payload_ini.h` -- reads and flips the Ambilight payload's entry in GoldHEN's payload AutoRun list without touching other lines
 - `include/claim_file.h` -- the `/data/ps4_ambient_state` record and heartbeat the app writes while it drives the strip
 - `include/update_source.h` -- cleans up `[dev] update_base_url`
 - `tests/test_settings.c`, `tests/test_pipeline.c`, `tests/test_display_units.c`, `tests/test_presets.c`, `tests/test_install_plan.c`, `tests/test_goldhen_config.c`, `tests/test_payload_ini.c`, `tests/test_claim_file.c`, `tests/test_shell_settings.c` -- isolation tests; `gcc -Iinclude -o test_x test_x.c source/x.c source/config.c tests/test_sce_stubs.c` to rerun (exact commands in `docs/development/testing.md`; `test_settings` still fails at its `relayHost` check, as it did before the shell feed)

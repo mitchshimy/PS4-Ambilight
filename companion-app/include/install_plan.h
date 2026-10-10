@@ -2,7 +2,7 @@
 // part of the picture. Pure decision logic with no console calls, so
 // tests/test_install_plan.c can check every combination on a PC.
 //
-// Three files can be pending: the plugin, the shell feed's .prx and the loader payload.
+// Three files can be pending: the plugin, the shell feed's .prx and the Ambilight payload.
 // The plugin keeps the states it always had (UiInstallState). The other two are folded
 // into one "Shell feed" unit, because nobody using the app cares which of the two a
 // problem is in -- they get one banner and one state.

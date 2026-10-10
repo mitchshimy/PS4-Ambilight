@@ -81,6 +81,7 @@ static UiIconId icon_for_key(const char *key)
     if (!strcmp(key, "config_reload_check_seconds"))                    return ICON_REFRESH;
     if (!strcmp(key, "enabled"))                                        return ICON_ACTIVITY;   // [shell] enabled
     if (!strcmp(key, "shell_autoload"))                                 return ICON_LOOP;
+    if (!strcmp(key, "shell_run_now"))                                  return ICON_ACTIVITY;
     if (!strcmp(key, "scan_depth"))                                      return ICON_FRAME;
     if (!strcmp(key, "auto_letterbox_enabled"))                          return ICON_FRAME;
     if (!strcmp(key, "auto_letterbox_threshold"))                        return ICON_MOON;
@@ -185,7 +186,7 @@ static const GroupLayout kGroupLayouts[] = {
     { "Preset",              ICON_LEVELS,      {2},    1, 0.0f,  false },
     { "WLED connection",     ICON_WIFI,        {3},    1, 0.0f,  false },
     { "LED strip layout",    ICON_LED_STRIP,   {4,4},  2, 0.0f,  true  },
-    { "Shell feed",          ICON_ACTIVITY,    {2},    1, 0.0f,  false },
+    { "Shell feed",          ICON_ACTIVITY,    {3},    1, 0.0f,  false },
     { "Live reload",         ICON_REFRESH,     {1},    1, 0.0f,  false },
     { "Screen sampling",     ICON_FRAME,       {1},    1, 0.0f,  false },
     { "Auto letterbox",      ICON_FRAME,       {2},    1, 0.0f,  false },
@@ -292,15 +293,18 @@ static int build_group_cards(MenuScreen screen, const AmbientConfig *cfg, int fo
                     field.kind = UI_FIELD_TOGGLE;
                     field.toggleOn = settings_get_i32(cfg, item) != 0;
                 } else if (item->type == FIELD_ACTION) {
-                    // Only action today is the preset reset. Its text says which
-                    // preset it will reset, and what the next press will do.
+                    // Two actions: the Shell feed's "send the Ambilight payload now" button,
+                    // and the preset reset. The reset's text says which preset it will reset,
+                    // and what the next press will do.
                     field.kind = UI_FIELD_BUTTON;
                     field.valueIcon = field.labelIcon;
-                    field.armed = preset_reset_is_armed();
+                    bool isPayloadBtn = !strcmp(item->key, "shell_run_now");
+                    field.armed = isPayloadBtn ? false : preset_reset_is_armed();
                     if (vb->n < 24) {
                         char *d = vb->s[vb->n++];
-                        if (field.armed) snprintf(d, 40, "Press again to confirm");
-                        else             snprintf(d, 40, "Reset %s", kPresetNames[preset_active() % PRESET_COUNT]);
+                        if (isPayloadBtn)       snprintf(d, 40, "Launch Ambilight payload");
+                        else if (field.armed)   snprintf(d, 40, "Press again to confirm");
+                        else                    snprintf(d, 40, "Reset %s", kPresetNames[preset_active() % PRESET_COUNT]);
                         field.value = d;
                     }
                 } else if (item->type == FIELD_ENUM && is_pill_enum(item->key)) {
@@ -410,12 +414,13 @@ static void help_cards_init(UiCard out[HELP_CARD_COUNT])
     out[3] = (UiCard){ COL_CYAN, ICON_LOOP, COL_CYAN, "Shell feed (optional)",
         "Lights the strip from the PS4's own Home screen, Settings and quick "
         "menu while no game is doing it. Turn Shell feed on under Set up, then "
-        "press the button on Home: it installs the shell feed plugin and its "
-        "loader, and later updates or repairs them. Autoload at boot runs the "
-        "loader whenever GoldHEN starts; without it, run the loader from "
-        "GoldHEN's Payloader after each boot. Autoload needs the plugin, the "
-        "shell feed and the loader installed first -- pressing it before then "
-        "tells you what is missing. 9.00 only for now.",
+        "press the button on Home: it installs the shell feed plugin and the "
+        "Ambilight payload, runs the Ambilight payload immediately, and later updates or repairs "
+        "them. Autoload at boot runs the Ambilight payload whenever GoldHEN starts; "
+        "without it, use Launch Ambilight payload in Set up to start it without rebooting -- "
+        "it sends the Ambilight payload straight to GoldHEN's BinLoader (port 9090). "
+        "Autoload and Launch Ambilight payload both need the plugin, the shell feed and the "
+        "Ambilight payload installed first. 9.00 only for now.",
         NULL, 0, -1, NULL, NULL };
 
     out[4] = (UiCard){ COL_CYAN, ICON_HELP, COL_CYAN, "Controls",
@@ -862,11 +867,11 @@ static void plugin_banner_text(PluginLoaderState loader, UiInstallState install,
     }
 }
 
-// "the loader", "ps4_shell_feed.prx" or "the loader and ps4_shell_feed.prx", for a SHELL_BIT_* mask.
+// "the Ambilight payload", "ps4_shell_feed.prx" or "the Ambilight payload and ps4_shell_feed.prx", for a SHELL_BIT_* mask.
 static void shell_file_names(int mask, char *out, size_t n)
 {
-    if ((mask & SHELL_BIT_PAYLOAD) && (mask & SHELL_BIT_PRX)) snprintf(out, n, "the loader and ps4_shell_feed.prx");
-    else if (mask & SHELL_BIT_PAYLOAD)                         snprintf(out, n, "the loader");
+    if ((mask & SHELL_BIT_PAYLOAD) && (mask & SHELL_BIT_PRX)) snprintf(out, n, "the Ambilight payload and ps4_shell_feed.prx");
+    else if (mask & SHELL_BIT_PAYLOAD)                         snprintf(out, n, "the Ambilight payload");
     else                                                       snprintf(out, n, "ps4_shell_feed.prx");
 }
 
@@ -878,7 +883,7 @@ static void shell_banner_text(const UiState *st, const AmbientConfig *cfg, UiCol
         case SHELL_NOT_INSTALLED:
             *accent = COL_TEXT_BODY;
             *title = "Shell feed not installed";
-            snprintf(desc, dn, "Needs the loader and ps4_shell_feed.prx. Press the button to install both.");
+            snprintf(desc, dn, "Needs the Ambilight payload and ps4_shell_feed.prx. Press the button to install both.");
             break;
         case SHELL_INCOMPLETE:
             *accent = COL_WARN;
@@ -897,8 +902,8 @@ static void shell_banner_text(const UiState *st, const AmbientConfig *cfg, UiCol
             *accent = COL_OK;
             *title = "Shell feed installed";
             snprintf(desc, dn, cfg->shellAutoload
-                     ? "Loader and ps4_shell_feed.prx are in place. Autoload at boot is on."
-                     : "Loader and ps4_shell_feed.prx are in place. Autoload is off: run the loader from GoldHEN, or turn it on in Set up.");
+                     ? "Ambilight payload and ps4_shell_feed.prx are in place. Autoload at boot is on."
+                     : "Ambilight payload and ps4_shell_feed.prx are in place. Autoload is off: run the Ambilight payload from GoldHEN, or turn it on in Set up.");
             break;
     }
 }

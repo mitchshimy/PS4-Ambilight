@@ -37,13 +37,15 @@ publishing anything to GitHub, serve them from your PC.
 | Start a game with the loader on | The plugin loads. |
 | Shell feed off (the default) | Home and everything else exactly as before. No requests for the shell files in the server log. |
 | Set up, Shell feed on | Home gets a Shell feed banner on the left. Nothing installed: "Shell feed not installed", button "Install shell feed" (or "Install all (3)" if the plugin is missing too). Test strip is gone. |
-| Press the button | `/data/ps4-ambilight` and `/data/payloads` are created if missing; the `.prx` then the loader are downloaded, checked and moved into place; Test strip comes back. Other files in `/data/payloads` are untouched. |
+| Press the button | `/data/ps4-ambilight` and `/data/payloads` are created if missing; the `.prx` then the Ambilight payload are downloaded, checked and moved into place; Test strip comes back. Other files in `/data/payloads` are untouched. |
 | Delete `/data/ps4-ambilight/ps4_shell_feed.prx` over FTP, go to Home | "Shell feed needs repair", button "Repair shell feed", Test strip hidden. |
 | Leave the folder empty | Same: Test strip is never offered while a file is missing. |
 | Rebuild one file and restart the server | "Update available" for that file only; the button names it. Two or three files: "Update all (n)". |
 | Stop the server | Nothing is reported as an update (can't tell); installed files still count as installed. |
 | Set up, Autoload at boot on, then open `/data/GoldHEN/payloads.ini` | `/user/data/payloads/ps4-ambilight-900.bin = 1` under `[AutoRun]`, other lines unchanged. Off sets it to `= 0`. |
-| Press Autoload at boot while Shell feed is off, the plugin or the loader is missing | The save bar shows what to do first (amber, replacing "Changes apply after saving."); the next button press clears it. Home's status line is unchanged. |
+| Press Autoload at boot while Shell feed is off, the plugin or the Ambilight payload is missing | The save bar shows what to do first (amber, replacing "Changes apply after saving."); the next button press clears it. Home's status line is unchanged. |
+| Set up, press **Launch Ambilight payload** (Shell feed card) with everything installed | The button reads "Launch Ambilight payload" (not "Reset ..."). The status says the Ambilight payload was sent to GoldHEN and the shell feed lights the strip without a reboot. Pressing it again while it runs is harmless. |
+| Press **Launch Ambilight payload** with the Shell feed off, the plugin missing or disabled, or a file missing | The save bar says what to fix first; nothing is sent. |
 | Turn Shell feed off in Set up (don't save yet) with the shell feed running | The strip doesn't flicker; it stays claimed until you press Save (or quit). |
 | Press the PS button while on Set up, Customization or Test strip | The app stops sending and `/data/ps4_ambient_state` goes to `fg=0`; the strip is free. Coming back to the app resumes both. The log prints `[main] backgrounded` / `foregrounded`. |
 | Open Set up or Test strip with the shell feed running | The strip no longer flickers. `/data/ps4_ambient_state` reads `fg=1 ... title=COMPANION` while the app is sending and `fg=0` after. |

@@ -54,8 +54,8 @@ straight to WLED (Test Strip) so you can check wiring before starting a game, an
 installs or updates the plugin `.prx` from the GitHub releases.
 
 It can also install the optional shell feed (`shell-feed/`, a second plugin that
-lights the strip from the PS4's own screens) and its loader, and turn on the
-loader's autoload. That is off by default (`[shell] enabled`). While it is on, the
+lights the strip from the PS4's own screens) and its Ambilight payload, and turn on the
+payload's autoload. That is off by default (`[shell] enabled`). While it is on, the
 app writes the same `/data/ps4_ambient_state` file a game does whenever it is
 sending to the strip, so the shell feed stays quiet instead of fighting the live
 preview. See [shell-feed-coordination](development/shell-feed-coordination.md).

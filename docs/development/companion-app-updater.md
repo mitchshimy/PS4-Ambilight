@@ -52,9 +52,9 @@ as Options) and the person ticks the switch themselves.
 
 With **Shell feed** on in Set up, the same machinery handles two more files, so Home
 can show one banner and one button for all three: `ps4_shell_feed.prx` (into
-`/data/ps4-ambilight`) and the loader `ps4-ambilight-900.bin` (into `/data/payloads`).
+`/data/ps4-ambilight`) and the Ambilight payload `ps4-ambilight-900.bin` (into `/data/payloads`).
 Each is resolved by name with its `.sha256`, downloaded to a staging file, hashed
-against the published checksum and renamed into place. The loader stages next to the
+against the published checksum and renamed into place. The Ambilight payload stages next to the
 `.prx`, not in `/data/payloads`, so a failed download never leaves a half-written file
 in a folder payload menus list. The `.prx` goes first. Whether a file counts as an
 update is the same check as the plugin's: the on-disk file's SHA-256 against the
