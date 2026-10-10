@@ -20,6 +20,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@main
 
+      # payloads/CHECKSUMS.md is what people verify ps4-ambilight-900.bin against, and the
+      # release attaches that binary. Fail here, on every push, if the binary was replaced
+      # without the page. Fix: sh tools/update_payload_checksum.sh, then commit both.
+      - name: Check payloads/CHECKSUMS.md matches the Ambilight payload
+        run: sh tools/update_payload_checksum.sh --check
+
       # On a tag push, the tag has to name the version the plugin says it
       # is, so tagging v3.5.0 can't ship a plugin that still reports 3.4.
       # g_pluginVersion in plugin/source/hooks.c is 0xMMmm (0x0304 = 3.4),
@@ -254,12 +260,15 @@ jobs:
     permissions:
       contents: write
     steps:
-      # Only for payloads/: the Ambilight payload (ps4-ambilight-900.bin) is a committed binary,
-      # not a build output, so the release takes it from the tagged commit.
-      - name: Checkout (payloads only)
+      # Only for payloads/ and the script that checks it: the Ambilight payload
+      # (ps4-ambilight-900.bin) is a committed binary, not a build output, so the release takes
+      # it from the tagged commit.
+      - name: Checkout (payloads and tools only)
         uses: actions/checkout@main
         with:
-          sparse-checkout: payloads
+          sparse-checkout: |
+            payloads
+            tools
           sparse-checkout-cone-mode: true
 
       - name: Download plugin (Release)
@@ -301,25 +310,15 @@ jobs:
       # The Ambilight payload (payloads/ps4-ambilight-900.bin). The companion app's Shell feed
       # install fetches it, and its ".sha256" sidecar, by exactly these names from the latest
       # release, and refuses the file if the two disagree. The sidecar is made from the file
-      # being attached, and the file must also match the hash payloads/CHECKSUMS.md documents,
-      # so a binary replaced without updating that page fails the release instead of shipping.
+      # being attached. build_prx already ran this check on the push; running it again on the
+      # tagged commit means a binary changed without payloads/CHECKSUMS.md can't ship.
       - name: Verify and checksum the Ambilight payload
-        working-directory: payloads
         run: |
           set -eu
-          name=ps4-ambilight-900.bin
-          want=$(sed -n "s/^\([0-9a-f]\{64\}\)  $name\$/\1/p" CHECKSUMS.md | head -n1)
-          if [ -z "$want" ]; then
-            echo "::error::no 'sha256  $name' line in payloads/CHECKSUMS.md"
-            exit 1
-          fi
-          have=$(sha256sum "$name" | cut -d' ' -f1)
-          if [ "$have" != "$want" ]; then
-            echo "::error::$name is $have but payloads/CHECKSUMS.md says $want. Update CHECKSUMS.md with the binary, or restore the binary."
-            exit 1
-          fi
-          sha256sum "$name" > "$name.sha256"
-          cat "$name.sha256"
+          sh tools/update_payload_checksum.sh --check
+          cd payloads
+          sha256sum ps4-ambilight-900.bin > ps4-ambilight-900.bin.sha256
+          cat ps4-ambilight-900.bin.sha256
 
       # A tag like v3.9.4-rc1 passes the build_prx version check (see its
       # comment) but must never become the release that "latest" resolves

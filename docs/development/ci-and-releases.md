@@ -28,11 +28,17 @@ names on the latest release, see [companion-app-updater](companion-app-updater.m
 rename any of them, the updater and the Shell feed install break. The `.sha256` files are plain
 `sha256sum` output, made from the very file being attached, so the two can't disagree.
 
-The Ambilight payload is not a build output. The `publish` job checks out `payloads/` at the
-tagged commit, and the step "Verify and checksum the Ambilight payload" refuses to release
-unless the binary's SHA-256 equals the one in `payloads/CHECKSUMS.md`. So when
-`ps4-ambilight-900.bin` is replaced, `CHECKSUMS.md` has to change in the same commit, or the
-tag fails with an error naming both hashes (and no release is created).
+The Ambilight payload is not a build output. The `publish` job checks out `payloads/` (and
+`tools/`) at the tagged commit and attaches the binary as it is there. Two steps guard it, both
+running `tools/update_payload_checksum.sh --check`: `build_prx` runs it on every push, and the
+publish step "Verify and checksum the Ambilight payload" runs it again before releasing. Either
+fails, naming the file's hash and size next to the ones in `payloads/CHECKSUMS.md`, if the binary
+was replaced without the page.
+
+When you replace `payloads/ps4-ambilight-900.bin`, run `sh tools/update_payload_checksum.sh`. It
+rewrites the hash in the `sha256sum -c` block and the size and hash in the table row from the file,
+and nothing else. Edit the table's note about the build by hand, then commit the binary and
+`CHECKSUMS.md` together. See [tools](tools.md#update_payload_checksumsh).
 
 The release is its own job so that the two builds can run in parallel without
 racing each other to create the same release. Only `publish` touches

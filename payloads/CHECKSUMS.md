@@ -22,6 +22,10 @@ SUMS
 |---|---|---|---|
 | `ps4-ambilight-900.bin` | 14,264 | `5c922cd7d8cb83c5d5b294625566f5b32d0cec1aea3e8e0eac8798cc6c83b272` | Targets `GnmCompositor` by prefix match, tries `ps4_shell_feed.prx` then falls back to `shell_probe.sprx`, no re-injection, mounts never torn down. 9.00 only -- see `shell-feed/docs/support-matrix.md`. Previous build (14,072 bytes, `a1e996d...`) superseded. |
 
+After replacing the binary, run `sh tools/update_payload_checksum.sh` from the repo root: it
+rewrites the hash and size above from the file (the note is yours to edit), and CI fails if they
+disagree. `sh tools/update_payload_checksum.sh --check` only reports.
+
 If you need to rebuild this binary yourself (e.g. to point it at a
 different SPRX path), the buildable source is in the research repo's
 `loader/` directory, not this one.

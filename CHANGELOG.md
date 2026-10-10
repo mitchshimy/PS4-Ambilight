@@ -689,6 +689,11 @@ color preview and a plugin self-updater.
   `tests/test_settings.c` no longer fails at the `relayHost` round trip: the test was stale (the app
   has kept `relay_*` keys only when the file already has them since `a4c154c`), so it now seeds
   the file and also checks that a fresh save adds none. No app behaviour changed.
+- **`tools/update_payload_checksum.sh` keeps `payloads/CHECKSUMS.md` current.** After replacing
+  `payloads/ps4-ambilight-900.bin`, run it and it rewrites the hash and size on that page from the
+  file (the note about the build stays yours); `--check` only reports. CI runs `--check` on every
+  push, not only on a tag, so a binary changed without the page fails straight away rather than
+  at release time. The publish job uses the same script instead of its own copy of the check.
 - **Local update source for testing.** `[dev] update_base_url=http://<pc>:8000` in the ini makes
   every download and its `.sha256` come from that address instead of GitHub; delete the line to go
   back. `tools/serve_local_release.py` serves the three files with their checksums.

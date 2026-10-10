@@ -16,6 +16,7 @@ misbehaves.
 | `test_pq8bit_vote.c` | host test for the alpha byte vote that spots 8-bit ARGB under `0x88740000` |
 | `test_hdr2200_vote.c` | host test for the alpha byte vote that picks HDR or SDR under `0x80002200` |
 | `test_smoothing.c` | host test that `smoothing.h` (shared by the plugin and shell-feed) is bit-identical to the smoothing code it replaced |
+| `update_payload_checksum.sh` | rewrite the hash and size in `payloads/CHECKSUMS.md` from `payloads/ps4-ambilight-900.bin`; `--check` only reports, and CI runs it |
 | `data/hdr2200_frames.csv` | real 8-word frames from HITMAN 3 and RDR2, the recorded input for that test |
 
 ## flicker_capture.py
@@ -289,3 +290,19 @@ pass:
 It can't show that a real console lets the compositor's own process (not a game process) read
 `/data`, or how a reader in another process actually behaves under real polling timing. See
 [shell-feed-coordination](shell-feed-coordination.md).
+
+## update_payload_checksum.sh
+
+Keeps `payloads/CHECKSUMS.md` in step with the Ambilight payload,
+`payloads/ps4-ambilight-900.bin`. Run it from anywhere in the repo after replacing the binary:
+
+```
+sh tools/update_payload_checksum.sh           # rewrite the hash and size from the file
+sh tools/update_payload_checksum.sh --check   # change nothing, exit 1 if the page is stale
+```
+
+It touches three things: the hash in the `sha256sum -c` block, and the size and hash in the
+table row. The row's note about which build it is stays as you wrote it. It prints what it
+changed, and exits 2 if the page no longer has the block or the row it looks for. Needs `sh`,
+`sed`, `wc` and `sha256sum` (or `shasum`), so it also runs in Git Bash. CI runs `--check` on every
+push and again before a release is published, see [ci-and-releases](ci-and-releases.md).
