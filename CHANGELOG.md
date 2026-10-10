@@ -682,6 +682,13 @@ color preview and a plugin self-updater.
   has seven files now: two `.prx`, the `.bin`, their three `.sha256` files and the `.pkg`.
   `docs/development/ci-and-releases.md` is updated, and now says that `-rc` tags are allowed
   (they publish as pre-releases).
+- **Fixed: the Ambilight payload button's text is tested.** The button text now comes from one
+  function, `settings_action_text()`, instead of the drawing code, and a new
+  `tests/test_action_buttons.c` fails if any action button lacks its own text, if one other than
+  the preset reset says "Reset", or if the menu says loader or launcher for the payload.
+  `tests/test_settings.c` no longer fails at the `relayHost` round trip: the test was stale (the app
+  has kept `relay_*` keys only when the file already has them since `a4c154c`), so it now seeds
+  the file and also checks that a fresh save adds none. No app behaviour changed.
 - **Local update source for testing.** `[dev] update_base_url=http://<pc>:8000` in the ini makes
   every download and its `.sha256` come from that address instead of GitHub; delete the line to go
   back. `tools/serve_local_release.py` serves the three files with their checksums.

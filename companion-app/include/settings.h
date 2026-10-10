@@ -100,6 +100,15 @@ bool settings_save(const AmbientConfig *cfg, const char *path);
 // shortcut -- and not text or button rows). Setup values are never preset-owned.
 bool settings_item_is_preset_owned(const MenuItem *item);
 
+// The text on a FIELD_ACTION button (what the UI draws inside it). Kept here, away from the
+// drawing code, so a PC test can check every button. Returns false for an action key it does not
+// know, and the caller then falls back to the row's own label: a new action must never inherit
+// another button's text (the payload button once read "Reset Game" because every action was
+// drawn as the preset reset). `resetArmed` only matters for "preset_reset"; `presetIndex` is the
+// active preset (Game or Movie), used by it too.
+bool settings_action_text(const MenuItem *item, bool resetArmed, int presetIndex,
+                          char *out, size_t outSize);
+
 // Puts the setup keys (and, if `presetKeys`, the flat preset-owned keys too) into
 // `table`, which should already hold the current file so unknown sections survive.
 // With presetKeys == false the preset-owned keys are REMOVED from their old flat

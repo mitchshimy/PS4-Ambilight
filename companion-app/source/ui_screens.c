@@ -294,17 +294,17 @@ static int build_group_cards(MenuScreen screen, const AmbientConfig *cfg, int fo
                     field.toggleOn = settings_get_i32(cfg, item) != 0;
                 } else if (item->type == FIELD_ACTION) {
                     // Two actions: the Shell feed's "send the Ambilight payload now" button,
-                    // and the preset reset. The reset's text says which preset it will reset,
-                    // and what the next press will do.
+                    // and the preset reset (its text says which preset it will reset, and what
+                    // the next press will do). The text comes from settings_action_text(), which
+                    // tests/test_action_buttons.c checks; an action it doesn't know shows its
+                    // own label rather than borrowing another button's text.
                     field.kind = UI_FIELD_BUTTON;
                     field.valueIcon = field.labelIcon;
-                    bool isPayloadBtn = !strcmp(item->key, "shell_run_now");
-                    field.armed = isPayloadBtn ? false : preset_reset_is_armed();
+                    field.armed = !strcmp(item->key, "preset_reset") && preset_reset_is_armed();
                     if (vb->n < 24) {
                         char *d = vb->s[vb->n++];
-                        if (isPayloadBtn)       snprintf(d, 40, "Launch Ambilight payload");
-                        else if (field.armed)   snprintf(d, 40, "Press again to confirm");
-                        else                    snprintf(d, 40, "Reset %s", kPresetNames[preset_active() % PRESET_COUNT]);
+                        if (!settings_action_text(item, preset_reset_is_armed(), preset_active(), d, 40))
+                            snprintf(d, 40, "%s", item->label);
                         field.value = d;
                     }
                 } else if (item->type == FIELD_ENUM && is_pill_enum(item->key)) {

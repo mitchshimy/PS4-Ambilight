@@ -41,8 +41,16 @@ int main(void) {
     cfg1.smoothingEnabled = 1;
     cfg1.ledOffset = -12;
     strcpy(cfg1.relayHost, "10.0.0.99");
+    FILE *f;
     cfg1.relayPort = 9999;
     cfg1.relaySignalEnabled = 1;
+    // The relay_* keys have no UI row and settings_save only writes them back when the file
+    // already has them (a hand-added relay setup is kept, a fresh ini never grows one). So seed
+    // the file with all three, from scratch each run, and check the new values replace them.
+    remove("/tmp/test_ambient2.ini");
+    f = fopen("/tmp/test_ambient2.ini", "w");
+    fprintf(f, "[network]\nrelay_host=10.0.0.1\nrelay_port=1111\nrelay_signal_enabled=false\n");
+    fclose(f);
     assert(settings_save(&cfg1, "/tmp/test_ambient2.ini"));
 
     AmbientConfig cfg3;
@@ -61,8 +69,22 @@ int main(void) {
     assert(cfg3.relaySignalEnabled == 1);
     printf("Round-trip with modified values: PASSED\n");
 
+    // A fresh ini must not grow relay_* keys just because the app saved it.
+    remove("/tmp/test_ambient3.ini");
+    assert(settings_save(&cfg1, "/tmp/test_ambient3.ini"));
+    {
+        FILE *g = fopen("/tmp/test_ambient3.ini", "r");
+        assert(g);
+        char text[16384]; size_t n = fread(text, 1, sizeof(text) - 1, g); text[n] = 0; fclose(g);
+        assert(strstr(text, "relay_host") == NULL);
+        assert(strstr(text, "relay_port") == NULL);
+        assert(strstr(text, "relay_signal_enabled") == NULL);
+        assert(strstr(text, "wled_host") != NULL); // sanity: the file did get written
+    }
+    printf("Fresh save adds no relay keys: PASSED\n");
+
     // partial ini (only network section) -- everything else should be default
-    FILE *f = fopen("/tmp/test_partial.ini", "w");
+    f = fopen("/tmp/test_partial.ini", "w");
     fprintf(f, "[network]\nwled_host=1.2.3.4\nwled_port=1234\n");
     fclose(f);
     AmbientConfig cfg4;

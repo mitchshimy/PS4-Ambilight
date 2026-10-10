@@ -70,7 +70,8 @@ an `mprotect` instead is not something a fake kernel can tell you about another 
 
 | File | Checks |
 |---|---|
-| `test_settings.c` | menu item count, ini save and load round trip |
+| `test_settings.c` | menu item count, ini save and load round trip, the `relay_*` keys kept only when the file already had them |
+| `test_action_buttons.c` | every `FIELD_ACTION` button has its own text (`Launch Ambilight payload`, `Reset Game`/`Movie`, `Press again to confirm`), none but the preset reset says "Reset", an unknown action is refused, and the menu says "Ambilight payload" rather than loader or launcher |
 | `test_shell_settings.c` | `[shell] enabled` round trip, other sections (`[dev] update_base_url`, `[compat]`, unknown `[shell]` keys) surviving a save, the autoload row never reaching the ini, the two Set up rows' place and card, `[dev] update_base_url` cleanup |
 | `test_install_plan.c` | every combination of plugin state and shell feed state: banner state, what the Home button does and says, and that Test strip is offered only when nothing is pending |
 | `test_claim_file.c` | the companion's `/data/ps4_ambient_state` record byte for byte against the plugin's real `state_format()`, and the heartbeat on a simulated clock (start, 1 s beats, stop, failed writes, wrap) |
@@ -114,16 +115,19 @@ gcc -Wall -Wextra -Iinclude -o /tmp/test_goldhen_config tests/test_goldhen_confi
 gcc -Wall -Wextra -Iinclude -I../plugin/include -o /tmp/test_claim_file tests/test_claim_file.c && /tmp/test_claim_file
 gcc -w -I. -Iinclude -I../plugin/include -I/tmp/stub -o /tmp/test_shell_settings tests/test_shell_settings.c \
     source/settings.c source/presets.c source/config.c tests/test_sce_stubs.c && /tmp/test_shell_settings
+gcc -w -I. -Iinclude -I../plugin/include -I/tmp/stub -o /tmp/test_action_buttons tests/test_action_buttons.c \
+    source/settings.c source/presets.c source/config.c tests/test_sce_stubs.c && /tmp/test_action_buttons
 ```
 
 `tools/ui_preview.sh` renders Home and Set up to PNG with the app's real UI code (no console, no SDL), for
 checking a layout change by eye. Compared against the code before the shell feed, Home with the
 Shell feed off is byte for byte identical.
 
-Current state: `test_display_units`, `test_pipeline`, `test_layout`, `test_sha256` and
-`test_presets` pass, and so do the four new ones above. `test_settings` still fails at the `relayHost` round trip. That failure
-predates the current work and is noted in the changelog. Its menu item assert
-is 35 (33 plus the two Shell feed rows on Set up; it was a stale 31 before the Preset card rows).
+Current state: every test above passes, `test_settings` included. It used to fail at the
+`relayHost` round trip because the test saved to a fresh file and expected `relay_*` keys the
+app deliberately doesn't write unless the file already has them; it now seeds the file first and
+checks a fresh save adds none. Its menu item assert is 36 (33, plus the two Shell feed rows and the
+Ambilight payload button on Set up).
 
 CI doesn't run these, see [ci-and-releases](ci-and-releases.md). Nothing in the
 workflow calls them, so run them yourself before a release if you touched `settings.c`,

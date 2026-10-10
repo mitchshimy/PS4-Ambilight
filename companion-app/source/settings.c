@@ -381,6 +381,22 @@ bool settings_load(AmbientConfig *cfg, const char *path)
     return true;
 }
 
+bool settings_action_text(const MenuItem *item, bool resetArmed, int presetIndex,
+                          char *out, size_t outSize)
+{
+    if (!item || item->type != FIELD_ACTION || !out || outSize == 0) return false;
+    if (!strcmp(item->key, "shell_run_now")) {
+        snprintf(out, outSize, "Launch Ambilight payload");
+        return true;
+    }
+    if (!strcmp(item->key, "preset_reset")) {
+        if (resetArmed) snprintf(out, outSize, "Press again to confirm");
+        else            snprintf(out, outSize, "Reset %s", kPresetNames[(unsigned)presetIndex % PRESET_COUNT]);
+        return true;
+    }
+    return false;
+}
+
 bool settings_item_is_preset_owned(const MenuItem *item)
 {
     return item->screen == MENU_SCREEN_CUSTOMIZE && strcmp(item->section, "ui") != 0
