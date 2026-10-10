@@ -20,7 +20,13 @@ Rem <ft2build.h> resolves.
 Rem ============================================================
 
 set PKG_TITLE="PS4 Ambilight"
-set PKG_VERSION="1.00"
+Rem The version is the one line in include/app_version.h (shown on Help, used for APP_VER and VERSION).
+Rem findstr picks that line, and token 3 is the quoted value, e.g. "1.00", the same shape as before.
+for /f "tokens=3" %%v in ('findstr /b /c:"#define APP_VERSION" include\app_version.h') do set PKG_VERSION=%%v
+if not defined PKG_VERSION (
+    echo ERROR: no #define APP_VERSION line in include\app_version.h
+    exit /b 1
+)
 set PKG_ASSETS="assets"
 set PKG_TITLE_ID="SHMY00091"
 set PKG_CONTENT_ID="IV0000-SHMY00091_00-PS4AMBILIGHT0000"

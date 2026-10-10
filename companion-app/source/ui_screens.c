@@ -6,6 +6,7 @@
 // /data/ps4_ambient_light.ini.
 
 #include "ui_screens.h"
+#include "app_version.h"
 #include "ui_widgets.h"
 #include "ui_icons.h"
 #include "led_frame.h"
@@ -467,7 +468,7 @@ static void render_help_screen(UiCanvas *c, const UiFonts *f, const UiState *st)
 {
     ui_draw_scene(c);
     ui_page_header(c, f, "Help",
-        "Setup steps, controls and fixes for common problems, in one place.");
+        "Setup steps, controls and fixes for common problems, in one place. App version " APP_VERSION ".");
 
     UiCard cards[HELP_CARD_COUNT];
     help_cards_init(cards);

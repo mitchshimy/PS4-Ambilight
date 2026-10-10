@@ -216,10 +216,15 @@ jobs:
         run: |
           "$OO_PS4_TOOLCHAIN/bin/linux/create-fself" -in build/eboot.elf --out build/eboot.oelf --eboot eboot.bin --paid 0x3800000000000011
 
+          # The version comes from the one line in include/app_version.h (also shown on Help).
+          APP_VERSION=$(sed -n 's/^#define APP_VERSION "\([0-9.]*\)".*/\1/p' include/app_version.h)
+          if [ -z "$APP_VERSION" ]; then echo "::error::no '#define APP_VERSION \"N.NN\"' line in companion-app/include/app_version.h"; exit 1; fi
+          echo "Package version $APP_VERSION"
+
           PT="$OO_PS4_TOOLCHAIN/bin/linux/PkgTool.Core"
           "$PT" sfo_new sce_sys/param.sfo
           "$PT" sfo_setentry sce_sys/param.sfo APP_TYPE --type Integer --maxsize 4 --value 1
-          "$PT" sfo_setentry sce_sys/param.sfo APP_VER --type Utf8 --maxsize 8 --value "1.00"
+          "$PT" sfo_setentry sce_sys/param.sfo APP_VER --type Utf8 --maxsize 8 --value "$APP_VERSION"
           "$PT" sfo_setentry sce_sys/param.sfo ATTRIBUTE --type Integer --maxsize 4 --value 2
           "$PT" sfo_setentry sce_sys/param.sfo CATEGORY --type Utf8 --maxsize 4 --value "gd"
           "$PT" sfo_setentry sce_sys/param.sfo CONTENT_ID --type Utf8 --maxsize 48 --value "IV0000-SHMY00091_00-PS4AMBILIGHT0000"
@@ -227,7 +232,7 @@ jobs:
           "$PT" sfo_setentry sce_sys/param.sfo SYSTEM_VER --type Integer --maxsize 4 --value 0
           "$PT" sfo_setentry sce_sys/param.sfo TITLE --type Utf8 --maxsize 128 --value "PS4 Ambilight"
           "$PT" sfo_setentry sce_sys/param.sfo TITLE_ID --type Utf8 --maxsize 12 --value "SHMY00091"
-          "$PT" sfo_setentry sce_sys/param.sfo VERSION --type Utf8 --maxsize 8 --value "1.00"
+          "$PT" sfo_setentry sce_sys/param.sfo VERSION --type Utf8 --maxsize 8 --value "$APP_VERSION"
 
       - name: Build package
         working-directory: companion-app

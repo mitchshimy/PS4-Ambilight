@@ -141,6 +141,7 @@ UI code, for checking a layout change without a console.
 
 - `source/main.c` -- app entry, SDL2 UI, controller nav, HTTP self-update
 - `source/text_render.c` / `include/text_render.h` -- FreeType-based text rendering (not SDL2_ttf)
+- `include/app_version.h` -- `APP_VERSION`, the one place the app's version lives (Help screen, and `APP_VER` / `VERSION` in the package, read by CI and `build.bat`)
 - `source/settings.c` / `include/settings.h` -- ini schema + load/save
 - `source/color_pipeline.c` / `include/color_pipeline.h` -- live preview math (mirrors the plugin)
 - `source/ddp.c` / `include/ddp.h` -- WLED UDP sender (mirrors the plugin)
@@ -154,5 +155,5 @@ UI code, for checking a layout change without a console.
 - `include/payload_ini.h` -- reads and flips the Ambilight payload's entry in GoldHEN's payload AutoRun list without touching other lines
 - `include/claim_file.h` -- the `/data/ps4_ambient_state` record and heartbeat the app writes while it drives the strip
 - `include/update_source.h` -- cleans up `[dev] update_base_url`
-- `tests/test_settings.c`, `tests/test_pipeline.c`, `tests/test_display_units.c`, `tests/test_presets.c`, `tests/test_install_plan.c`, `tests/test_goldhen_config.c`, `tests/test_payload_ini.c`, `tests/test_claim_file.c`, `tests/test_shell_settings.c`, `tests/test_action_buttons.c` -- isolation tests; `gcc -Iinclude -o test_x test_x.c source/x.c source/config.c tests/test_sce_stubs.c` to rerun (exact commands in `docs/development/testing.md`; `test_settings` still fails at its `relayHost` check, as it did before the shell feed)
+- `tests/test_settings.c`, `tests/test_pipeline.c`, `tests/test_display_units.c`, `tests/test_presets.c`, `tests/test_install_plan.c`, `tests/test_goldhen_config.c`, `tests/test_payload_ini.c`, `tests/test_claim_file.c`, `tests/test_shell_settings.c`, `tests/test_action_buttons.c`, `tests/test_app_version.c` -- isolation tests; `gcc -Iinclude -o test_x test_x.c source/x.c source/config.c tests/test_sce_stubs.c` to rerun (exact commands in `docs/development/testing.md`; `test_settings` still fails at its `relayHost` check, as it did before the shell feed)
 - `tools/ui_preview.c` / `tools/ui_preview.sh` -- renders the UI to PNG on a PC

@@ -116,6 +116,10 @@ CI quirk.
    The value is `0xMMmm`, major in the high byte and minor in the low one, so v3.5
    is `0x00000305`. (Before v3.1 the number was an internal counter, `0x212` for
    v2.7.2, and it sat at that value through v3.0. That is why the check below exists.)
+   If the companion app changed too, bump `APP_VERSION` in `companion-app/include/app_version.h`.
+   It is the only place the app's version lives: the Help screen shows it, and CI and `build.bat`
+   both read it for the package's `APP_VER` and `VERSION`. It is separate from the plugin's version
+   and from the tag.
 2. Commit and push.
 3. Tag it and push the tag:
    ```

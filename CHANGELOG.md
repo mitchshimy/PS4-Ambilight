@@ -694,6 +694,13 @@ color preview and a plugin self-updater.
   file (the note about the build stays yours); `--check` only reports. CI runs `--check` on every
   push, not only on a tag, so a binary changed without the page fails straight away rather than
   at release time. The publish job uses the same script instead of its own copy of the check.
+- **The companion app has a version.** `companion-app/include/app_version.h` holds `APP_VERSION`
+  (still 1.00) as the one place it lives. The Help screen now says "App version 1.00" under its
+  title, and the package's `APP_VER` and `VERSION` are read from that line by both CI and
+  `build.bat` instead of being typed into each (CI fails the build if the line is missing).
+  Bump it when the app changes; `docs/development/ci-and-releases.md` lists it in "Cutting a
+  release". `tests/test_app_version.c` keeps its form right. Not yet run: a real CI package
+  build and `build.bat` on Windows with the new lookup.
 - **Local update source for testing.** `[dev] update_base_url=http://<pc>:8000` in the ini makes
   every download and its `.sha256` come from that address instead of GitHub; delete the line to go
   back. `tools/serve_local_release.py` serves the three files with their checksums.
