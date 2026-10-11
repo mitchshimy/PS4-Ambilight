@@ -45,4 +45,5 @@ on the Stage D build looked right on the strip and ran a full game with clean
 handoffs (person report plus capture, see `docs/findings.md`). The rest-mode
 result is still a person report: the serial log goes dark in rest.
 
-**Firmware:** 9.00 only. See `docs/support-matrix.md`.
+**Firmware:** the Ambilight payload carries offsets for several firmwares; only 9.00 is confirmed
+on a console so far. See `docs/support-matrix.md`.

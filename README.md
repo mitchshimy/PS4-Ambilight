@@ -503,7 +503,8 @@ screen and Settings instead. See
 [`docs/development/shell-feed-coordination.md`](docs/development/shell-feed-coordination.md) for
 the handoff protocol, including how the companion app claims the strip while it is sending, and
 [`shell-feed/README.md`](shell-feed/README.md) for that module itself,
-including its current build/hardware status and its own, narrower support matrix (9.00 only, see
+including its current build/hardware status and its own, narrower support matrix (built for
+several firmwares, only 9.00 confirmed on a console so far -- see
 [`shell-feed/docs/support-matrix.md`](shell-feed/docs/support-matrix.md)).
 
 **Debugging.** `tools/` has the capture and decode scripts. A debug plugin build (`make DEBUG=1`)

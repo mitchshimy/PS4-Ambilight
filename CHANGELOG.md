@@ -735,6 +735,19 @@ color preview and a plugin self-updater.
   update check, a plugin install, a shell feed install, Launch Ambilight payload and autoload on a
   console. Since the functions are no longer `static`, a link error about a duplicate symbol, if CI
   reports one, would be a name that clashes with one in the SDK.
+- **The Ambilight payload now carries offsets for several firmwares.** Replaces the single-firmware
+  build (`payloads/ps4-ambilight.bin`, 24,000 bytes now, was 22,816): it picks the right firmware's
+  offsets at runtime instead of only knowing 9.00, and refuses cleanly on a firmware it doesn't
+  recognise (writes `PLUGIN_DIR/unsupported_fw`, touches nothing else). Offsets are complete for
+  5.05 through 12.02; **only 9.00 is confirmed on a real console so far**, the rest are untested.
+  12.50 and up aren't supported yet (missing kernel offsets for those). Re-sending the payload to
+  an already-running console was tried deliberately on 9.00, to check the fallback path refuses
+  rather than re-injecting or crashing -- it did.
+  `shell-feed/docs/support-matrix.md` has the full per-firmware table (from the offset work in the
+  research repo, `ps4-shell-capture-research`). `payloads/CHECKSUMS.md`, the top-level README,
+  `shell-feed/README.md` and the companion app's Help screen no longer say "9.00 only"; they now
+  say which part is confirmed and point to the matrix for the rest. No code in this repo changed
+  the firmware-detection or offset logic -- that's the payload's own binary, built elsewhere.
 - **Local update source for testing.** `[dev] update_base_url=http://<pc>:8000` in the ini makes
   every download and its `.sha256` come from that address instead of GitHub; delete the line to go
   back. `tools/serve_local_release.py` serves the three files with their checksums.

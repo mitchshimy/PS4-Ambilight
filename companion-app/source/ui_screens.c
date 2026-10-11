@@ -421,7 +421,9 @@ static void help_cards_init(UiCard out[HELP_CARD_COUNT])
         "without it, use Launch Ambilight payload in Set up to start it without rebooting -- "
         "it sends the Ambilight payload straight to GoldHEN's BinLoader (port 9090). "
         "Autoload and Launch Ambilight payload both need the plugin, the shell feed and the "
-        "Ambilight payload installed first. 9.00 only for now.",
+        "Ambilight payload installed first. Built for several firmwares; only 9.00 is "
+        "confirmed working on a console so far, see shell-feed/docs/support-matrix.md "
+        "in the repo.",
         NULL, 0, -1, NULL, NULL };
 
     out[4] = (UiCard){ COL_CYAN, ICON_HELP, COL_CYAN, "Controls",
