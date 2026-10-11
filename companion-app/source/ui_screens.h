@@ -47,6 +47,10 @@ typedef struct {
     bool setupComplete;
     bool testRunning;
     bool toastVisible;
+    // Firmware warning on Home (fw_check.c), also repeated when the payload is launched. Both empty =
+    // no warning. Drawn only while the Shell feed switch is on, and never blocks anything.
+    char fwTitle[96];
+    char fwBody[128];
     int homeFocus;
 
     // Help screen only: the Triangle-button QR popup (help_qr.c)

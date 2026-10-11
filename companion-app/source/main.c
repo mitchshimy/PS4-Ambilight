@@ -61,6 +61,7 @@
 #include "file_util.h"
 #include "update_check.h"
 #include "plugin_install.h"
+#include "fw_check.h"
 #include "shell_feed.h"
 #include "presets.h"
 #include "color_pipeline.h"
@@ -507,7 +508,10 @@ static void update_live_preview(void)
     if (sent != s_wasSending) {
         if (!sent) {
             char msg[256];
-            snprintf(msg, sizeof(msg), "WLED Host \"%s\" isn't a valid IPv4 address -- live output paused.", g_cfg.wledHost);
+            if (g_cfg.wledHost[0] == '\0')
+                snprintf(msg, sizeof(msg), "No WLED Host set -- add its IP address in Set up. Live output paused.");
+            else
+                snprintf(msg, sizeof(msg), "WLED Host \"%s\" isn't a valid IPv4 address -- live output paused.", g_cfg.wledHost);
             set_status(msg, true);
         }
         s_wasSending = sent;
@@ -1003,6 +1007,9 @@ int main(void)
     g_state.loader = read_plugin_loader_state();
     if (g_state.loader == LOADER_OFF)
         set_status("GoldHEN's plugin loader is off -- close this app and tick it in Settings > GoldHEN > Plugin Settings.", true);
+
+    // Firmware the shell feed has no complete offsets for: read once, shown on Home while that switch is on.
+    firmware_check();
 
     OrbisPadData pad, prevPad;
     memset(&pad, 0, sizeof(pad));

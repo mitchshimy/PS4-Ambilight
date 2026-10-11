@@ -5,6 +5,34 @@ companion app) are documented here, newest first.
 
 ## Plugin
 
+### Unreleased
+- **Notifications for things that used to fail silently.** The plugin now puts a line in the
+  console's notification bar (`plugin/source/notices.c`), each at most once per game launch (the
+  plugin is injected into every title): no `wled_host` set, so the strip can't light, and again
+  when one is set; the default ini was just created (and where); the ini couldn't be read; an ini
+  value was ignored, naming the first one (`[network] wled_port`) and how many; the config was
+  reloaded (or the reload hit one of those); the plugin couldn't hook this title; the title uses a
+  screen format the plugin doesn't know; the title's screen buffer can't be read; debug logging
+  (`[dev]` UDP or `report_file`) is on; and a new plugin version replaced the old one (the first
+  run only records the version in `/data/ps4_ambient_version`). The last two states are only
+  reported after about five seconds, so a loading screen doesn't trigger them. Nothing is said
+  about whether WLED answers: a UDP strip can't tell, and a router or power problem isn't the
+  plugin's. For this, `settings.c` records what each load found (`g_configLoadCount`,
+  `g_configDefaultCreated`, `g_configParseFailed`, `g_configBadCount`, `g_configBadKey`) and every
+  ranged ini value goes through one helper, `cfg_int_in()`, which accepts exactly what the old
+  inline checks did. `settings.c` is also compiled into the shell feed, so it only sets flags; all
+  the notification calls are in plugin-only files. `tools/test_notices.c` drives them on a PC, and
+  `tools/test_plugin_config.c` has new cases for the flags. `g_pluginVersion` is unchanged.
+- **`[notifications] enabled` switches the informational ones off.** Optional, on by default, not
+  in the shipped ini (add it by hand, like `[compat]`); the companion app keeps it when it saves
+  (`tests/test_presets.c`). `false` silences the update, default-config-created, config-reloaded,
+  could-not-hook, unknown-format and unreadable-buffer notices here, and the shell feed's
+  started, paused, resumed and stopped ones. What the strip can't work without is sent regardless:
+  no WLED address (and the note when one is set), an ignored or unreadable ini value, debug logging
+  left on, and the shell feed being unable to start for want of a usable `wled_host`. Read like the
+  ini's other switches: `on`, `true` or `1` is on, any other word is off. The companion app's own
+  status lines and the Home firmware panel are not affected by it.
+
 ### v3.9.3
 - The state file's `fg=1` is now written the moment the plugin starts flipping, not up to a
   second later. In v3.9.2 the state thread looked at the flip counters once a second, so the
@@ -748,6 +776,24 @@ color preview and a plugin self-updater.
   `shell-feed/README.md` and the companion app's Help screen no longer say "9.00 only"; they now
   say which part is confirmed and point to the matrix for the rest. No code in this repo changed
   the firmware-detection or offset logic -- that's the payload's own binary, built elsewhere.
+- **Firmware warning, and shell feed notifications.** Only the shell feed needs a firmware check
+  (the game plugin works on every firmware). With the **Shell feed** switch on, Home shows a warning
+  panel when the console's firmware is one the payload has no complete offsets for (12.50 and up,
+  or one not in `shell-feed/docs/support-matrix.md`), and launching the payload says it again in
+  the status line. It is a warning, never a block. The firmware is read once at startup from
+  `kern.sdk_version` (`source/fw_check.c`), as BCD (12.50 is `0x1250xxxx`); a value that isn't
+  valid BCD shows nothing. The support table and the text are in `common/fw_support.h`, with a copy
+  in `companion-app/include/` because this app only has `-Iinclude` (keep them identical), and
+  `tools/test_fw_support.c` checks them. With no WLED Host set, the live preview's status now says
+  so instead of calling an empty host "not a valid IPv4 address".
+  The shell feed itself puts a line in the console's notification bar when it starts sending
+  ("running", once per boot), when it can't start (no `wled_host`, `wled_host` isn't an address, no
+  display buffers, `socket()` failed; none of these is retried until a reboot, and the message
+  says so), when `/data/ps4_shell_feed_off` pauses it, when `[shell] enabled=false` pauses it while
+  it was running (not at every boot where it has simply been off), and when it resumes. Not yet
+  run: the plugin, shell feed and companion app builds, and any of this on a console. In
+  particular that `kern.sdk_version` reads in the companion app, that the BCD reading is right, and
+  that a notification from the compositor process (where the shell feed runs) shows.
 - **Local update source for testing.** `[dev] update_base_url=http://<pc>:8000` in the ini makes
   every download and its `.sha256` come from that address instead of GitHub; delete the line to go
   back. `tools/serve_local_release.py` serves the three files with their checksums.

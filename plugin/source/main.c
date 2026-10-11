@@ -142,7 +142,10 @@ int32_t attr_public plugin_load(int32_t argc, const char* argv[])
 
     sys_dynlib_dlsym(hVideoOut, "sceVideoOutRegisterBuffers", (void**)&sceVideoOutRegisterBuffersPtr);
     sys_dynlib_dlsym(hGnm, "sceGnmSubmitAndFlipCommandBuffers", (void**)&sceGnmSubmitAndFlipCommandBuffersPtr);
-    if (sceVideoOutRegisterBuffersPtr == NULL || sceGnmSubmitAndFlipCommandBuffersPtr == NULL) return 0;
+    if (sceVideoOutRegisterBuffersPtr == NULL || sceGnmSubmitAndFlipCommandBuffersPtr == NULL) {
+        ambient_notice_hook_failed("the video functions weren't found");
+        return 0;
+    }
 
     // v3.1: two more real flip entrypoints -- see hooks.c's
     // g_pluginVersion comment for why. Both resolved from the SAME
@@ -202,6 +205,7 @@ int32_t attr_public plugin_load(int32_t argc, const char* argv[])
         (sceVideoOutSubmitFlipPtr != NULL && *((uint8_t*)sceVideoOutSubmitFlipPtr) == 0xE9) ||
         (sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr != NULL &&
          *((uint8_t*)sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr) == 0xE9)) {
+        ambient_notice_hook_failed("the video functions can't be hooked on this firmware");
         return 0;
     }
 
@@ -214,6 +218,10 @@ int32_t attr_public plugin_load(int32_t argc, const char* argv[])
     if (sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr != NULL) {
         HOOK32(sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr);
     }
+
+    // Notifications for what the load found (ini, WLED address, update, debug logging). Here, after
+    // the early returns above, so a process the plugin never actually hooks stays quiet.
+    ambient_notices_on_load();
 
     OrbisPthread thread;
 

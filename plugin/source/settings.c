@@ -71,6 +71,7 @@ AmbientConfig g_config = {
     .contrast = 0,       // no-op -- new in v2.2, matches "didn't exist before" like the rest of this block
     .brightnessR = 100, .brightnessG = 100, .brightnessB = 100, // no-op (100 = unchanged, Android convention)
     .gammaR = 100, .gammaG = 100, .gammaB = 100,                 // no-op (100 = unchanged, Android convention)
+    .notificationsEnabled = true, // [notifications] enabled; see ambient_internal.h
     .devIp = "", .devLoggingEnabled = false, // v2.2.5: disabled unless a real ini opts in -- see struct comment
     .updateFrequencyHz = 30,
     .smoothingEnabled = 0, // off by default -- v1.3 had no smoothing, don't change behavior silently
@@ -86,6 +87,33 @@ static bool ambient_file_exists(const char *filename)
 {
     struct stat buff;
     return stat(filename, &buff) == 0;
+}
+
+// What the last ambient_load_config() found, for the plugin's notifications (notices.c). Set here
+// because this is where the ini is read; only the plugin reads them, and settings.c is also compiled
+// into the shell feed, so nothing here may call back into plugin-only code.
+volatile uint32_t g_configLoadCount = 0;        // bumped at the end of every ambient_load_config() call
+volatile uint32_t g_configDefaultCreated = 0;   // the last call wrote the default ini (there was none)
+volatile uint32_t g_configParseFailed = 0;      // the last call found an ini it could not read
+volatile uint32_t g_configBadCount = 0;         // keys the last call ignored: present, but not a valid value
+char g_configBadKey[48] = "";                   // "[section] key" of the first of them
+
+static void cfg_note_bad(const char *section, const char *key)
+{
+    if (g_configBadCount++ == 0)
+        snprintf(g_configBadKey, sizeof(g_configBadKey), "[%s] %s", section, key);
+}
+
+// Same as `ini_table_get_entry_as_int(...) && lo <= *out && *out <= hi`, which is what each of these
+// lines used to spell out, except that a key that is present but unusable is recorded for the notice.
+static bool cfg_int_in(ini_table_s *table, const char *section, const char *key, int lo, int hi, int *out)
+{
+    if (!ini_table_get_entry_as_int(table, section, key, out)) {
+        if (ini_table_check_entry(table, section, key)) cfg_note_bad(section, key);
+        return false;
+    }
+    if (*out < lo || *out > hi) { cfg_note_bad(section, key); return false; }
+    return true;
 }
 
 // Same sceKernelOpen-not-fopen gotcha plugin_loader's own code comment
@@ -108,6 +136,7 @@ static ColorOrder parse_color_order(const char *s, ColorOrder fallback)
     if (!strcmp(s, "GBR")) return ORDER_GBR;
     if (!strcmp(s, "BRG")) return ORDER_BRG;
     if (!strcmp(s, "BGR")) return ORDER_BGR;
+    cfg_note_bad("color", "color_order");
     return fallback; // unrecognized -- keep default rather than guess
 }
 
@@ -118,6 +147,7 @@ static StartCorner parse_start_corner(const char *s, StartCorner fallback)
     if (!strcmp(s, "bottom_right")) return CORNER_BOTTOM_RIGHT;
     if (!strcmp(s, "top_left"))     return CORNER_TOP_LEFT;
     if (!strcmp(s, "top_right"))    return CORNER_TOP_RIGHT;
+    cfg_note_bad("layout", "led_start_corner");
     return fallback;
 }
 
@@ -126,6 +156,7 @@ static LedDirection parse_direction(const char *s, LedDirection fallback)
     if (!s) return fallback;
     if (!strcmp(s, "clockwise")) return DIR_CLOCKWISE;
     if (!strcmp(s, "counterclockwise")) return DIR_COUNTERCLOCKWISE;
+    cfg_note_bad("layout", "led_direction");
     return fallback;
 }
 
@@ -134,13 +165,14 @@ static LedDirection parse_direction(const char *s, LedDirection fallback)
 // libm linked. Only these 8 values exist as precomputed LUTs anyway
 // (see kGammaLuts below), so a free-form value couldn't be honored
 // correctly regardless.
-static uint32_t parse_gamma_index(const char *s, uint32_t fallback)
+static uint32_t parse_gamma_index(const char *section, const char *s, uint32_t fallback)
 {
     static const char *kGammaStrings[NUM_GAMMA_LUTS] = {"1.0","1.4","1.8","2.0","2.2","2.4","2.6","2.8"};
     if (!s) return fallback;
     for (uint32_t i = 0; i < NUM_GAMMA_LUTS; i++) {
         if (!strcmp(s, kGammaStrings[i])) return i;
     }
+    cfg_note_bad(section, "gamma");
     return fallback; // unrecognized string -- keep default rather than guess
 }
 
@@ -164,19 +196,27 @@ static bool preset_section_has_keys(ini_table_s *table, const char *section)
 
 void ambient_load_config(void)
 {
+    g_configDefaultCreated = 0;
+    g_configParseFailed = 0;
+    g_configBadCount = 0;
+    g_configBadKey[0] = '\0';
     if (!ambient_file_exists(AMBIENT_CONFIG_PATH)) {
         ambient_create_default_config();
+        g_configDefaultCreated = ambient_file_exists(AMBIENT_CONFIG_PATH) ? 1 : 0;
         ambient_rebuild_perchannel_gamma_luts(); // g_gammaLut{R,G,B} are static, zero-init by
                                                   // default -- MUST build the identity LUTs here
                                                   // too, or defaults (gammaR/G/B=100, meant to be
                                                   // a no-op) would silently crush every sample to
                                                   // black instead.
+        g_configLoadCount++;
         return; // g_config's compile-time defaults (== v1.3 behavior) stand otherwise
     }
 
     ini_table_s *table = ini_table_create();
     if (table == NULL || !ini_table_read_from_file(table, AMBIENT_CONFIG_PATH)) {
         if (table) ini_table_destroy(table);
+        g_configParseFailed = 1;
+        g_configLoadCount++;
         return; // parse failure -- keep defaults rather than run with a half-read config
     }
 
@@ -213,7 +253,7 @@ void ambient_load_config(void)
     // sceKernelMprotect on the game's own mapping (the only method that has worked, on MK11).
     // It only acts on a buffer the guard already rejected as GPU-only, so it cannot change a
     // title that reads fine today. See buffer_guard.c and docs/debugging/gpu-only-buffers.md.
-    if (ini_table_get_entry_as_int(table, "compat", "gpu_only_remap", &iv) && iv >= 0 && iv <= 3)
+    if (cfg_int_in(table, "compat", "gpu_only_remap", 0, 3, &iv))
         g_gpuOnlyRemap = (uint32_t)iv;
 
     // v3.9.1: [compat] report_file. OPTIONAL, default 0 (off), not in the shipped ini. 1 makes the
@@ -226,53 +266,53 @@ void ambient_load_config(void)
         strncpy(g_config.wledHost, v, sizeof(g_config.wledHost) - 1);
         g_config.wledHost[sizeof(g_config.wledHost) - 1] = '\0';
     }
-    if (ini_table_get_entry_as_int(table, "network", "wled_port", &iv) && iv > 0 && iv <= 65535)
+    if (cfg_int_in(table, "network", "wled_port", 1, 65535, &iv))
         g_config.wledPort = (uint16_t)iv;
 
     if ((v = ini_table_get_entry(table, "network", "relay_host")) != NULL) {
         strncpy(g_config.relayHost, v, sizeof(g_config.relayHost) - 1);
         g_config.relayHost[sizeof(g_config.relayHost) - 1] = '\0';
     }
-    if (ini_table_get_entry_as_int(table, "network", "relay_port", &iv) && iv > 0 && iv <= 65535)
+    if (cfg_int_in(table, "network", "relay_port", 1, 65535, &iv))
         g_config.relayPort = (uint16_t)iv;
     if (ini_table_get_entry_as_bool(table, "network", "relay_signal_enabled", &bv))
         g_config.relaySignalEnabled = bv;
 
-    if (ini_table_get_entry_as_int(table, "layout", "led_count_top", &iv) && iv > 0)
+    if (cfg_int_in(table, "layout", "led_count_top", 1, 2147483647, &iv))
         g_config.ledCountTop = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "layout", "led_count_right", &iv) && iv > 0)
+    if (cfg_int_in(table, "layout", "led_count_right", 1, 2147483647, &iv))
         g_config.ledCountRight = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "layout", "led_count_bottom", &iv) && iv > 0)
+    if (cfg_int_in(table, "layout", "led_count_bottom", 1, 2147483647, &iv))
         g_config.ledCountBottom = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "layout", "led_count_left", &iv) && iv > 0)
+    if (cfg_int_in(table, "layout", "led_count_left", 1, 2147483647, &iv))
         g_config.ledCountLeft = (uint32_t)iv;
     g_config.startCorner = parse_start_corner(ini_table_get_entry(table, "layout", "led_start_corner"), g_config.startCorner);
     g_config.direction = parse_direction(ini_table_get_entry(table, "layout", "led_direction"), g_config.direction);
     if (ini_table_get_entry_as_int(table, "layout", "led_offset", &iv))
         g_config.ledOffset = iv;
-    if (ini_table_get_entry_as_int(table, sLayout, "scan_depth", &iv) && iv >= 0 && iv <= SCAN_DEPTH_MAX)
+    if (cfg_int_in(table, sLayout, "scan_depth", 0, SCAN_DEPTH_MAX, &iv))
         g_config.scanDepth = (uint32_t)iv;
 
     if (ini_table_get_entry_as_bool(table, sLayout, "auto_letterbox_enabled", &bv))
         g_config.autoLetterboxEnabled = bv;
-    if (ini_table_get_entry_as_int(table, sLayout, "auto_letterbox_threshold", &iv) && iv >= 0 && iv <= 255)
+    if (cfg_int_in(table, sLayout, "auto_letterbox_threshold", 0, 255, &iv))
         g_config.autoLetterboxThreshold = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "layout", "auto_letterbox_stability_frames", &iv) && iv >= 1)
+    if (cfg_int_in(table, "layout", "auto_letterbox_stability_frames", 1, 2147483647, &iv))
         g_config.autoLetterboxStabilityFrames = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "layout", "auto_letterbox_check_interval_frames", &iv) && iv >= 1)
+    if (cfg_int_in(table, "layout", "auto_letterbox_check_interval_frames", 1, 2147483647, &iv))
         g_config.autoLetterboxCheckIntervalFrames = (uint32_t)iv;
 
-    if (ini_table_get_entry_as_int(table, sColor, "brightness", &iv) && iv >= 0 && iv <= 255)
+    if (cfg_int_in(table, sColor, "brightness", 0, 255, &iv))
         g_config.brightness = (uint32_t)iv;
-    g_config.gammaLutIndex = parse_gamma_index(ini_table_get_entry(table, sColor, "gamma"), g_config.gammaLutIndex);
+    g_config.gammaLutIndex = parse_gamma_index(sColor, ini_table_get_entry(table, sColor, "gamma"), g_config.gammaLutIndex);
     if (ini_table_get_entry_as_int(table, sColor, "saturation", &iv))
         g_config.saturation = iv < -100 ? -100 : (iv > SATURATION_MAX ? SATURATION_MAX : iv);
     g_config.colorOrder = parse_color_order(ini_table_get_entry(table, "color", "color_order"), g_config.colorOrder);
-    if (ini_table_get_entry_as_int(table, sColor, "black_level", &iv) && iv >= 0 && iv <= 100)
+    if (cfg_int_in(table, sColor, "black_level", 0, 100, &iv))
         g_config.blackLevel = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, sColor, "white_level", &iv) && iv >= 0 && iv <= 100)
+    if (cfg_int_in(table, sColor, "white_level", 0, 100, &iv))
         g_config.whiteLevel = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, sColor, "dark_threshold", &iv) && iv >= 0 && iv <= 255)
+    if (cfg_int_in(table, sColor, "dark_threshold", 0, 255, &iv))
         g_config.darkThreshold = (uint32_t)iv;
 
     // v2.2: Android-ported per-channel color knobs (see AmbientConfig
@@ -280,17 +320,17 @@ void ambient_load_config(void)
     // convention than the fields just above).
     if (ini_table_get_entry_as_int(table, sColor, "contrast", &iv))
         g_config.contrast = iv < -100 ? -100 : (iv > CONTRAST_MAX ? CONTRAST_MAX : iv);
-    if (ini_table_get_entry_as_int(table, sColor, "brightness_r", &iv) && iv >= 0 && iv <= 500)
+    if (cfg_int_in(table, sColor, "brightness_r", 0, 500, &iv))
         g_config.brightnessR = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, sColor, "brightness_g", &iv) && iv >= 0 && iv <= 500)
+    if (cfg_int_in(table, sColor, "brightness_g", 0, 500, &iv))
         g_config.brightnessG = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, sColor, "brightness_b", &iv) && iv >= 0 && iv <= 500)
+    if (cfg_int_in(table, sColor, "brightness_b", 0, 500, &iv))
         g_config.brightnessB = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, sColor, "gamma_r", &iv) && iv >= 10 && iv <= 500)
+    if (cfg_int_in(table, sColor, "gamma_r", 10, 500, &iv))
         g_config.gammaR = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, sColor, "gamma_g", &iv) && iv >= 10 && iv <= 500)
+    if (cfg_int_in(table, sColor, "gamma_g", 10, 500, &iv))
         g_config.gammaG = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, sColor, "gamma_b", &iv) && iv >= 10 && iv <= 500)
+    if (cfg_int_in(table, sColor, "gamma_b", 10, 500, &iv))
         g_config.gammaB = (uint32_t)iv;
     ambient_rebuild_perchannel_gamma_luts();
 
@@ -311,16 +351,22 @@ void ambient_load_config(void)
     if (ini_table_get_entry_as_bool(table, "dev", "dev_logging", &bv))
         g_config.devLoggingEnabled = bv;
 
-    if (ini_table_get_entry_as_int(table, "timing", "update_frequency_hz", &iv) && iv > 0 && iv <= 240)
+    // [notifications] enabled: optional, default on, not in the shipped ini. Read like every other switch
+    // in this ini: on/true/1 is on, any other word is off.
+    if (ini_table_get_entry_as_bool(table, "notifications", "enabled", &bv))
+        g_config.notificationsEnabled = bv;
+
+    if (cfg_int_in(table, "timing", "update_frequency_hz", 1, 240, &iv))
         g_config.updateFrequencyHz = (uint32_t)iv;
     if (ini_table_get_entry_as_bool(table, sTiming, "smoothing_enabled", &bv))
         g_config.smoothingEnabled = bv ? 1 : 0;
-    if (ini_table_get_entry_as_int(table, sTiming, "settling_time_ms", &iv) && iv >= 0)
+    if (cfg_int_in(table, sTiming, "settling_time_ms", 0, 2147483647, &iv))
         g_config.settlingTimeMs = (uint32_t)iv;
-    if (ini_table_get_entry_as_int(table, "timing", "config_reload_check_seconds", &iv) && iv >= 0)
+    if (cfg_int_in(table, "timing", "config_reload_check_seconds", 0, 2147483647, &iv))
         g_config.configReloadCheckSeconds = (uint32_t)iv;
 
     ini_table_destroy(table);
+    g_configLoadCount++;
 }
 
 // v2.1 live config reload: re-reads the ini file if its mtime changed,

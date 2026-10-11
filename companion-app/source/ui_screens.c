@@ -941,25 +941,34 @@ void ui_render_home_static(UiCanvas *c, const UiFonts *f, const AmbientConfig *c
     ui_text_draw_box(c, f->pageSub, PAGE_MARGIN_X, subTop, 0.0f,
                       "Screen-reactive ambient lighting for your PS4, powered by GoldHEN.", COL_TEXT_BODY);
 
-    // .toast
-    if (st->toastVisible) {
-        float tw = 640.0f;
-        float lh = 1.5f * 14.0f;
-        float th = 1.0f + 18.0f + lh * 2.0f + 18.0f + 1.0f;
-        UiRect t = ui_rect(PAGE_MARGIN_X, 236.0f, tw, th);
-        ui_fill_round_rect(c, t, ui_radius_all(RADIUS_PANEL), COL_PANEL_BG);
-        ui_stroke_round_rect(c, t, ui_radius_all(RADIUS_PANEL), 1.0f, COL_PANEL_BORDER);
-        ui_clip_push(c, ui_rect(t.x, t.y, 3.0f, th));
-        ui_stroke_round_rect(c, t, ui_radius_all(RADIUS_PANEL), 3.0f, COL_WARN);
-        ui_clip_pop(c);
+    // .toast (and the firmware warning, which is the same panel and yields to the toast)
+    {
+        const char *warnTitle = NULL, *warnBody = NULL;
+        if (st->toastVisible) {
+            warnTitle = "LEDs aren't set up yet.";
+            warnBody  = "Add your WLED connection and strip layout on Set Up first.";
+        } else if (cfg->shellEnabled && st->fwTitle[0]) {
+            warnTitle = st->fwTitle;
+            warnBody  = st->fwBody;
+        }
+        if (warnTitle) {
+            float tw = 640.0f;
+            float lh = 1.5f * 14.0f;
+            float th = 1.0f + 18.0f + lh * 2.0f + 18.0f + 1.0f;
+            UiRect t = ui_rect(PAGE_MARGIN_X, 236.0f, tw, th);
+            ui_fill_round_rect(c, t, ui_radius_all(RADIUS_PANEL), COL_PANEL_BG);
+            ui_stroke_round_rect(c, t, ui_radius_all(RADIUS_PANEL), 1.0f, COL_PANEL_BORDER);
+            ui_clip_push(c, ui_rect(t.x, t.y, 3.0f, th));
+            ui_stroke_round_rect(c, t, ui_radius_all(RADIUS_PANEL), 3.0f, COL_WARN);
+            ui_clip_pop(c);
 
-        float cx = t.x + 3.0f + 22.0f;
-        float cy = t.y + 1.0f + 18.0f;
-        ui_icon_draw(c, ICON_WARNING, cx, cy + 2.0f, 18.0f, COL_WARN);   // .icon { margin-top: 2px }
-        float px = cx + 18.0f + 14.0f;
-        ui_text_draw_box(c, f->hint, px, cy, lh, "LEDs aren't set up yet.", COL_TEXT_HEADING);
-        ui_text_draw_box(c, f->hint, px, cy + lh, lh,
-                          "Add your WLED connection and strip layout on Set Up first.", COL_TEXT_LABEL);
+            float cx = t.x + 3.0f + 22.0f;
+            float cy = t.y + 1.0f + 18.0f;
+            ui_icon_draw(c, ICON_WARNING, cx, cy + 2.0f, 18.0f, COL_WARN);   // .icon { margin-top: 2px }
+            float px = cx + 18.0f + 14.0f;
+            ui_text_draw_box(c, f->hint, px, cy, lh, warnTitle, COL_TEXT_HEADING);
+            ui_text_draw_box(c, f->hint, px, cy + lh, lh, warnBody, COL_TEXT_LABEL);
+        }
     }
 
     // .banner -- one at full width (shell feed off: exactly as before), or two side by side

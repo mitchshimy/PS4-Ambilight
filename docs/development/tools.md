@@ -11,6 +11,8 @@ misbehaves.
 | `decode_verification_dump.py` | decode the plugin's older raw debug packets offline |
 | `decode_guard_packets.py` | decode the buffer guard's `GRDC`, `GRDI` and `RMAP` packets and the sampler's pass times from a listener log |
 | `test_buffer_guard.c` | host test for `buffer_guard.c`, run against a fake kernel, for the GPU-only buffer fix |
+| `test_notices.c` | host test for the plugin's notifications (`notices.c`): what each says, and that each is said once |
+| `test_fw_support.c` | host test for the firmware support table and warning text the companion app uses (`common/fw_support.h`) |
 | `test_report.c` | host test for the report file: its text, when `report.c` writes, and the write itself |
 | `ps4_detile_2dthin.c` | standalone reference detiler, to cross-check the plugin's tiling |
 | `test_pq8bit_vote.c` | host test for the alpha byte vote that spots 8-bit ARGB under `0x88740000` |
@@ -218,11 +220,41 @@ title in `media_titles.h` pick the Movie section, that games and unknown titles 
 (`CUSA05682` is Horizon Zero Dawn and is checked by name), that an ini from before v3.8
 still reads as it did, that leftover flat keys are ignored once a preset exists, the
 fallbacks between presets, a live reload from one preset to the other, and the bad-value
-handling, and (v3.9) that the optional `[compat] gpu_only_remap` key is absent from the
+handling, what each load reports for the plugin's notifications (ignored keys, default created, load count), and (v3.9) that the optional `[compat] gpu_only_remap` key is absent from the
 generated ini, defaults to 3, reads 0 to 3, ignores other numbers and doesn't disturb a preset.
 The last case loads `tools/data/preset_ini_golden.ini`, the file the companion
 app writes for a fresh setup. `companion-app/tests/test_presets.c` compares the app's output
 to that same file, so the app's writer and the plugin's reader can't drift apart unnoticed.
+
+## test_notices.c
+
+Builds and runs on a PC from the repo root:
+
+```
+gcc -Wall -Itools/host_stubs -Iplugin/include -Icommon -o /tmp/test_notices tools/test_notices.c plugin/source/notices.c
+/tmp/test_notices
+```
+
+It compiles the plugin's real `notices.c` and drives it with made-up config state; `Notify` and the
+few file calls are stand-ins. It checks the update notice (the first run is silent, a new version is
+said once, the marker follows), the missing-WLED-address warning (once, the fix is acknowledged, a
+second loss warns again), the default-config and unreadable-ini messages, that a bad value is named
+instead of "config reloaded", the debug logging notice (needs both `[dev]` keys, or the report file),
+the hook-failure message, and that a title with an unknown format or an unreadable buffer is only
+reported after the dwell, once, and a recovery restarts the clock.
+
+## test_fw_support.c
+
+```
+gcc -Wall -Wextra -Icommon -o /tmp/test_fw_support tools/test_fw_support.c
+/tmp/test_fw_support
+```
+
+Checks `common/fw_support.h`, which the companion app's firmware warning uses: the BCD decode of the
+system SDK version (and that anything that isn't BCD is refused), the support table (supported,
+partial, and the gaps between versions, which count as unsupported) and the warning text. When
+`shell-feed/docs/support-matrix.md` changes, change the table in that header and in
+`companion-app/include/fw_support.h` to match.
 
 ## test_report.c
 

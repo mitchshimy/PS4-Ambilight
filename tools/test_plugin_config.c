@@ -287,6 +287,40 @@ int main(void)
     assert(g_config.scanDepth == 2 && g_config.settlingTimeMs == 50);
     printf("g_presetOverride forces a preset section, falls back cleanly when absent, outranks the media-title check, and is a no-op when NULL: PASSED\n");
 
+    // v3.9.5 notification inputs (notices.c reads these): what the last load found.
+    {
+        uint32_t loads = g_configLoadCount;
+        fresh(AMBIENT_DEFAULT_INI, "CUSA00001");
+        assert(g_configLoadCount == loads + 1);                 // every load counts, for the reload notice
+        assert(g_configBadCount == 0 && g_configBadKey[0] == '\0' && !g_configParseFailed && !g_configDefaultCreated);
+        // Present but unusable: counted, first one named. wled_port is read before color_order.
+        fresh("[color]\ncolor_order=XYZ\n[network]\nwled_port=99999\n[layout]\nled_count_top=0\n", "CUSA00001");
+        assert(g_configBadCount == 3 && strcmp(g_configBadKey, "[network] wled_port") == 0);
+        // Absent keys and valid values are never "bad"; the next load starts the count over.
+        fresh("[network]\nwled_port=4048\n[color]\ngamma=2.2\n", "CUSA00001");
+        assert(g_configBadCount == 0);
+        fresh("[color]\ngamma=9.9\n", "CUSA00001");
+        assert(g_configBadCount == 1 && strcmp(g_configBadKey, "[color] gamma") == 0);
+        // No ini at all: the default is written, and that is reported once, not on the next load.
+        unlink(TMP_INI);
+        ambient_load_config();
+        assert(g_configDefaultCreated == 1 && access(TMP_INI, F_OK) == 0);
+        ambient_load_config();
+        assert(g_configDefaultCreated == 0);
+    }
+    printf("load status for notifications (bad keys, default created, load count): PASSED\n");
+
+    // [notifications] enabled: on by default, off only for a boolean false, anything else is ignored and noted.
+    fresh(AMBIENT_DEFAULT_INI, "CUSA00001");
+    assert(g_config.notificationsEnabled);
+    fresh("[notifications]\nenabled=false\n", "CUSA00001");
+    assert(!g_config.notificationsEnabled && g_configBadCount == 0);
+    fresh("[notifications]\nenabled=true\n", "CUSA00001");
+    assert(g_config.notificationsEnabled);
+    fresh("[notifications]\nenabled=off\n", "CUSA00001");                // like every other switch here: any word but on/true/1 is off
+    assert(!g_config.notificationsEnabled);
+    printf("[notifications] enabled: default on, false/off turn it off, true turns it back on: PASSED\n");
+
     printf("ALL PLUGIN CONFIG CHECKS PASSED\n");
     return 0;
 }

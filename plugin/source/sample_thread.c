@@ -165,7 +165,9 @@ void *ambient_sample_thread(void *args)
         if (g_config.configReloadCheckSeconds > 0) {
             uint64_t elapsedTicks = t0 - lastReloadCheckTicks;
             if (elapsedTicks >= tscFreq * (uint64_t)g_config.configReloadCheckSeconds) {
+                uint32_t loadsBefore = g_configLoadCount;
                 ambient_check_config_reload();
+                if (g_configLoadCount != loadsBefore) ambient_notices_on_reload(); // the file changed and was re-read
                 lastReloadCheckTicks = t0;
                 // Recompute everything derived from config that this
                 // loop otherwise only computes once at thread start --
@@ -253,9 +255,14 @@ void *ambient_sample_thread(void *args)
         // address to read and setting g_readableLimit for the pixel-read bounds checks. 0 means
         // unreadable, which takes the existing keepalive path (liveBufferAddr = 0): the strip
         // holds its last color instead of the game dying.
+        bool bufferUnreadable = false;
         if (liveBufferAddr != 0) {
             liveBufferAddr = ambient_resolve_readable(liveBufferAddr);
+            bufferUnreadable = (liveBufferAddr == 0);
         }
+        // Notices for a title this plugin can't use (notices.c): it reports only after ~5 s of the same state.
+        ambient_notices_tick(t0, tscFreq, !g_haveValidFormat && g_registerHookCallCount != 0 && g_activeFormat != 0,
+                              g_activeFormat, bufferUnreadable);
 
 #if (__FINAL__) == 0
         // v3.1: what actually found "this title never lights up" -- see

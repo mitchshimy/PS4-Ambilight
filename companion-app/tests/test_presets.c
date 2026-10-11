@@ -268,6 +268,22 @@ int main(void)
     }
     printf("hand-added [compat] keys survive a save: PASSED\n");
 
+    // ---- a hand-added [notifications] enabled=false survives the app saving ----
+    {
+        FILE *cf = fopen(P, "w");
+        assert(cf);
+        fputs("[network]\nwled_host=10.0.0.5\n\n[notifications]\nenabled=false\n", cf);
+        fclose(cf);
+        AmbientConfig c;
+        assert(settings_load(&c, P));
+        presets_init(&c, P);
+        assert(presets_save(&c, P));
+        char *t = slurp(P);
+        assert(has_key(t, "notifications", "enabled") && strstr(t, "enabled = false"));
+        free(t);
+    }
+    printf("hand-added [notifications] enabled survives a save: PASSED\n");
+
     printf("ALL PRESET CHECKS PASSED\n");
     return 0;
 }

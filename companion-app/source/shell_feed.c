@@ -212,6 +212,13 @@ bool launch_payload_now(void)
         return false;
     }
 
+    if (g_state.fwTitle[0]) {
+        // Sent, but on a firmware the payload has no complete offsets for: it will refuse on the console.
+        char msg[256];
+        snprintf(msg, sizeof(msg), "Ambilight payload sent. %s %s", g_state.fwTitle, g_state.fwBody);
+        set_status(msg, true);
+        return true;
+    }
     set_status("Ambilight payload sent to GoldHEN -- shell feed should be active now.", false);
     return true;
 }

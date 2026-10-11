@@ -424,6 +424,24 @@ HDR/SDR auto-detection confirmed on real hardware in v2.7.2. Two titles needed m
 If colors look completely wrong (not just "a bit off") in a specific HDR title, updating to the
 latest plugin release is the first thing to try.
 
+### Notifications
+
+The plugin and the shell feed put short messages in the console's notification bar for things
+that would otherwise fail silently: no `wled_host` set, an ini value that was ignored, the plugin
+being unable to read a game's screen, the shell feed starting, pausing or being unable to start,
+and so on. To silence the informational ones, add this to the end of `/data/ps4_ambient_light.ini`:
+
+```
+[notifications]
+enabled=false
+```
+
+It is **on by default** and not in the shipped ini. Some messages are sent whatever it says,
+because the strip can't work without them or you'd be misled: no WLED address (for the plugin and
+the shell feed, and a note when one is set), an ini value that was ignored or an ini that couldn't
+be read, and debug logging left on. The companion app keeps the section when it saves. As with the
+other switches in this file, `on`, `true` and `1` are on and any other word is off.
+
 ### Companion app controls
 
 | Input | Action |

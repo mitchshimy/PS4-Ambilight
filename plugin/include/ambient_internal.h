@@ -105,6 +105,11 @@ typedef struct {
     // scattered across each call site.
     char devIp[16];          // dotted-quad only, e.g. "192.168.2.117"; empty = disabled regardless of devLoggingEnabled
     bool devLoggingEnabled;  // both this AND a non-empty devIp are required -- neither alone is enough
+    // [notifications] enabled. Optional, default true, not in the shipped ini (hand-added, like [compat]).
+    // false silences the notification bar messages that are only information; the ones the strip can't
+    // work without (no WLED address, an ini value ignored, debug logging left on) are sent regardless.
+    // See notices.c and the shell feed's sh_notify().
+    bool notificationsEnabled;
     // [timing]
     uint32_t updateFrequencyHz;
     int smoothingEnabled;
@@ -230,6 +235,21 @@ extern volatile uint32_t g_reportLoopPasses;     // bumped once per completed sa
 extern volatile uint32_t g_reportTimingWindows, g_reportPassUsAvg, g_reportPassUsMax; // set once per timing window
 void *ambient_report_thread(void *args);         // started by main.c's plugin_load, writes the file
 void *ambient_state_thread(void *args);          // started by main.c's plugin_load, writes /data/ps4_ambient_state
+
+// [notices] -- notices.c, plugin only. System-notification-bar messages for things that otherwise
+// fail silently (no WLED host, bad ini values, a title the plugin can't read, ...). The inputs
+// below are set by settings.c (shared with the shell feed, so it only sets flags, never calls out).
+extern volatile uint32_t g_configLoadCount;       // bumped by every ambient_load_config()
+extern volatile uint32_t g_configDefaultCreated;  // that load wrote the default ini
+extern volatile uint32_t g_configParseFailed;     // that load couldn't read the ini
+extern volatile uint32_t g_configBadCount;        // keys it ignored as invalid
+extern char g_configBadKey[48];                   // "[section] key" of the first one
+void ambient_notices_on_load(void);               // plugin_load, once hooks are in
+void ambient_notices_on_reload(void);             // sampler thread, after a live config reload
+void ambient_notice_hook_failed(const char *reason); // plugin_load, where it gives up
+// Sampler thread, every pass: a title whose format or buffer the plugin can't use for a few
+// seconds in a row gets one notice per launch.
+void ambient_notices_tick(uint64_t nowTicks, uint64_t tscFreq, bool formatUnknown, uint32_t format, bool bufferUnreadable);
 
 extern bool g_isBackgrounded; // defined in network.c, updated by sample_thread.c, read by settings.c
 

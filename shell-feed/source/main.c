@@ -1427,7 +1427,22 @@ static void shell_event(const char *fmt, ...)
     printf(TAG " %s\n", line);
     sh_dev_send(line);
 }
+
 // ---- v24-portable-end ----
+
+// [v47] A line in the console's own notification bar, for the few shell-feed states a person has to know
+// about without a monitor or the [dev] mirror. Used only where the strip stops or comes back: not per frame,
+// not per re-scan (the heal cooldown alone doesn't make those worth a message), and nothing about whether
+// WLED answers. [notifications] enabled=false silences all but the two "can't start: wled_host" ones.
+static void sh_notify(bool essential, const char *fmt, ...)
+{
+    // essential: the feed can't work without the person knowing (no WLED address). Sent whatever
+    // [notifications] enabled says; the rest respects it (g_config is the shared ini the sister reads).
+    if (!essential && !g_config.notificationsEnabled) return;
+    char msg[176];
+    va_list ap; va_start(ap, fmt); vsnprintf(msg, sizeof(msg), fmt, ap); va_end(ap);
+    Notify(TEX_ICON_SYSTEM, "PS4 Ambilight: %s", msg);
+}
 
 // ---------------------------------------------------------------------
 // ---------------------------------------------------------------------
@@ -1689,6 +1704,7 @@ static int live_send(void)
     printf(TAG " LIVE: sending to %s:%d, %u Hz, until reboot, buffers found=%d, zones=%u\n",
            curHost, curPort, (unsigned)g_config.updateFrequencyHz, g_nBuf, (unsigned)g_numZones);
     g_shLiveSessions++; g_shState = SH_LIVE; g_shStopReason = 0; // [v24]
+    if (!resuming) sh_notify(false, "shell feed running (sending to %s).", curHost); // [v47] first start this boot; a resume says so itself
     { char m[100]; snprintf(m, sizeof(m), "LIVE start zones=%u hz=%u buffers=%d session=%u",
                             (unsigned)g_numZones, (unsigned)g_config.updateFrequencyHz, g_nBuf, (unsigned)g_shLiveSessions); sh_dev_send(m); }
 
@@ -1875,6 +1891,14 @@ static int live_send(void)
 static void wait_for_reenable(int stopReason)
 {
     g_shState = SH_STANDBY; // [v24]
+    // [v47] Told once per pause (this function is entered once per clean stop, not per poll). The disable
+    // file is always worth saying: forgotten, it leaves a dark strip with no explanation. [shell] enabled=false
+    // is a setting the person chose, so it is only announced when the feed was already running and just got
+    // turned off -- not at every boot of a console where it has simply been off all along.
+    if (stopReason == 1)
+        sh_notify(false, "shell feed is paused: " DISABLE_FILE " exists. Delete it to resume.");
+    else if (g_shLiveSessions > 0)
+        sh_notify(false, "shell feed is paused: [shell] enabled=false in the ini. Set it back to true to resume.");
     sh_dev_send(stopReason == 1 ? "STANDBY: disable file present" : "STANDBY: [shell] enabled=false");
     printf(TAG " STANDBY: feed stopped (%s), waiting to resume (re-checking the ini every %us"
            " regardless of config_reload_check_seconds).\n",
@@ -1894,7 +1918,11 @@ static void wait_for_reenable(int stopReason)
             shell_cfg_load(); // sets g_shellEnabled directly; a read failure leaves it as it was, same as shell_cfg_poll()
         }
 
-        if (g_shellEnabled) { printf(TAG " RESUMING: re-enabled, restarting the send loop.\n"); sh_dev_send("RESUMING"); return; }
+        if (g_shellEnabled) {
+            printf(TAG " RESUMING: re-enabled, restarting the send loop.\n"); sh_dev_send("RESUMING");
+            if (g_shLiveSessions > 0) sh_notify(false, "shell feed resumed."); // [v47] not for a first start: that says "running"
+            return;
+        }
     }
 }
 
@@ -2007,6 +2035,13 @@ static void *probe_thread(void *args)
                    " socket setup failed -- see the LIVE line above); hooks stay installed. Reboot to retry.\n");
             g_shState = SH_STOPPED; // [v24] the report file says why (not_started:)
             shell_event("STOPPED for good: %s", g_shNotStartedWhy[0] ? g_shNotStartedWhy : "see the LIVE line");
+            // [v47] The reasons are the four live_send() sets above. Nothing retries them, so say how to.
+            if (strcmp(g_shNotStartedWhy, "no destination host") == 0)
+                sh_notify(true, "shell feed can't start: no WLED address is set. Set wled_host in the ini or the companion app, then restart the console.");
+            else if (strcmp(g_shNotStartedWhy, "destination is not an address") == 0)
+                sh_notify(true, "shell feed can't start: wled_host isn't an IP address. Fix it in the ini or the companion app, then restart the console.");
+            else
+                sh_notify(false, "shell feed stopped: %s. Restart the console to try again.", g_shNotStartedWhy[0] ? g_shNotStartedWhy : "it couldn't start");
             break;
         }
         wait_for_reenable(stopReason);
