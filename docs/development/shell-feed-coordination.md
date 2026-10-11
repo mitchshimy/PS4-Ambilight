@@ -1,6 +1,6 @@
 # Coordinating with a shell-level feed
 
-Since v3.9.2 the plugin writes `/data/ps4_ambient_state`, a small file saying whether it's
+Since v3.9.2 the plugin writes `/data/ps4-ambilight/ps4_ambient_state`, a small file saying whether it's
 actively driving the strip right now. This page is for anyone writing something that reads it --
 today that's [`shell-feed/`](../../shell-feed/), a second plugin in this same repo that samples
 the PS4's own Home screen, Settings and quick menu and sends those colors to the same WLED strip
@@ -23,7 +23,7 @@ status.
 
 ## The file
 
-`/data/ps4_ambient_state`, exactly 35 bytes, one line:
+`/data/ps4-ambilight/ps4_ambient_state`, exactly 35 bytes, one line:
 
 ```
 v1 fg=1 seq=000123 title=CUSA00000

@@ -16,7 +16,7 @@
 
 // ---- stand-ins for what the console provides ----
 #define TMP_VER "/tmp/test_notices.version"
-static const char *remap(const char *p) { return strcmp(p, "/data/ps4_ambient_version") == 0 ? TMP_VER : p; }
+static const char *remap(const char *p) { return strcmp(p, "/data/ps4-ambilight/ps4_ambient_version") == 0 ? TMP_VER : p; }
 int32_t sceKernelOpen(const char *path, int flags, int mode) {
     return open(remap(path), flags == 0 ? O_RDONLY : (O_WRONLY | O_CREAT | O_TRUNC), mode);
 }

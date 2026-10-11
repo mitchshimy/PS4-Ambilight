@@ -51,7 +51,7 @@ Investigations with the evidence and the wrong turns left in.
 - [local-install-testing](development/local-install-testing.md): trying the app's installer
   against your own PC instead of a GitHub release
 - [tools](development/tools.md): what's in `tools/`
-- [shell-feed-coordination](development/shell-feed-coordination.md): the `/data/ps4_ambient_state`
+- [shell-feed-coordination](development/shell-feed-coordination.md): the `/data/ps4-ambilight/ps4_ambient_state`
   file, for anyone writing something that reads it
 
 The changelog says what changed. These say why.

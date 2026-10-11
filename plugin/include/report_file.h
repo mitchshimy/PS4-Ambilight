@@ -2,7 +2,7 @@
 //
 // A tester who reports "the strip stays dark in game X" has so far had to run a debug build
 // and capture UDP packets. The release build now writes a short text file instead,
-// /data/ps4_ambient_report_<TITLEID>.txt, and the tester sends that. Everything in it is
+// /data/ps4-ambilight/ps4_ambient_report_<TITLEID>.txt, and the tester sends that. Everything in it is
 // already kept in plain globals in every build; only the packets that send them are
 // debug-only. It holds no personal data: no WLED address, no ini values, nothing typed.
 //
@@ -17,7 +17,9 @@
 #include <stdio.h>
 #include <string.h>
 
-#define REPORT_PATH_PREFIX   "/data/ps4_ambient_report_"
+#include "ambilight_paths.h"
+
+#define REPORT_PATH_PREFIX   AMBILIGHT_DATA_DIR "/ps4_ambient_report_"
 #define REPORT_PATH_SUFFIX   ".txt"
 #define REPORT_PATH_MAX      96
 #define REPORT_TEXT_MAX      2048
@@ -71,7 +73,7 @@ static inline const char *report_remap_method(uint32_t m)
     }
 }
 
-// /data/ps4_ambient_report_<TITLEID>.txt. The title ID is reduced to letters, digits and
+// /data/ps4-ambilight/ps4_ambient_report_<TITLEID>.txt. The title ID is reduced to letters, digits and
 // underscore so nothing odd can reach the path; an empty or all-odd one becomes "unknown".
 static inline void report_build_path(char *out, size_t cap, const char *titleId)
 {

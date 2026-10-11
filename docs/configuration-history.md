@@ -1,7 +1,7 @@
 # Configuration history
 
 Which ini keys appeared, changed or went away, and when. Useful when you're
-upgrading an old `/data/ps4_ambient_light.ini`, or wondering why a key from an old
+upgrading an old `/data/ps4-ambilight/ps4_ambient_light.ini`, or wondering why a key from an old
 guide does nothing. The current keys and what they do are in the README's
 [Configuration](../README.md#configuration) and [Help](../README.md#help) sections.
 
@@ -23,7 +23,7 @@ one exception is a removed key, which is ignored, not migrated.
 | v3.3 | `scan_depth` is limited to 0 to 4, and a value above 4 is **rejected** and the default (1) is kept. `saturation` and `contrast` are limited to 100 and clamped on load, so an old `saturation=175` becomes 100 rather than resetting. |
 | v3.8 | **Presets.** `[presets] active=` and two complete sections, `[preset_game]` and `[preset_movie]`, hold `scan_depth`, the letterbox threshold and enable, brightness, gamma, saturation, black and white level, contrast, `dark_threshold`, the per-channel brightness and gamma, `smoothing_enabled` and `settling_time_ms`. With a preset section present those keys are read only from it, and the old flat copies in `[layout]`, `[color]` and `[timing]` are ignored. An ini with no preset section still reads those flat keys. Apps in `media_titles.h` always run the movie preset. The two letterbox timing keys and the setup keys stay where they were. |
 | v3.9 | `gpu_only_remap` in a new `[compat]` section: 0 off, 1 a second `CPU_READ` view only, 2 also the untyped map, 3 (the default) also `sceKernelMprotect` on the game's own mapping. **Optional**, not in the shipped ini, and nothing needs to set it. It only acts on a buffer the guard already found unreadable. The companion app loads the file before it saves and upserts only its own keys, so a hand-added `[compat]` should survive a save (read from the code, not tried). [gpu-only-buffers](debugging/gpu-only-buffers.md). |
-| v3.9.1 | `report_file` in `[compat]`: 1 makes the plugin write `/data/ps4_ambient_report_<TITLEID>.txt`, 0 or no key (the default) writes nothing. **Optional and off by default**, not in the shipped ini: a tester adds it by hand. Values other than 0 or 1 are ignored. The companion app keeps it when it saves (tested). As with `gpu_only_remap`, removing the key from a running ini leaves the last value in place until the game restarts. See [report-file](debugging/report-file.md). |
+| v3.9.1 | `report_file` in `[compat]`: 1 makes the plugin write `/data/ps4-ambilight/ps4_ambient_report_<TITLEID>.txt`, 0 or no key (the default) writes nothing. **Optional and off by default**, not in the shipped ini: a tester adds it by hand. Values other than 0 or 1 are ignored. The companion app keeps it when it saves (tested). As with `gpu_only_remap`, removing the key from a running ini leaves the last value in place until the game restarts. See [report-file](debugging/report-file.md). |
 | unreleased | `enabled` in `[notifications]`: `false` (or `off`, `0`, or any word but `on`/`true`/`1`) silences the plugin's and the shell feed's informational notification-bar messages; no key (the default) leaves them on. The ones the strip can't work without are sent regardless: no WLED address, an ignored or unreadable ini, debug logging on. **Optional and on by default**, not in the shipped ini. The companion app keeps it when it saves (tested). |
 
 ## Defaults that moved

@@ -7,7 +7,7 @@ publishing a GitHub release.
 
 It copies the files into a scratch folder, writes the "<name>.sha256" next to each one (the same
 "<hex>  <name>" text the release publishes), and runs Python's http.server there. Then, on the
-console, add this to /data/ps4_ambient_light.ini (use the address this prints):
+console, add this to /data/ps4-ambilight/ps4_ambient_light.ini (use the address this prints):
 
     [dev]
     update_base_url=http://192.168.2.117:8000
@@ -71,7 +71,7 @@ def main():
         sys.exit("Nothing to serve.")
 
     ip = lan_ip()
-    print("\nIn /data/ps4_ambient_light.ini on the console:\n\n    [dev]\n    update_base_url=http://%s:%d\n" % (ip, args.port))
+    print("\nIn /data/ps4-ambilight/ps4_ambient_light.ini on the console:\n\n    [dev]\n    update_base_url=http://%s:%d\n" % (ip, args.port))
     print("Ctrl+C to stop. Each request is logged below.\n")
 
     class Handler(http.server.SimpleHTTPRequestHandler):

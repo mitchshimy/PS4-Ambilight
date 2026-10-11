@@ -1,4 +1,4 @@
-// claim_file.h -- the companion app's half of /data/ps4_ambient_state.
+// claim_file.h -- the companion app's half of /data/ps4-ambilight/ps4_ambient_state.
 //
 // The shell feed (shell-feed/) samples the console's own screens and sends them to the strip
 // whenever no game is driving it. It learns about a game from this file. The companion app is
@@ -23,13 +23,14 @@
 #ifndef CLAIM_FILE_H
 #define CLAIM_FILE_H
 
+#include "data_dir.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
-#define CLAIM_PATH          "/data/ps4_ambient_state"
+#define CLAIM_PATH          APP_DATA_DIR "/ps4_ambient_state"
 #define CLAIM_TITLE         "COMPANION"   // exactly 9 characters, like a CUSA title ID
 #define CLAIM_RECORD_LEN    35
 #define CLAIM_HEARTBEAT_MS  1000u

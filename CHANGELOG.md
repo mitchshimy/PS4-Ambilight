@@ -6,6 +6,19 @@ companion app) are documented here, newest first.
 ## Plugin
 
 ### Unreleased
+- **Everything of ours now lives in one folder, `/data/ps4-ambilight/`.** The config
+  (`ps4_ambient_light.ini`), the claim file (`ps4_ambient_state`), the version marker
+  (`ps4_ambient_version`), the report files (`ps4_ambient_report_<TITLEID>.txt` and `_SHELL.txt`),
+  the shell feed's disable file (`ps4_shell_feed_off`), its dump files (`shell_probe_v17_*`), the
+  companion app's update staging file and `ps4_shell_feed.prx` are all in it, and nothing of ours is
+  loose in `/data` any more. File names are unchanged. Only GoldHEN's own locations stay where they
+  are: `/data/GoldHEN/` (plugins, `plugins.ini`, `config.ini`, `payloads.ini`) and `/data/payloads/`
+  (the payload `.bin`). There is no migration or fallback to the old paths, because no release has
+  used them yet. The folder name is one line, `AMBILIGHT_DATA_DIR` in `plugin/include/ambilight_paths.h`
+  (the app keeps a matching `APP_DATA_DIR` in `companion-app/include/data_dir.h`, and
+  `tests/test_claim_file.c` fails if they differ). The plugin creates the folder in `plugin_load`
+  before it reads or writes the ini, the app creates it at startup and before the update download,
+  so it exists whichever is run first. `g_pluginVersion` is unchanged.
 - **Notifications for things that used to fail silently.** The plugin now puts a line in the
   console's notification bar (`plugin/source/notices.c`), each at most once per game launch (the
   plugin is injected into every title): no `wled_host` set, so the strip can't light, and again
@@ -14,7 +27,7 @@ companion app) are documented here, newest first.
   reloaded (or the reload hit one of those); the plugin couldn't hook this title; the title uses a
   screen format the plugin doesn't know; the title's screen buffer can't be read; debug logging
   (`[dev]` UDP or `report_file`) is on; and a new plugin version replaced the old one (the first
-  run only records the version in `/data/ps4_ambient_version`). The last two states are only
+  run only records the version in `/data/ps4-ambilight/ps4_ambient_version`). The last two states are only
   reported after about five seconds, so a loading screen doesn't trigger them. Nothing is said
   about whether WLED answers: a UDP strip can't tell, and a router or power problem isn't the
   plugin's. For this, `settings.c` records what each load found (`g_configLoadCount`,

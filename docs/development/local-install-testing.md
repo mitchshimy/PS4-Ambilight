@@ -15,7 +15,7 @@ publishing anything to GitHub, serve them from your PC.
    It finds the built files (or take `--plugin`, `--shell`, `--payload` paths), writes the
    checksums, prints the address, and logs every request. The PC and the console must be on the
    same network, and the PC's firewall must allow the port (default 8000).
-3. On the console, add to `/data/ps4_ambient_light.ini`:
+3. On the console, add to `/data/ps4-ambilight/ps4_ambient_light.ini`:
 
    ```
    [dev]
@@ -47,5 +47,5 @@ publishing anything to GitHub, serve them from your PC.
 | Set up, press **Launch Ambilight payload** (Shell feed card) with everything installed | The button reads "Launch Ambilight payload" (not "Reset ..."). The status says the Ambilight payload was sent to GoldHEN and the shell feed lights the strip without a reboot. Pressing it again while it runs is harmless. |
 | Press **Launch Ambilight payload** with the Shell feed off, the plugin missing or disabled, or a file missing | The save bar says what to fix first; nothing is sent. |
 | Turn Shell feed off in Set up (don't save yet) with the shell feed running | The strip doesn't flicker; it stays claimed until you press Save (or quit). |
-| Press the PS button while on Set up, Customization or Test strip | The app stops sending and `/data/ps4_ambient_state` goes to `fg=0`; the strip is free. Coming back to the app resumes both. The log prints `[main] backgrounded` / `foregrounded`. |
-| Open Set up or Test strip with the shell feed running | The strip no longer flickers. `/data/ps4_ambient_state` reads `fg=1 ... title=COMPANION` while the app is sending and `fg=0` after. |
+| Press the PS button while on Set up, Customization or Test strip | The app stops sending and `/data/ps4-ambilight/ps4_ambient_state` goes to `fg=0`; the strip is free. Coming back to the app resumes both. The log prints `[main] backgrounded` / `foregrounded`. |
+| Open Set up or Test strip with the shell feed running | The strip no longer flickers. `/data/ps4-ambilight/ps4_ambient_state` reads `fg=1 ... title=COMPANION` while the app is sending and `fg=0` after. |

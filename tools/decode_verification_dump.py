@@ -585,7 +585,7 @@ def main(payloads):
         elif 1 in events_seen:
             print("At least one stat() FAILURE was captured -- check the errno column above")
             print("against errno.h on the PS4 toolchain (e.g. 2=ENOENT, 13=EACCES) to see")
-            print("whether AMBIENT_CONFIG_PATH (/data/ps4_ambient_light.ini) is even the file")
+            print("whether AMBIENT_CONFIG_PATH (/data/ps4-ambilight/ps4_ambient_light.ini) is even the file")
             print("being edited, or a permissions issue.")
         elif 4 not in events_seen and len(config_events) > 1:
             print("No 'CHANGE DETECTED' event in this capture -- every check saw the SAME")

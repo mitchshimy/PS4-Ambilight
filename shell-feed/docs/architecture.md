@@ -35,7 +35,7 @@ Idle means silent, not black.
 ## The claim file (how the two plugins hand off)
 
 The sister plugin's `state.c` writes a small fixed-width text record to
-`/data/ps4_ambient_state` in place (no truncate, so a reader never sees a
+`/data/ps4-ambilight/ps4_ambient_state` in place (no truncate, so a reader never sees a
 half-written file):
 
 ```
@@ -107,7 +107,7 @@ unmodified instead of re-implementing ini parsing here. This module still
 keeps, unmodified from the original `shell_probe_v24` probe: self-heal (30
 bad buffer checks in a row before a re-scan, 10 s cooldown doubling to
 60 s), a per-gate `GATE:` status line, an optional
-`/data/ps4_ambient_report_SHELL.txt` report file, an optional `[dev]` UDP
+`/data/ps4-ambilight/ps4_ambient_report_SHELL.txt` report file, an optional `[dev]` UDP
 mirror, its own hardware-verified v17 tiling math (used by the
 buffer-discovery/self-heal code, unrelated to the zone sampler above).
 Stage D then replaced its pasted copy of the sister's per-frame smoothing

@@ -24,7 +24,7 @@ misbehaves.
 ## flicker_capture.py
 
 The one to reach for first. Needs a debug build (`make DEBUG=1`) and, in
-`/data/ps4_ambient_light.ini` on the console:
+`/data/ps4-ambilight/ps4_ambient_light.ini` on the console:
 
 ```ini
 [dev]

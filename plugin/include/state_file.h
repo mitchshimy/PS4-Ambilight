@@ -1,6 +1,6 @@
 // state_file.h -- the text of the cross-process state file (v3.9.2).
 //
-// /data/ps4_ambient_state tells a second, independent process -- a compositor-level feed
+// /data/ps4-ambilight/ps4_ambient_state tells a second, independent process -- a compositor-level feed
 // reading the shell's own screens (Home, Settings, the quick menu), outside this plugin and
 // this repo -- whether a game is actively driving the strip right now, so the two never fight
 // over WLED. This plugin has no code that reads the other side; it only writes its own state,
@@ -22,7 +22,9 @@
 #include <stdio.h>
 #include <string.h>
 
-#define STATE_PATH        "/data/ps4_ambient_state"
+#include "ambilight_paths.h"
+
+#define STATE_PATH        AMBILIGHT_DATA_DIR "/ps4_ambient_state"
 #define STATE_TITLE_LEN    9    // PS4 title IDs are always exactly this (e.g. "CUSA00000")
 
 // "v1 fg=0 seq=000000 title=CUSA00000\n" -- 6+1+5+6+7+9+1 = 35 bytes, constant for every

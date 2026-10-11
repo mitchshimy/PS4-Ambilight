@@ -1,6 +1,6 @@
 // state.c -- part of ps4_ambient_light (v3.9.2).
 //
-// Writes /data/ps4_ambient_state: whether THIS plugin is actively driving the strip right now
+// Writes /data/ps4-ambilight/ps4_ambient_state: whether THIS plugin is actively driving the strip right now
 // (foreground and the flip hooks moved in the last second), a sequence number that only
 // advances while that's true, and the title ID. A second, independent process -- a
 // compositor-level feed over in the research repo, reading the shell's own screens (Home,

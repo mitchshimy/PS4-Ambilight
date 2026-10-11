@@ -1,6 +1,6 @@
 // shell_probe v24: v23 plus the four Phase 3 leftovers (docs/integration_plan_v2.md): report file, [dev] UDP
 // mirror, self-heal, one log line per gate. Nothing about v23's behaviour changes; see this overlay's README.
-//  1. REPORT FILE. [compat] report_file=1 -> /data/ps4_ambient_report_SHELL.txt, written by its own thread on
+//  1. REPORT FILE. [compat] report_file=1 -> /data/ps4-ambilight/ps4_ambient_report_SHELL.txt, written by its own thread on
 //     start, on a change, and every 60 s. No WLED address, no ini values. Last line "end of report".
 //  2. [dev] MIRROR. [dev] dev_ip + dev_logging=true (both, like the sister) -> the 5 s status row and the stop,
 //     standby, resume, claim and self-heal events go to dev_ip:4048 as DDP-wrapped text starting "SHL1".
@@ -20,7 +20,7 @@
 //  1. RUN UNTIL REBOOT. The 300-second LIVE_SECONDS limit is gone. The send loop runs until the process
 //     exits (reboot), or until a clean stop fires (items 2-3 below). The LIVE: header says "until reboot"
 //     and the LIVE done line reports elapsed seconds.
-//  2. DISABLE FILE. If /data/ps4_shell_feed_off exists (create over FTP or the app) the send loop exits
+//  2. DISABLE FILE. If /data/ps4-ambilight/ps4_shell_feed_off exists (create over FTP or the app) the send loop exits
 //     cleanly with "DISABLED: disable file found". Delete the file to silence the feed until next reboot.
 //  3. [shell] enabled=false in the ini. Same effect as the disable file, picked up by the live-reload poll
 //     with no reboot. Default: true (absent key = enabled). "DISABLED: shell disabled in ini" is logged.
@@ -40,7 +40,7 @@
 // sampling was its own (four points per zone in a band), and its colours were raw. v22 replaces that.
 //
 // WHAT'S NEW
-//  1. INI. /data/ps4_ambient_light.ini is read at start and re-checked every [timing]
+//  1. INI. /data/ps4-ambilight/ps4_ambient_light.ini is read at start and re-checked every [timing]
 //     config_reload_check_seconds (the sister's own 2 s), by size AND content hash read through raw
 //     sceKernelOpen/Read (stat() is garbage on this filesystem, the sister's hardware-proven lesson). A change
 //     reloads the settings, rebuilds the zone geometry and restarts smoothing, with no reboot.
@@ -101,6 +101,7 @@
 #include <orbis/_types/video.h>   // OrbisVideoOutBufferAttribute only
 
 #include "plugin_common.h"
+#include "ambilight_paths.h"   // AMBILIGHT_DATA_DIR: every file this feed reads or writes is in that one folder
 
 // [Stage D] Build identity. common/git_ver.h is written by the Makefile on every build (commit, branch,
 // commit count, date) and plugin_common.h includes it; plugin_common.h also defines BUILD_TYPE. The
@@ -128,14 +129,14 @@
 #include <unistd.h>
 #endif
 
-#define DISABLE_FILE  "/data/ps4_shell_feed_off"  // [v23] create over FTP to silence the feed without a reboot
+#define DISABLE_FILE  AMBILIGHT_DATA_DIR "/ps4_shell_feed_off"  // [v23] create over FTP to silence the feed without a reboot
 #define TAG           "[SHELLPROBE24]"
 #define LIVE_HZ         30     // [v18] matches the sister project's own rate
 // LIVE_SECONDS and REPORT_SECONDS removed in v23: the send loop runs until the process exits.
 
 // [v20] the sister plugin's claim file. Format and contract: PS4-Ambilight v3.9.2+ (v3.9.3 writes fg=1 sooner),
 // docs/development/shell-feed-coordination.md. This probe only reads it.
-#define CLAIM_PATH        "/data/ps4_ambient_state"
+#define CLAIM_PATH        AMBILIGHT_DATA_DIR "/ps4_ambient_state"
 #define CLAIM_RECORD_LEN  35
 #define CLAIM_POLL_MS      50   // [v21] how often to re-read the file (v20: 250)
 #define CLAIM_STALE_MS    2500  // a seen-but-unchanging seq older than this is not a claim
@@ -149,7 +150,7 @@
 #define WATCH_SECONDS            60 // [v13] keep printing REGISTER events this long after the window
 #define DO_DUMP_BUFFERS          0   // [v18] off: this run live-sends, does not dump (v17 machinery kept, unused)
 #define DO_SAMPLER_SCENES        0   // [v18] off: v17's fixed-scene schedule is not used this run
-#define SHELL_REPORT_FILE        1   // [v24] report thread + /data/ps4_ambient_report_SHELL.txt (still needs [compat] report_file=1)
+#define SHELL_REPORT_FILE        1   // [v24] report thread + /data/ps4-ambilight/ps4_ambient_report_SHELL.txt (still needs [compat] report_file=1)
 #define SHELL_DEV_MIRROR         1   // [v24] [dev] UDP mirror (still needs dev_ip AND dev_logging=true)
 #define SHELL_SELF_HEAL          1   // [v24] re-run map_scan()+find_bufs() after a run of bad buffer checks
 #define ALLOW_KERNEL_PRX_LOAD    1   // [v15] see header RISK; 0 = resolve-only
@@ -1148,7 +1149,7 @@ static void run_burst(int scene)
 
     // ---- raw record file for offline analysis ----
     char path[64];
-    snprintf(path, sizeof(path), "/data/shell_probe_v17_s%d_burst.bin", scene);
+    snprintf(path, sizeof(path), AMBILIGHT_DATA_DIR "/shell_probe_v17_s%d_burst.bin", scene);
     int32_t fd = sceKernelOpen(path, 0x200 | 0x400 | 0x001, 0777);
     if (fd < 0) { printf(TAG " BURST s%d: cannot create %s (%d)\n", scene, path, (int)fd); return; }
     struct BurstHdr h; memset(&h, 0, sizeof(h));
@@ -1266,8 +1267,8 @@ static void sh_gate_line(char *out, size_t cap, int i)
     else       snprintf(out, cap, "GATE: %-24s = 0 (OFF%s) -- %s", g->name, g->critical ? ", CRITICAL" : "", g->whenOff);
 }
 
-// --- the report file: /data/ps4_ambient_report_SHELL.txt, same opt-in and layout idea as the sister's report ---
-#define SH_REPORT_PATH          "/data/ps4_ambient_report_SHELL.txt"
+// --- the report file: /data/ps4-ambilight/ps4_ambient_report_SHELL.txt, same opt-in and layout idea as the sister's report ---
+#define SH_REPORT_PATH          AMBILIGHT_DATA_DIR "/ps4_ambient_report_SHELL.txt"
 #define SH_REPORT_TEXT_MAX      2048
 #define SH_REPORT_REFRESH_SECS  60    // rewrite this often even when nothing changed (counters)
 #define SH_REPORT_MAX_FAILURES  3     // then stop trying for the session, like the sister
@@ -1741,7 +1742,7 @@ static int live_send(void)
         // (config_reload_check_seconds, 2 s) -- [shell] enabled= no longer follows this cadence; see
         // shell_enabled_poll() above, [v46]. Runs even
         // while the sister plugin holds the claim, so an edit made during a game is already in effect afterwards.
-        // [v23] disable file: /data/ps4_shell_feed_off -- create over FTP to stop cleanly.
+        // [v23] disable file: /data/ps4-ambilight/ps4_shell_feed_off -- create over FTP to stop cleanly.
         {
             int32_t dfd = sceKernelOpen(DISABLE_FILE, 0 /* O_RDONLY */, 0);
             if (dfd >= 0) { sceKernelClose(dfd); printf(TAG " DISABLED: disable file found (" DISABLE_FILE ").\n"); sh_dev_send("DISABLED: disable file"); stopReason = 1; break; }
@@ -1939,7 +1940,7 @@ static void dump_bufs(int scene)
         const uint64_t start = g_buf[b].start, len = g_buf[b].len;
         if (!buf_ok(&g_buf[b])) { printf(TAG " DUMP s%d buf%d: skipped (region changed or not readable)\n", scene, b); continue; }
         char path[64];
-        snprintf(path, sizeof(path), "/data/shell_probe_v17_s%d_c%d.raw", scene, b);
+        snprintf(path, sizeof(path), AMBILIGHT_DATA_DIR "/shell_probe_v17_s%d_c%d.raw", scene, b);
         int32_t fd = sceKernelOpen(path, 0x200 | 0x400 | 0x001, 0777);
         if (fd < 0) { printf(TAG " DUMP s%d: cannot create %s (%d)\n", scene, path, (int)fd); return; }
         static uint32_t zs[NZ][3];

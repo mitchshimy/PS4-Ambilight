@@ -32,6 +32,7 @@ int main(void)
         }
     assert(strlen(CLAIM_TITLE) == STATE_TITLE_LEN);
     assert(strcmp(CLAIM_PATH, STATE_PATH) == 0);
+    assert(strcmp(APP_DATA_DIR, AMBILIGHT_DATA_DIR) == 0);   // the app's copy of the folder matches the plugin's
     printf("format matches plugin state_format(): ok\n");
 
     // ---- parse: reads what the plugin writes, rejects junk ----

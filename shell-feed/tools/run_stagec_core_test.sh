@@ -40,9 +40,9 @@ sed -n "${START_LINE},${END_LINE}p" "$MAIN_C" > "$T/extracted_core.c"
 
 TESTINI="$T/live_test.ini"
 mkdir -p "$T/inc"
-sed "s#\"/data/ps4_ambient_light.ini\"#\"$TESTINI\"#" "$REPO/plugin/include/ambient_internal.h" > "$T/inc/ambient_internal.h"
+sed "s#AMBILIGHT_DATA_DIR \"/ps4_ambient_light.ini\"#\"$TESTINI\"#" "$REPO/plugin/include/ambient_internal.h" > "$T/inc/ambient_internal.h"
 cp "$REPO/plugin/include/"*.h "$T/inc/" 2>/dev/null || true
-sed "s#\"/data/ps4_ambient_light.ini\"#\"$TESTINI\"#" "$REPO/plugin/include/ambient_internal.h" > "$T/inc/ambient_internal.h"
+sed "s#AMBILIGHT_DATA_DIR \"/ps4_ambient_light.ini\"#\"$TESTINI\"#" "$REPO/plugin/include/ambient_internal.h" > "$T/inc/ambient_internal.h"
 
 cp "$HERE/test_stagec_core_fixture.ini" "$TESTINI"
 cp "$HERE/test_stagec_core.c" "$T/driver.c"

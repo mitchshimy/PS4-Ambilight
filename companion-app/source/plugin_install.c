@@ -269,7 +269,8 @@ void do_plugin_update(void)
     // Second hop: Accept: application/octet-stream is what makes the
     // GitHub asset API respond with a small-header redirect straight
     // to the asset bytes instead of its default JSON metadata body.
-    const char *tmpPath = "/data/ps4_ambient_light_update.tmp";
+    APP_MKDIR(APP_DATA_DIR);
+    const char *tmpPath = APP_DATA_DIR "/ps4_ambient_light_update.tmp";
     uint8_t digest[SHA256_DIGEST_SIZE];
     if (!http_download(prxAssetUrl, tmpPath, digest, acceptHdr)) {
         set_status("Download FAILED -- check your network and try again.", true);

@@ -25,7 +25,7 @@
 #include "plugin_common.h"
 #include "ambient_internal.h"
 
-#define VERSION_MARKER   "/data/ps4_ambient_version"  // g_pluginVersion as 8 hex digits, one line
+#define VERSION_MARKER   AMBILIGHT_DATA_DIR "/ps4_ambient_version"  // g_pluginVersion as 8 hex digits, one line
 #define NOTICE_DWELL_SEC 5   // how long a title has to stay unusable before we say so (loading screens come and go)
 
 extern uint32_t g_pluginVersion;   // hooks.c, 0xMMmm

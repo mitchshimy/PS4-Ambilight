@@ -77,7 +77,7 @@
 #include "ui_widgets.h"   // CONTENT_TOP / CONTENT_H for scroll clamping
 #include "help_qr.h"
 #include "install_plan.h"  // shell feed + plugin: what is pending, what the Home button does
-#include "claim_file.h"    // /data/ps4_ambient_state: keeps the shell feed off the strip while this app drives it
+#include "claim_file.h"    // /data/ps4-ambilight/ps4_ambient_state: keeps the shell feed off the strip while this app drives it
 #include "payload_ini.h"   // one-entry edits to GoldHEN's payload AutoRun list
 #include "goldhen_config.h" // GoldHEN's own "Enable Plugins Loader" switch, read and flipped in place
 #include "update_source.h"  // cleans up [dev] update_base_url
@@ -873,6 +873,9 @@ static void handle_help_input(bool up, bool down, bool circle, bool cross, bool 
 int main(void)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
+
+    // Everything of ours lives in one folder; make it before the first read or write of any file in it.
+    APP_MKDIR(APP_DATA_DIR);
 
     if (!settings_load(&g_cfg, AMBIENT_CONFIG_PATH)) {
         settings_set_defaults(&g_cfg);

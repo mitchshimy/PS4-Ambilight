@@ -3,11 +3,14 @@
 #ifndef APP_PATHS_H
 #define APP_PATHS_H
 
+#include "data_dir.h"
 #include "net_http.h"   // GITHUB_REPO_OWNER / GITHUB_REPO_NAME, used by PLUGIN_UPDATE_URL
 
+// Every file of ours lives in APP_DATA_DIR (data_dir.h); only /data/GoldHEN and /data/payloads, which
+// belong to GoldHEN, are outside it.
 // Same path the plugin itself reads -- this app edits that exact
 // file, not a copy, so there's only ever one source of truth.
-#define AMBIENT_CONFIG_PATH "/data/ps4_ambient_light.ini"
+#define AMBIENT_CONFIG_PATH APP_DATA_DIR "/ps4_ambient_light.ini"
 #define FONT_DIR "/app0/assets/fonts"
 
 // Where the plugin binary and GoldHEN's own plugin registry live.
@@ -66,7 +69,7 @@
 // Ambilight payload that puts that .prx into the console's compositor. The payload finds the .prx
 // at SHELL_PRX_PATH (shell-feed/docs/loading.md). Nothing in this block is touched while the
 // "Shell feed" switch in Set up is off.
-#define SHELL_DIR             "/data/ps4-ambilight"
+#define SHELL_DIR             APP_DATA_DIR
 #define SHELL_PRX_ASSET_NAME  "ps4_shell_feed.prx"
 #define SHELL_PRX_PATH        SHELL_DIR "/" SHELL_PRX_ASSET_NAME
 #define PAYLOADS_DIR          "/data/payloads"

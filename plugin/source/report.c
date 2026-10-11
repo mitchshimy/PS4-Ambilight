@@ -1,6 +1,6 @@
 // report.c -- part of ps4_ambient_light (v3.9.1).
 //
-// Writes /data/ps4_ambient_report_<TITLEID>.txt from a release build, so a tester can send
+// Writes /data/ps4-ambilight/ps4_ambient_report_<TITLEID>.txt from a release build, so a tester can send
 // one small file instead of running a debug build and capturing UDP. The text itself is
 // built by report_file.h (string logic only, host-tested). This file does the two things
 // that need the console: reading the plugin's existing globals, and writing the file.

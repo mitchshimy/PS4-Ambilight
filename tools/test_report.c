@@ -71,7 +71,7 @@ static char *slurp(const char *path, size_t *lenOut)
 }
 static char *read_report(const char *title)   // what a tester would send
 {
-    char p[256]; snprintf(p, sizeof(p), "%s/ps4_ambient_report_%s.txt", SCRATCH, title);
+    char p[256]; snprintf(p, sizeof(p), "%s/ps4-ambilight/ps4_ambient_report_%s.txt", SCRATCH, title);
     return slurp(p, NULL);
 }
 static void reset_globals(void)
@@ -92,7 +92,7 @@ static void fresh_run(ReportRunState *rs, const char *title)
 
 int main(void)
 {
-    system("rm -rf " SCRATCH " && mkdir -p " SCRATCH);
+    system("rm -rf " SCRATCH " && mkdir -p " SCRATCH "/ps4-ambilight");
 
     // 0. Off by default, as shipped: a normal install, with no key in its ini, never writes the file.
     //    Nothing has touched g_reportEnabled yet, so this is report.c's own initializer.
@@ -103,7 +103,7 @@ int main(void)
         g_registerHookCallCount = 1; g_flipHookCallCount = 7; g_reportLoopPasses = 3;   // a game that is running fine
         for (int i = 0; i < REPORT_REFRESH_SECS * 2; i++) assert(ambient_report_tick(&rs) == 0);
         assert(g_opens == 0);
-        char p[256]; snprintf(p, sizeof(p), "%s/ps4_ambient_report_CUSA00000.txt", SCRATCH);
+        char p[256]; snprintf(p, sizeof(p), "%s/ps4-ambilight/ps4_ambient_report_CUSA00000.txt", SCRATCH);
         assert(access(p, F_OK) != 0);
     }
     printf("off by default: no key in the ini, no file, no open call: PASSED\n");
@@ -151,13 +151,13 @@ int main(void)
     // 3. The path can't be steered by a title ID.
     {
         char p[REPORT_PATH_MAX];
-        report_build_path(p, sizeof(p), "CUSA11395");   assert(!strcmp(p, "/data/ps4_ambient_report_CUSA11395.txt"));
-        report_build_path(p, sizeof(p), "");            assert(!strcmp(p, "/data/ps4_ambient_report_unknown.txt"));
-        report_build_path(p, sizeof(p), NULL);          assert(!strcmp(p, "/data/ps4_ambient_report_unknown.txt"));
-        report_build_path(p, sizeof(p), "///...");      assert(!strcmp(p, "/data/ps4_ambient_report_unknown.txt"));
-        report_build_path(p, sizeof(p), "../../etc/x"); assert(!strcmp(p, "/data/ps4_ambient_report_etcx.txt"));
+        report_build_path(p, sizeof(p), "CUSA11395");   assert(!strcmp(p, "/data/ps4-ambilight/ps4_ambient_report_CUSA11395.txt"));
+        report_build_path(p, sizeof(p), "");            assert(!strcmp(p, "/data/ps4-ambilight/ps4_ambient_report_unknown.txt"));
+        report_build_path(p, sizeof(p), NULL);          assert(!strcmp(p, "/data/ps4-ambilight/ps4_ambient_report_unknown.txt"));
+        report_build_path(p, sizeof(p), "///...");      assert(!strcmp(p, "/data/ps4-ambilight/ps4_ambient_report_unknown.txt"));
+        report_build_path(p, sizeof(p), "../../etc/x"); assert(!strcmp(p, "/data/ps4-ambilight/ps4_ambient_report_etcx.txt"));
         report_build_path(p, sizeof(p), "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
-        assert(strlen(p) < sizeof(p) && strstr(p, "/data/ps4_ambient_report_") == p && strstr(p, "..") == NULL);
+        assert(strlen(p) < sizeof(p) && strstr(p, "/data/ps4-ambilight/ps4_ambient_report_") == p && strstr(p, "..") == NULL);
     }
     printf("title ID can't change where the file goes: PASSED\n");
 
@@ -195,7 +195,7 @@ int main(void)
     {
         ReportRunState rs; fresh_run(&rs, "CUSA11395");
         assert(ambient_report_tick(&rs) == 1 && g_opens == 1);
-        assert(!strcmp(g_lastPath, "/data/ps4_ambient_report_CUSA11395.txt"));
+        assert(!strcmp(g_lastPath, "/data/ps4-ambilight/ps4_ambient_report_CUSA11395.txt"));
         assert(g_lastFlags == (0x0001 | 0x0200 | 0x0400));          // O_WRONLY | O_CREAT | O_TRUNC
         char *t = read_report("CUSA11395");
         assert(t && strstr(t, "stage:          hooked\n") && strstr(t, "title:          CUSA11395\n"));
@@ -208,7 +208,7 @@ int main(void)
     // 7. A rewrite leaves no stale tail: pre-fill the file longer than any report, then tick.
     {
         ReportRunState rs; fresh_run(&rs, "CUSA22222");
-        char p[256]; snprintf(p, sizeof(p), "%s/ps4_ambient_report_CUSA22222.txt", SCRATCH);
+        char p[256]; snprintf(p, sizeof(p), "%s/ps4-ambilight/ps4_ambient_report_CUSA22222.txt", SCRATCH);
         FILE *f = fopen(p, "w"); for (int i = 0; i < 4000; i++) fputc('Z', f); fclose(f);
         assert(ambient_report_tick(&rs) == 1);
         size_t len; char *t = slurp(p, &len);
@@ -283,7 +283,7 @@ int main(void)
     {
         ReportRunState rs; fresh_run(&rs, "");
         assert(ambient_report_tick(&rs) == 1);
-        assert(!strcmp(g_lastPath, "/data/ps4_ambient_report_unknown.txt"));
+        assert(!strcmp(g_lastPath, "/data/ps4-ambilight/ps4_ambient_report_unknown.txt"));
         char *t = read_report("unknown"); assert(strstr(t, "title:          unknown\n")); free(t);
     }
     printf("unknown title still gets a file: PASSED\n");

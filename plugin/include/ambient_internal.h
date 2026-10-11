@@ -17,6 +17,7 @@
 #include <stddef.h>
 #include <orbis/libkernel.h>
 #include <orbis/_types/video.h> // OrbisVideoOutBufferAttribute, used by the hook prototypes below
+#include "ambilight_paths.h"   // AMBILIGHT_DATA_DIR, the one folder of ours under /data
 #include "pq8bit_vote.h"        // v3.5, pure alpha-byte vote so a PC test can build it
 #include "hdr2200_vote.h"      // v3.6, same idea for 0x80002200, also PC-buildable
 
@@ -25,7 +26,7 @@
 // settings.c. See settings.c for the defaults and the full field-by-
 // field history (why each default is what it is).
 // ------------------------------------------------------------
-#define AMBIENT_CONFIG_PATH "/data/ps4_ambient_light.ini"
+#define AMBIENT_CONFIG_PATH AMBILIGHT_DATA_DIR "/ps4_ambient_light.ini"
 #define NUM_GAMMA_LUTS 8
 
 typedef enum { CORNER_BOTTOM_LEFT, CORNER_BOTTOM_RIGHT, CORNER_TOP_LEFT, CORNER_TOP_RIGHT } StartCorner;
@@ -234,7 +235,7 @@ extern volatile uint32_t g_reportEnabled;        // ini [compat] report_file (op
 extern volatile uint32_t g_reportLoopPasses;     // bumped once per completed sampler loop, sample_thread.c
 extern volatile uint32_t g_reportTimingWindows, g_reportPassUsAvg, g_reportPassUsMax; // set once per timing window
 void *ambient_report_thread(void *args);         // started by main.c's plugin_load, writes the file
-void *ambient_state_thread(void *args);          // started by main.c's plugin_load, writes /data/ps4_ambient_state
+void *ambient_state_thread(void *args);          // started by main.c's plugin_load, writes /data/ps4-ambilight/ps4_ambient_state
 
 // [notices] -- notices.c, plugin only. System-notification-bar messages for things that otherwise
 // fail silently (no WLED host, bad ini values, a title the plugin can't read, ...). The inputs

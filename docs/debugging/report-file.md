@@ -1,7 +1,7 @@
 # The report file
 
 Since v3.9.1 the release build can write one small text file per game,
-`/data/ps4_ambient_report_<TITLEID>.txt`, for example `ps4_ambient_report_CUSA11395.txt`.
+`/data/ps4-ambilight/ps4_ambient_report_<TITLEID>.txt`, for example `ps4_ambient_report_CUSA11395.txt`.
 It is what a tester sends when a game doesn't work, instead of running a debug build and
 capturing UDP. **It is off by default**, see below. Everything in it was already kept in plain globals in every build, only the
 packets that send them are debug-only. It holds no personal data: no WLED address, nothing from
@@ -9,7 +9,7 @@ the ini.
 
 ## Turning it on
 
-Add this to `/data/ps4_ambient_light.ini`, at the end of the file or anywhere a new section
+Add this to `/data/ps4-ambilight/ps4_ambient_light.ini`, at the end of the file or anywhere a new section
 can go:
 
 ```

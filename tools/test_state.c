@@ -63,7 +63,7 @@ static char *slurp(const char *path, size_t *lenOut)
 }
 static char *read_state(size_t *lenOut)   // what a reader in another process would see
 {
-    return slurp(SCRATCH "/ps4_ambient_state", lenOut);
+    return slurp(SCRATCH "/ps4-ambilight/ps4_ambient_state", lenOut);
 }
 static void reset_globals(void)
 {
@@ -89,7 +89,7 @@ static int tick_idle(StateRunState *rs)     { return ambient_state_tick(rs); }
 
 int main(void)
 {
-    system("rm -rf " SCRATCH " && mkdir -p " SCRATCH);
+    system("rm -rf " SCRATCH " && mkdir -p " SCRATCH "/ps4-ambilight");
 
     // 0. The very first tick writes immediately, fg=0, regardless of state -- a reader never
     //    has to special-case "file doesn't exist yet" during the first second.

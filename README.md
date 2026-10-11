@@ -287,7 +287,11 @@ To try the install flow without publishing a release, serve the files from your 
 
 ## Configuration
 
-Copy `plugin/config/ps4_ambient_light.ini` to `/data/ps4_ambient_light.ini` on the console (or
+Everything the project writes on the console is in one folder, `/data/ps4-ambilight/` (the config, the
+reports, the claim file, the shell feed's `.prx`), so it is easy to find, back up or delete. Only
+GoldHEN's own `/data/GoldHEN/` and `/data/payloads/` are elsewhere.
+
+Copy `plugin/config/ps4_ambient_light.ini` to `/data/ps4-ambilight/ps4_ambient_light.ini` on the console (or
 edit it live from the companion app) and set `wled_host` and `wled_port` to your WLED controller,
 plus your strip's per-edge LED counts under `[layout]`. The plugin re-reads the file while a game
 runs, see `config_reload_check_seconds` under [Timing](#timing).
@@ -429,7 +433,7 @@ latest plugin release is the first thing to try.
 The plugin and the shell feed put short messages in the console's notification bar for things
 that would otherwise fail silently: no `wled_host` set, an ini value that was ignored, the plugin
 being unable to read a game's screen, the shell feed starting, pausing or being unable to start,
-and so on. To silence the informational ones, add this to the end of `/data/ps4_ambient_light.ini`:
+and so on. To silence the informational ones, add this to the end of `/data/ps4-ambilight/ps4_ambient_light.ini`:
 
 ```
 [notifications]
@@ -459,7 +463,7 @@ One person can't test the whole PS4 library, so game reports are what grows the 
 that work. The plugin (v3.9.1 and later) can write a short text file about a game, so you don't
 need a debug build or a network capture. It is **off by default**.
 
-1. Add this to the end of `/data/ps4_ambient_light.ini`. If the file already has a `[compat]`
+1. Add this to the end of `/data/ps4-ambilight/ps4_ambient_light.ini`. If the file already has a `[compat]`
    section, put the second line in that one:
 
    ```
@@ -468,7 +472,7 @@ need a debug build or a network capture. It is **off by default**.
    ```
 
 2. Start the game and play for a minute.
-3. Copy `/data/ps4_ambient_report_<TITLEID>.txt` off the console (GoldHEN's FTP server works).
+3. Copy `/data/ps4-ambilight/ps4_ambient_report_<TITLEID>.txt` off the console (GoldHEN's FTP server works).
 4. Open a [Game report](../../issues/new?template=title-report.yml), say whether it works, the
    strip stays dark, or the game crashed, and paste the file in.
 
@@ -514,7 +518,7 @@ saturation and smoothing pipeline in `plugin/source/color_processing.c`.
 color is resent once a second so WLED's realtime timeout doesn't fire. See
 [`docs/debugging/wled-heartbeat.md`](docs/debugging/wled-heartbeat.md).
 
-**Handing off to the shell screens.** The plugin writes `/data/ps4_ambient_state` the moment it starts
+**Handing off to the shell screens.** The plugin writes `/data/ps4-ambilight/ps4_ambient_state` the moment it starts
 driving the strip and once a second while it does, saying whether it's actively driving the strip right now. It never reads this file itself -- [`shell-feed/`](shell-feed/), a second
 plugin in this repo, reads it to know when to back off and drive the strip from the PS4's own Home
 screen and Settings instead. See

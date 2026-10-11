@@ -132,7 +132,8 @@ int32_t attr_public plugin_load(int32_t argc, const char* argv[])
         g_titleId[sizeof(g_titleId) - 1] = '\0';
     }
 
-    ambient_load_config(); // v2.0: read /data/ps4_ambient_light.ini, or write a default template if absent
+    sceKernelMkdir(AMBILIGHT_DATA_DIR, 0777); // the project folder may not exist yet (app never run); an existing one is not an error
+    ambient_load_config(); // v2.0: read /data/ps4-ambilight/ps4_ambient_light.ini, or write a default template if absent
     buildZoneGeometry();   // fill g_zoneX/g_zoneY (now config-driven counts/corner/direction/offset/margins)
 
     int32_t hVideoOut = 0, hGnm = 0;

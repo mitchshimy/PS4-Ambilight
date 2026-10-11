@@ -3,7 +3,7 @@
 flicker_capture.py -- capture + analyze the ps4_ambient_light FLICKER PROBE.
 
 Needs a plugin build made with DEBUG (build.bat debug / make DEBUG=1) and this
-in /data/ps4_ambient_light.ini on the console:
+in /data/ps4-ambilight/ps4_ambient_light.ini on the console:
 
     [dev]
     dev_ip=<this PC's IP>

@@ -3,7 +3,7 @@
 //
 // Values come from the live AmbientConfig, so nothing here is a
 // placeholder: the numbers on screen are the ones in
-// /data/ps4_ambient_light.ini.
+// /data/ps4-ambilight/ps4_ambient_light.ini.
 
 #include "ui_screens.h"
 #include "app_version.h"

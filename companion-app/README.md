@@ -1,7 +1,7 @@
 # ps4_ambient_light Companion App
 
 A standalone PS4 homebrew application (not a GoldHEN plugin) for
-editing `/data/ps4_ambient_light.ini` through a controller-driven UI,
+editing `/data/ps4-ambilight/ps4_ambient_light.ini` through a controller-driven UI,
 with a live color preview against your real WLED light, and for
 installing and updating the plugin binary from your GitHub repo. It can
 also install and keep current the optional shell feed (a second plugin
@@ -80,7 +80,7 @@ default and the app does nothing shell-related while it is off.
   A successful install or repair sends it too. In the UI every mention of this file is
   "Ambilight payload"; "loader" is kept only for GoldHEN's own plugin loader and BinLoader.
 - **Strip claim.** While the Shell feed switch is on (in memory or in the saved
-  ini) and the app is sending to the strip, it writes `/data/ps4_ambient_state`
+  ini) and the app is sending to the strip, it writes `/data/ps4-ambilight/ps4_ambient_state`
   like a game does (`claim_file.h`), so the shell feed doesn't send at the same
   time. It also polls `sceSystemServiceGetStatus` and stops sending and drops
   the claim while the app is in the background (PS button). The format and the
@@ -160,7 +160,7 @@ UI code, for checking a layout change without a console.
 - `include/goldhen_config.h` -- reads GoldHEN's "Enable Plugins Loader" value from `/data/GoldHEN/config.ini` (read-only); Home puts it ahead of every other check
 - `include/install_plan.h` -- what Home shows and what its one button does, once the shell feed is part of it (header-only, no console calls)
 - `include/payload_ini.h` -- reads and flips the Ambilight payload's entry in GoldHEN's payload AutoRun list without touching other lines
-- `include/claim_file.h` -- the `/data/ps4_ambient_state` record and heartbeat the app writes while it drives the strip
+- `include/claim_file.h` -- the `/data/ps4-ambilight/ps4_ambient_state` record and heartbeat the app writes while it drives the strip
 - `include/update_source.h` -- cleans up `[dev] update_base_url`
 - `tests/test_settings.c`, `tests/test_pipeline.c`, `tests/test_display_units.c`, `tests/test_presets.c`, `tests/test_install_plan.c`, `tests/test_goldhen_config.c`, `tests/test_payload_ini.c`, `tests/test_claim_file.c`, `tests/test_shell_settings.c`, `tests/test_action_buttons.c`, `tests/test_app_version.c`, `tests/test_ime.c`, `tests/test_github_release_json.c` -- isolation tests; `gcc -Iinclude -o test_x test_x.c source/x.c source/config.c tests/test_sce_stubs.c` to rerun (exact commands in `docs/development/testing.md`; `test_settings` still fails at its `relayHost` check, as it did before the shell feed)
 - `tools/ui_preview.c` / `tools/ui_preview.sh` -- renders the UI to PNG on a PC

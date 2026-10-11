@@ -30,7 +30,7 @@ frame submission. Added bounds checking on every tiled read and loop timing
 telemetry. Later captures showed the worst case at about 20% of the 33 ms budget.
 
 **v2.0 to v2.1.5.** Everything that had been a `#define` became an ini setting
-(`/data/ps4_ambient_light.ini`, created with a commented template if missing):
+(`/data/ps4-ambilight/ps4_ambient_light.ini`, created with a commented template if missing):
 WLED host and port, per-edge LED counts, start corner, direction, offset, scan
 depth, brightness, gamma, saturation, color order, update rate and smoothing.
 v2.1 added `black_level`/`white_level`, `dark_threshold` and live config reload.
