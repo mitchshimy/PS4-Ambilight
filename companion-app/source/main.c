@@ -1011,7 +1011,7 @@ int main(void)
     if (g_state.loader == LOADER_OFF)
         set_status("GoldHEN's plugin loader is off -- close this app and tick it in Settings > GoldHEN > Plugin Settings.", true);
 
-    // Firmware the shell feed has no complete offsets for: read once, shown on Home while that switch is on.
+    // Firmware the standalone shell loader is untested on, or has no entry for: read once and shown as a note.
     firmware_check();
 
     OrbisPadData pad, prevPad;

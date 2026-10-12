@@ -1,12 +1,11 @@
-// fw_check.c -- reads the console's system SDK version once at startup and, when the shell feed
-// has no complete offsets for it, fills g_state.fwTitle/fwBody. Home shows them as a warning panel
-// (only while the "Shell feed" switch is on: the game plugin works on every firmware, only the shell
-// feed needs this check), and launching the payload says it again. A warning only, never a block:
-// the payload itself refuses cleanly on a firmware it doesn't know.
-//
-// The homebrew app can't call GoldHEN's sys_sdk_version(), so it reads kern.sdk_version through
-// sysctlbyname. NOT yet confirmed on a console: if the call fails or the value isn't valid BCD,
-// fw_decode() rejects it and nothing is shown -- a missing warning, never a wrong one.
+// fw_check.c -- reads the console firmware once at startup and adds a notice when the current
+// standalone shell-feed loader is untested on that version, or has no entry for it (it will most
+// likely refuse). The notice never blocks anything; the payload decides at runtime. The old loader's
+// offset table no longer describes the shipped payload.
+// The game plugin's firmware behavior is separate from the shell-feed loader.
+
+// The app reads kern.sdk_version through sysctlbyname. If the call fails or the value is not valid
+// BCD, fw_decode() rejects it and nothing is shown rather than guessing a firmware version.
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>

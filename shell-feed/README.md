@@ -45,5 +45,8 @@ on the Stage D build looked right on the strip and ran a full game with clean
 handoffs (person report plus capture, see `docs/findings.md`). The rest-mode
 result is still a person report: the serial log goes dark in rest.
 
-**Firmware:** the Ambilight payload carries offsets for several firmwares; only 9.00 is confirmed
-on a console so far. See `docs/support-matrix.md`.
+**Firmware:** the current standalone Ambilight payload and shell feed are confirmed working on PS4
+firmware **9.00 and 12.52**. Other versions are untested (the payload has an entry for them) or not in its firmware list (it will most likely refuse); see
+`docs/support-matrix.md`. The main repository ships the loader binary as
+`payloads/ps4-ambilight.bin`; its implementation source remains in a separate repository and is not
+vendored here.

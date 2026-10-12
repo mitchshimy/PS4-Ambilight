@@ -8,7 +8,7 @@
 // its "#define APP_VERSION" prefix, and a guard would match it too.
 #pragma once
 
-#define APP_VERSION "1.00"
+#define APP_VERSION "1.01"
 
 _Static_assert(sizeof(APP_VERSION) <= 9, "APP_VERSION must fit the 8 character SFO field");
 

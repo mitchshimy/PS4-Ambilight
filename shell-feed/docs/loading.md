@@ -16,10 +16,10 @@ Payloader, with two sub-screens:
   Launchpad adds an entry to this queue; each entry can be individually
   enabled/disabled, and Square removes an entry.
 
-AutoRun fires when GoldHEN itself loads. Trial E6 (person-run, five boots)
-confirmed: the `.bin`-style payload used in this project's loader is
-accepted, it works on firmware 9.00, and payloads live under
-`/data/payloads`.
+AutoRun fires when GoldHEN itself loads. Trial E6 (person-run, five boots) confirmed that the
+`.bin` payload format is accepted and payloads live under `/data/payloads`. The current standalone
+`ps4-ambilight.bin` and shell-feed PRX have since been confirmed working on PS4 firmware **9.00 and
+12.52**. The previous offset-based loader's support table does not describe this binary.
 
 ## The L1 skip (safety net)
 
@@ -39,14 +39,21 @@ L1 alone is sufficient recovery for how GoldHEN is actually loaded here.
 
 ## What's confirmed on hardware vs. what isn't
 
+The firmware-specific rows below record tests of the standalone payload plus the shell-feed
+PRX. The older `SHELLPROBE24` capture rows below are historical evidence about the earlier probe-based
+build, not cold-boot or suspend/resume validation of the standalone payload itself. It is confirmed for live streaming on
+9.00 and 12.52; standalone cold-boot, recovery and long-duration behavior remain separate tests.
+
 | Claim | Status |
 |---|---|
-| AutoRun accepts this payload format, works on 9.00 | **Person-confirmed**, Trial E6, ~5 boots |
+| AutoRun accepts this payload format | **Person-confirmed**, Trial E6, ~5 boots |
+| Current standalone payload + shell feed works on PS4 9.00 | **User-confirmed**, 2026-10-12 |
+| Current standalone payload + shell feed works on PS4 12.52 | **User-confirmed**; PuTTY capture records loader start and live 30 Hz / 229-zone feed |
 | L1 skips AutoRun payloads | **Person-confirmed**, tested on a harmless build |
-| Cold boot -> GoldHEN -> loader -> probe -> live send, no PC step | **Captured** (capture v23-E: 45.4 s boot, 1,801/1,801 sent in 60 s, 0 skipped, 0 crash-like lines) |
-| Survives PS-button suspend/resume | **Captured** (capture v23-F: same probe instance runs through a ~13 s rest/wake, 0 reload, 0 skipped) and separately **person-confirmed** across ~6 rest/wake cycles with correct colours on resume |
-| Survives rest mode (not just a quick suspend) | **Not captured in this repo's logs**; person-reported working across several cycles, but entry into rest mode and a *long* rest are still open |
-| Which firmwares beyond 9.00 AutoRun covers | **Unverified** -- not tested here |
+| Earlier probe build: cold boot -> GoldHEN -> loader -> probe -> live send, no PC step | **Captured** (capture v23-E: 45.4 s boot, 1,801/1,801 sent in 60 s, 0 skipped, 0 crash-like lines) |
+| Earlier probe build survives PS-button suspend/resume | **Captured** (capture v23-F: same probe instance runs through a ~13 s rest/wake, 0 reload, 0 skipped) and separately **person-confirmed** across ~6 rest/wake cycles with correct colours on resume |
+| Earlier probe build survives rest mode (not just a quick suspend) | **Not captured in this repo's logs**; person-reported working across several cycles, but entry into rest mode and a *long* rest are still open |
+| Other firmware versions beyond 9.00 and 12.52 | **Untested** if in the loader's firmware list, **not listed** (likely refused) otherwise; see `support-matrix.md` |
 | v24 itself (report file, `[dev]` mirror, self-heal, gate table) on a console | **PC-checked only** as of the point this module was imported (see `docs/*/v24_A.md`, `v24_B.md` in the research repo) -- the Stage A hardware build/capture in this merge's own plan (step 8) is what first puts v24 specifically on a console under this repo's name |
 
 ## Quick runbook

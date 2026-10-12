@@ -48,12 +48,13 @@ installs from the same app.
 
 | | |
 |---|---|
-| PS4 firmware | 9.00 and 12.50 |
+| PS4 firmware (game plugin) | 9.00 and 12.50 |
+| PS4 firmware (shell feed + standalone payload) | 9.00 and 12.52 |
 | GoldHEN | 2.4b18.9 and 2.4b18.10 |
 | LED strip | WS2812B, 229 LEDs (73 top, 41 right, 73 bottom, 42 left), starting at the bottom left and running clockwise |
 | Controller | WLED, latest release |
 
-The shell feed has only been run on firmware 9.00 so far, see [Shell feed](#shell-feed-optional).
+The shell feed and current standalone payload are confirmed working on firmware 9.00 and 12.52; other versions are untested, and any firmware not in the payload's list will most likely be refused; see [Shell feed](#shell-feed-optional).
 
 Other setups very likely work too, since the plugin only depends on GoldHEN and a WLED controller
 on your network. If you try a different firmware, GoldHEN version or strip, a note in an
@@ -246,8 +247,8 @@ at a combination.
 The plugin lights the strip while a game or streaming app is on screen. The **shell feed**,
 [`shell-feed/`](shell-feed/README.md), is a second plugin that lights it from the PS4's own Home
 screen, Settings and quick menu the rest of the time, and steps aside whenever a game starts. It is
-**off by default** and, so far, has only been run on firmware **9.00**
-([support matrix](shell-feed/docs/support-matrix.md)). With it off, the companion app does nothing
+**off by default** and is confirmed working on firmware **9.00 and 12.52** with the current standalone payload
+([support matrix](shell-feed/docs/support-matrix.md)). Other firmware versions are untested, and ones outside the payload's firmware list will most likely be refused. With it off, the companion app does nothing
 shell-related at all.
 
 1. Open **Set up** and go to the **Shell feed** card. Turn **Shell feed** on and press **Save
@@ -525,8 +526,8 @@ screen and Settings instead. See
 [`docs/development/shell-feed-coordination.md`](docs/development/shell-feed-coordination.md) for
 the handoff protocol, including how the companion app claims the strip while it is sending, and
 [`shell-feed/README.md`](shell-feed/README.md) for that module itself,
-including its current build/hardware status and its own, narrower support matrix (built for
-several firmwares, only 9.00 confirmed on a console so far -- see
+including its current build/hardware status and its own, narrower support matrix (confirmed
+on firmware 9.00 and 12.52; other versions are untested or not in the payload's list -- see
 [`shell-feed/docs/support-matrix.md`](shell-feed/docs/support-matrix.md)).
 
 **Debugging.** `tools/` has the capture and decode scripts. A debug plugin build (`make DEBUG=1`)
@@ -598,7 +599,7 @@ PS4-Ambilight/
 │   └── Makefile
 ├── common/             # plugin_common.{h,c}: shared GoldHEN plugin helpers this build needs
 ├── shell-feed/         # optional second plugin: lights the strip from the PS4's own screens
-├── payloads/           # ps4-ambilight.bin, the Ambilight payload that puts shell-feed in place
+├── payloads/           # shipped ps4-ambilight.bin + checksum (loader source stays in a separate repo)
 ├── companion-app/      # standalone PS4 homebrew app: on-console settings UI + live preview
 │   ├── source/, include/, assets/, sce_sys/, sce_module/
 │   ├── tests/           # isolated unit tests for settings, pipeline, layout and the shell feed logic

@@ -6,6 +6,19 @@ companion app) are documented here, newest first.
 ## Plugin
 
 ### Unreleased
+- **Replace the old firmware-offset loader with the standalone payload.** `payloads/ps4-ambilight.bin`
+  is now the 58,400-byte standalone loader that starts `ps4_shell_feed.prx`; its source/build stays
+  in the separate loader repository and is not copied into this repo. The binary was user-confirmed
+  working with the shell feed on PS4 firmware 9.00 and 12.52. Its SHA-256/size are updated in
+  `payloads/CHECKSUMS.md`; the existing release asset name and CI/release workflow are unchanged.
+- **Make the companion app's firmware notice match the new payload.** The previous warnings described
+  the old loader's missing kernel offsets and claimed 12.50+ would refuse to run. The new payload has
+  its own per-firmware table (the `init_<n>sdk` sections in the binary, read from the section names
+  rather than a disassembly). `fw_support.h` now has three states: confirmed (9.00 and 12.52, the only
+  end-to-end tested versions), untested (in the payload's list, never run) and not listed (no entry; the
+  payload prints "unsupported firmware" and leaves the kernel alone). Untested and not-listed get
+  different wording; confirmed says nothing. Mirrored `fw_support.h` files and `tools/test_fw_support.c`
+  are updated. Bump the companion app to `APP_VERSION` 1.01; the game plugin's version is unchanged.
 - **Everything of ours now lives in one folder, `/data/ps4-ambilight/`.** The config
   (`ps4_ambient_light.ini`), the claim file (`ps4_ambient_state`), the version marker
   (`ps4_ambient_version`), the report files (`ps4_ambient_report_<TITLEID>.txt` and `_SHELL.txt`),

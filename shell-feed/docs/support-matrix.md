@@ -1,78 +1,26 @@
 # shell-feed: support matrix
 
-| | `plugin/` (sister) | `shell-feed/` |
+This matrix describes the **current standalone `payloads/ps4-ambilight.bin`** and the shell-feed PRX
+that it starts. It does not describe the previous bundled loader's firmware-offset table.
+
+| Component / firmware | Status | Evidence |
 |---|---|---|
-| PS4 firmware | 9.00 and 12.50 | offsets for 5.05-12.02 (see table below); **only 9.00 confirmed on a console** |
-| GoldHEN version | see main README | tested against GoldHEN v2.4b18.10 (AutoRun trials) |
-| Rest mode | n/a (game-process plugin) | PS-button suspend/resume confirmed working (capture + person report); full rest-mode entry/long-rest not captured in logs, person-reported working across several cycles but treat as **not yet verified** |
+| Standalone payload + shell feed, PS4 9.00 | ✅ Confirmed | User-confirmed end-to-end hardware test on 2026-10-12. |
+| Standalone payload + shell feed, PS4 12.52 | ✅ Confirmed | User-confirmed end-to-end test; user-provided PuTTY log records `LOAD_START_OK`, `module_start done, reporter thread running`, 229 zones, 30 Hz, 901 sends in 30 seconds and 0 skipped sends. |
+| Other firmware in the loader's list: 5.05, 6.72, 7.02, 7.55, 8.03, 8.52, 9.04, 9.60, 10.02, 10.71, 11.00, 11.02, 11.52, 12.02, 13.00, 13.04, 13.50 and 13.52 | 🔬 Untested | The loader has a per-firmware entry (an `init_<n>sdk` section in the binary), but nobody has run it with this payload and shell feed. |
+| Any firmware not in that list (for example 14.00) | ⛔ Not listed | No entry in the loader; the binary contains "unsupported firmware %u - kernel not patched", so it will most likely refuse. |
+| GoldHEN | Tested v2.4b18.10 for AutoRun trials | See `docs/loading.md`; other GoldHEN versions may differ. |
+| PS-button suspend/resume | Prior shell-feed captures and user reports | See `docs/loading.md`; the current standalone loader's long-term/cold-boot stability remains a separate test. |
+| Full rest-mode entry and long rest | Not fully verified | A report of working across several cycles exists, but this repo does not contain a complete capture covering entry and a long rest. |
 
-shell-feed's half of the picture (the `.prx` itself, built and captured only on 9.00) is the row
-above. The other half is `ps4-ambilight.bin`, the payload that loads that `.prx` onto the console
-(see `payloads/CHECKSUMS.md` in the repo root): it now carries offsets for several firmwares and
-picks the right one at runtime, refusing cleanly (`PLUGIN_DIR/unsupported_fw`, no changes made) on
-one it doesn't recognise. The table below is that payload's own matrix, from the firmware-offset
-work in the research repo (`ps4-shell-capture-research`), copied here so the two repos don't drift.
+## How to interpret firmware status
 
-**Status legend**
+- **Confirmed** means the currently shipped standalone payload and shell-feed PRX were reported working on a real console.
+- **Untested** means the loader has an entry for that firmware but there is no end-to-end result yet. It may work.
+- **Not listed** means the loader has no entry for it and will most likely report "unsupported firmware" and not start.
+- The list comes from the section names in the shipped binary (`.text.init_<n>sdk`, n = major*100 + minor), not from a disassembly or from the loader's source, which is in a separate repository. Re-read it whenever `payloads/ps4-ambilight.bin` is replaced, and update `common/fw_support.h` (and its copy in the companion app) to match.
+- The older payload's `PATCH`/kernel-offset table, including its old partial/unsupported rows for 12.50+, does not describe this replacement binary and must not be used to predict its behavior.
 
-| Symbol | Meaning |
-|--------|---------|
-| ✅ | Confirmed working on a real console |
-| 🔬 | Offsets complete, not yet tested on hardware |
-| ⚠️ | Partial -- some PATCH values still TODO (will be refused at runtime) |
-| ❌ | Not planned / no offset data |
+The standalone loader's implementation and build source live in its separate repository by design. This repository ships only the built `payloads/ps4-ambilight.bin` artifact and its checksum. The companion app's firmware notice is informational only; the loader itself decides at runtime whether it can run on the console.
 
-## Fully supported (all 17 PATCH macros filled)
-
-| Firmware | Offsets complete | Console-tested | Notes |
-|----------|-----------------|----------------|-------|
-| 5.05  | ✅ | 🔬 | |
-| 6.71  | ✅ | 🔬 | |
-| 6.72  | ✅ | 🔬 | |
-| 7.50  | ✅ | 🔬 | |
-| 7.51  | ✅ | 🔬 | |
-| 7.55  | ✅ | 🔬 | |
-| 8.00  | ✅ | 🔬 | |
-| 8.01  | ✅ | 🔬 | |
-| 8.03  | ✅ | 🔬 | |
-| 8.50  | ✅ | 🔬 | |
-| 8.52  | ✅ | 🔬 | |
-| 9.00  | ✅ | ✅ | Original development firmware. The payload's fallback path (retrying as `shell_probe.sprx` when the primary module is already loaded) was deliberately re-sent on a live console to check it refuses cleanly instead of re-injecting or crashing -- it did. |
-| 9.03  | ✅ | 🔬 | |
-| 9.04  | ✅ | 🔬 | |
-| 9.50  | ✅ | 🔬 | |
-| 9.51  | ✅ | 🔬 | |
-| 9.60  | ✅ | 🔬 | |
-| 10.00 | ✅ | 🔬 | |
-| 10.01 | ✅ | 🔬 | |
-| 10.50 | ✅ | 🔬 | |
-| 10.70 | ✅ | 🔬 | addr_* TODOs resolved at runtime by scan |
-| 10.71 | ✅ | 🔬 | addr_* TODOs resolved at runtime by scan |
-| 11.00 | ✅ | 🔬 | KMEM_PROT filled from GoldHEN; addr_* via scan |
-| 11.02 | ✅ | 🔬 | KMEM_PROT filled from GoldHEN; addr_* via scan |
-| 11.50 | ✅ | 🔬 | KMEM_PROT filled from GoldHEN; addr_* via scan |
-| 11.52 | ✅ | 🔬 | KMEM_PROT filled from GoldHEN; addr_* via scan |
-| 12.00 | ✅ | 🔬 | KMEM_PROT filled from GoldHEN; addr_* via scan |
-| 12.02 | ✅ | 🔬 | KMEM_PROT filled from GoldHEN; addr_* via scan |
-
-## Partial -- refused at runtime until TODOs are filled
-
-| Firmware | Missing PATCH values | Needed source |
-|----------|--------------------|---------------|
-| 12.50 | ACMGR_BYPASS1/2, COPYIN_NOP1/2 | Kernel dump or HEN binary for 12.50 |
-| 12.52 | ACMGR_BYPASS1/2, COPYIN_NOP1/2 | Kernel dump or HEN binary for 12.52 |
-| 13.00 | ACMGR_BYPASS1/2, COPYIN_NOP1/2 | Kernel dump or HEN binary for 13.00 |
-| 13.02 | ACMGR_BYPASS1/2, COPYIN_NOP1/2 | Kernel dump or HEN binary for 13.02 |
-| 13.04 | ACMGR_BYPASS1/2, COPYIN_NOP1/2 | Kernel dump or HEN binary for 13.04 |
-| 13.50 | ACMGR_BYPASS1/2, COPYIN_NOP1/2 | Kernel dump or HEN binary for 13.50 |
-| 13.52 | ACMGR_BYPASS1/2, COPYIN_NOP1/2 | Kernel dump or HEN binary for 13.52 |
-| 14.00 | ACMGR_BYPASS1/2, COPYIN_NOP1/2, KMEM_PROT1/2 | Kernel dump or GoldHEN 14.00 |
-
-Adding a firmware, or moving one from 🔬 to ✅, happens in the research repo
-(`ps4-shell-capture-research`), not here -- its own docs cover that. What changes here is which
-built `ps4-ambilight.bin` is checked into `payloads/` and this table, kept in step with it.
-
-If you try shell-feed on a firmware marked 🔬 here, or on a different GoldHEN version or strip
-configuration than tested above, open an issue with what you find -- same ask the main README
-already makes for the sister plugin. 12.50+ (the Partial table) will refuse to run at all until
-their offsets are filled; that is expected, not a bug report.
+If you test another firmware version, please report the exact PS4 firmware, GoldHEN version, whether the payload loaded, whether the shell-feed PRX started, and whether WLED colors streamed. Only move a version to **Confirmed** with end-to-end evidence.
