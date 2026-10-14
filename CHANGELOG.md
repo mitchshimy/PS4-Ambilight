@@ -59,6 +59,18 @@ companion app) are documented here, newest first.
   ini's other switches: `on`, `true` or `1` is on, any other word is off. The companion app's own
   status lines and the Home firmware panel are not affected by it.
 
+### v3.9.4
+- **Keep game/shell strip ownership aligned with actual output.** The game-side state writer no
+  longer releases `fg=1` just because flip-hook counters temporarily stop changing while the sampler
+  continues sending from its selected buffer. `network.c` advances an output counter only when
+  `sendto()` accepts a complete WLED DDP datagram; `state.c` bases its 1 Hz claim heartbeat on that
+  counter while the title is foregrounded. Backgrounding releases immediately; otherwise a stalled
+  output stream writes one `fg=0` after 2.2 seconds, before shell-feed's 2.5-second stale timeout.
+  The record format stays `v1`/35 bytes. Host regression tests cover output without flip changes, flip
+  changes without output, failed/short sends, backgrounding and stalled output. Real-console validation
+  of the intermittent flicker fix remains pending. Bump the full report version to `3.9.4`;
+  `g_pluginVersion` stays `0x0309` because CI checks only major.minor.
+
 ### v3.9.3
 - The state file's `fg=1` is now written the moment the plugin starts flipping, not up to a
   second later. In v3.9.2 the state thread looked at the flip counters once a second, so the

@@ -149,6 +149,7 @@ bool ambient_get_real_config_size_and_hash(int64_t *outSize, uint32_t *outHash);
 
 // [network] -- WLED/relay/debug transport (network.c)
 extern int g_wledSockfd; // read directly by main.c's plugin_unload to close it
+extern volatile uint32_t g_wledOutputCount; // network.c: increments only after a complete WLED DDP sendto() succeeds
 void relay_send_external_source(bool active);   // called by main.c (plugin_load/unload) and settings.c (live toggle)
 void send_timing_packet(uint32_t minUs, uint32_t maxUs, uint32_t avgUs,
                          uint32_t sampleCount, uint32_t overBudgetCount,
@@ -230,7 +231,7 @@ void send_remap_diag_packet(uint32_t flags, uint32_t created, uint32_t failed, u
 // AMBIENT_VERSION_STRING is the full version; g_pluginVersion (hooks.c) only holds major.minor,
 // because CI compares a tag's major.minor against it. tools/test_report.c fails if the two
 // disagree on major.minor.
-#define AMBIENT_VERSION_STRING "3.9.3"
+#define AMBIENT_VERSION_STRING "3.9.4"
 extern volatile uint32_t g_reportEnabled;        // ini [compat] report_file (optional): 1 on, default 0 (off)
 extern volatile uint32_t g_reportLoopPasses;     // bumped once per completed sampler loop, sample_thread.c
 extern volatile uint32_t g_reportTimingWindows, g_reportPassUsAvg, g_reportPassUsMax; // set once per timing window

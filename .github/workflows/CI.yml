@@ -26,6 +26,15 @@ jobs:
       - name: Check payloads/CHECKSUMS.md matches the Ambilight payload
         run: sh tools/update_payload_checksum.sh --check
 
+      - name: Host-test game-to-shell output ownership contract
+        run: |
+          set -eu
+          gcc -Wall -Wextra -Itools/host_stubs -Iplugin/include -Icommon \
+            -o /tmp/test_state tools/test_state.c
+          /tmp/test_state
+          gcc -Wall -Wextra -Iplugin/include -o /tmp/test_output_activity tools/test_output_activity.c
+          /tmp/test_output_activity
+
       # On a tag push, the tag has to name the version the plugin says it
       # is, so tagging v3.5.0 can't ship a plugin that still reports 3.4.
       # g_pluginVersion in plugin/source/hooks.c is 0xMMmm (0x0304 = 3.4),

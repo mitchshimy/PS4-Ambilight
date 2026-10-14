@@ -17,9 +17,10 @@ that is entirely its concern.
 Two different programs can both reasonably want to drive the same WLED strip: this plugin, while
 a game, Netflix or YouTube is the foreground title, and a shell-level feed the rest of the time
 (Home, Settings, the quick menu, anywhere there's no foreground title with its own buffers to
-sample). Game always wins. Something has to say which situation it currently is, from the side
-that actually knows -- the plugin, since only it sees its own flip hooks and its own foreground
-status.
+sample). Game always wins. Something has to say which situation it currently is, from the game plugin that owns its DDP
+sender and knows its own foreground status. The claim must track successful output progress,
+not flips alone: sampling/sending can continue from the selected buffer during a temporary
+quiet period in the flip hooks.
 
 ## The file
 
@@ -32,7 +33,7 @@ v1 fg=1 seq=000123 title=CUSA00000
 | Field | Meaning |
 |---|---|
 | `v1` | Format version. A reader that doesn't recognize it should treat the file as absent. |
-| `fg` | `1` while this plugin is actively driving the strip (foreground **and** the flip hooks moved in the last second); `0` otherwise. Written as soon as the first flip is seen (v3.9.3; v3.9.2 could take up to a second). |
+| `fg` | `1` while this plugin is foregrounded and a successful WLED DDP send has been observed within the last 2.2 s; `0` otherwise. Flip-hook freshness alone does not grant or release ownership. |
 | `seq` | Six digits, wraps at 1,000,000. Advances only while `fg=1`. A frozen `seq` while `fg=1` means the plugin stopped updating without writing `fg=0` -- a crash, not a clean handoff. |
 | `title` | Nine characters, space-padded, the same title ID the report file uses. `-` when unknown. |
 
@@ -55,12 +56,14 @@ v1 fg=1 seq=000123 title=CUSA00000
 
 ## What this plugin does and doesn't promise
 
-- `fg=1` is written within about 100 ms of the plugin's first flip (v3.9.3), then once a second
-  while it stays true; `fg=0` is written once on the way out. A reader that wants to back off
+- `fg=1` is written within about 100 ms of the first successful DDP send observed by the state
+  thread, then once a second while output activity continues; `fg=0` is written once on backgrounding
+  or after 2.2 s without a successful send. The 2.2 s release window is shorter than shell-feed's
+  2.5 s claim-staleness timeout. A reader that wants to back off
   without a visible overlap should poll every 50-100 ms; polling faster than that gains
   nothing. It is **not** a high-rate heartbeat: between the first write and the next
   heartbeat the file does not change (see `state.c`'s header comment for the exact logic).
-- A game that was already flipping when the reader started is seen as `fg=1` with a `seq` the
+- A game that was already sending when the reader started is seen as `fg=1` with a `seq` the
   reader has not seen change yet. A reader may wait for the next heartbeat (at most about a
   second) before trusting it; the first read after the reader's own start is also where a
   record left by a previous boot shows up, which is why the freshness rule above compares
@@ -83,7 +86,7 @@ v1 fg=1 seq=000123 title=CUSA00000
 The companion app is not a game, but it drives the same strip: the live preview on Set up and
 Customization, and Test strip. Without a claim the shell feed sent alongside it and WLED
 alternated between the two (a flicker, seen on hardware). So while the Shell feed switch is on
-and the app is sending, it writes the same record (same format, same rules) with
+and the app is sending, it writes the same record format with its own send lifecycle and
 `title=COMPANION`: `fg=1` the moment it starts sending, a heartbeat once a second, and `fg=0`
 when it stops, the switch is turned off, or the app quits. A crash expires like a crashed game.
 `seq` continues from whatever is already in the file, so the next record always differs from the

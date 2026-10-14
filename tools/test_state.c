@@ -1,17 +1,17 @@
-// test_state.c -- host test for the cross-process state file (v3.9.2, timing reworked in v3.9.3): plugin/include/state_file.h
+// test_state.c -- host test for the cross-process sender-ownership state: plugin/include/state_file.h
 // (the record format) and plugin/source/state.c (when it writes, and the write itself).
 //
-// state.c is included, not linked, so this runs the real ambient_state_tick() against made-up
-// flip counters and backgrounded/foreground flags. What stands in for the console is the two raw
-// file calls (redirected from /data to a scratch directory, honoring the flags state.c really
-// passes, so an accidental O_TRUNC would show up here) and the plugin globals state.c reads.
+// state.c is included, not linked, so this runs the real ambient_state_tick() against a simulated
+// successful-DDP-output counter and backgrounded flag. Flip counters are kept still in the main
+// regression case, and a separate case confirms flips alone do not claim. What stands in for the
+// console is the two raw file calls (redirected from /data to a scratch directory, honoring the
+// flags state.c really passes) and the plugin globals state.c reads.
 //
 // Build and run from the repo root (one line):
 //   gcc -Wall -Itools/host_stubs -Iplugin/include -Icommon -o /tmp/test_state tools/test_state.c && /tmp/test_state
 //
-// Exits 0 if every check passed. What this can't show: that a real console lets a game process
-// write /data (settings.c's default-ini write already relies on the same thing), or how another
-// process polling this file actually behaves under real timing -- that is the research repo's side.
+// Exits 0 if every check passed. What this can't show: end-to-end UDP delivery to WLED, actual
+// console scheduling, or how another process polling this file behaves during a hardware session.
 #include "plugin_common.h"
 #include "ambient_internal.h"
 #include <assert.h>
@@ -27,6 +27,7 @@
 // ---- the plugin globals state.c reads (defined elsewhere in the plugin) ----
 char g_titleId[16];
 volatile uint32_t g_registerHookCallCount, g_flipHookCallCount, g_videoOutSubmitFlipHookCallCount, g_gnmForWorkloadHookCallCount;
+volatile uint32_t g_wledOutputCount;
 bool g_isBackgrounded;
 
 // ---- stand-in for the console's file calls ----
@@ -69,6 +70,7 @@ static void reset_globals(void)
 {
     g_registerHookCallCount = 0;
     g_flipHookCallCount = g_videoOutSubmitFlipHookCallCount = g_gnmForWorkloadHookCallCount = 0;
+    g_wledOutputCount = 0;
     g_isBackgrounded = false;
     g_opens = 0; g_failOpens = 0;
 }
@@ -78,14 +80,14 @@ static void fresh_run(StateRunState *rs, const char *title)
     snprintf(g_titleId, sizeof(g_titleId), "%s", title);
     memset(rs, 0, sizeof(*rs));
 }
-// Advances one of the three flip counters, the way a real flip would.
+// A flip without DDP output is intentionally NOT enough to own the strip.
 static void flip_once(void) { g_flipHookCallCount++; }
-// One 100 ms tick in which the game flipped (what a running game does every tick), and one in
-// which nothing did. Both return what ambient_state_tick() returned (1 = it wrote the file).
-static int tick_flipping(StateRunState *rs) { flip_once(); return ambient_state_tick(rs); }
-static int tick_idle(StateRunState *rs)     { return ambient_state_tick(rs); }
-// Ticks needed for the flip window to run out after the last flip.
-#define IDLE_TO_FG0 STATE_FLIP_WINDOW_TICKS
+// Simulate a successful sendto() advancing the output counter, independently of flips.
+static void output_once(void) { g_wledOutputCount++; }
+static int tick_sending(StateRunState *rs) { output_once(); return ambient_state_tick(rs); }
+static int tick_idle(StateRunState *rs)    { return ambient_state_tick(rs); }
+// Ticks before the output-activity window expires after the last successful send.
+#define IDLE_TO_FG0 STATE_OUTPUT_WINDOW_TICKS
 
 int main(void)
 {
@@ -103,81 +105,84 @@ int main(void)
     }
     printf("first tick writes immediately, fg=0: PASSED\n");
 
-    // 1. Foreground + flipping: fg=1 is written on the FIRST flipping tick (not up to a second
-    //    later), then only as a heartbeat every STATE_HEARTBEAT_TICKS, seq +1 per write.
+    // 1. Successful output with no flip-counter changes: fg=1 follows the sender, then
+    //    advances a heartbeat every STATE_HEARTBEAT_TICKS. This covers the reported mismatch.
     {
         StateRunState rs; fresh_run(&rs, "CUSA11111");
         ambient_state_tick(&rs);                 // tick 0: the initial fg=0 write
         g_isBackgrounded = false;
-        assert(tick_flipping(&rs) == 1);         // rising edge: written at once
+        assert(tick_sending(&rs) == 1);         // first successful send: written at once
+        assert(g_flipHookCallCount == 0 && g_videoOutSubmitFlipHookCallCount == 0 &&
+               g_gnmForWorkloadHookCallCount == 0); // flips did not move at all
         char *t = read_state(NULL);
         assert(!strcmp(t, "v1 fg=1 seq=000001 title=CUSA11111\n")); free(t);
         int opensAfterEdge = g_opens;
-        for (int i = 1; i < STATE_HEARTBEAT_TICKS; i++) assert(tick_flipping(&rs) == 0); // no write between heartbeats
+        for (int i = 1; i < STATE_HEARTBEAT_TICKS; i++) assert(tick_sending(&rs) == 0); // no write between heartbeats
         assert(g_opens == opensAfterEdge);
-        assert(tick_flipping(&rs) == 1);         // the heartbeat
+        assert(tick_sending(&rs) == 1);         // the heartbeat
         t = read_state(NULL);
         assert(!strcmp(t, "v1 fg=1 seq=000002 title=CUSA11111\n")); free(t);
     }
-    printf("foreground+flipping: fg=1 on the first tick, then a heartbeat, seq +1 per write: PASSED\n");
+    printf("successful DDP output, even without flip-counter changes: immediate fg=1 and heartbeat: PASSED\n");
 
-    // 1b. The reason v3.9.3 exists: the first fg=1 lands on the first flipping tick, which is
-    //     at most STATE_TICK_US after the first flip -- not up to 1 s later as in v3.9.2.
+    // 1b. The first successful DDP output lands fg=1 on the same state tick that observes it,
+    //     including after a long loading period with no output.
     {
         StateRunState rs; fresh_run(&rs, "CUSA11112");
-        ambient_state_tick(&rs);                 // initial fg=0 (before the game's first flip)
-        for (int i = 0; i < 25; i++) assert(tick_idle(&rs) == 0); // loading, no flips yet: still quiet
-        assert(tick_flipping(&rs) == 1);         // first flip seen -> written on that very tick
+        ambient_state_tick(&rs);                 // initial fg=0 (before the first output send)
+        for (int i = 0; i < 25; i++) assert(tick_idle(&rs) == 0); // loading, no output yet: still quiet
+        assert(tick_sending(&rs) == 1);         // first output observed -> written on that very tick
         char *t = read_state(NULL);
         assert(!strcmp(t, "v1 fg=1 seq=000001 title=CUSA11112\n")); free(t);
     }
-    printf("first flip is written on the same tick it is seen: PASSED\n");
+    printf("first successful output is claimed immediately when observed: PASSED\n");
 
-    // 2. Foreground but NOT flipping (a static frame, no flip at all): not a claim.
+    // 2. Foreground without successful output is not a claim, even if flip hooks fire.
     {
         StateRunState rs; fresh_run(&rs, "CUSA22222");
         ambient_state_tick(&rs);                 // initial fg=0
-        g_isBackgrounded = false;                // foreground, but counters never move
-        for (int i = 0; i < 30; i++) assert(tick_idle(&rs) == 0); // already fg=0 on disk: no write at all
+        g_isBackgrounded = false;                // foreground, but no DDP output succeeds
+        for (int i = 0; i < 30; i++) assert(tick_idle(&rs) == 0); // no successful DDP sends
+        flip_once();
+        assert(tick_idle(&rs) == 0);             // flips alone must not claim the strip
         assert(g_opens == 1);                    // only the initial write happened
     }
-    printf("foreground without any flip is not a claim: PASSED\n");
+    printf("foreground flips without successful DDP output do not claim: PASSED\n");
 
-    // 3. Backgrounded while flipping (shouldn't happen on a real console, but the gate must
-    //    still hold): not a claim either.
+    // 3. Backgrounded while successful sends are observed: backgrounding wins and releases.
     {
         StateRunState rs; fresh_run(&rs, "CUSA33333");
         ambient_state_tick(&rs);
         g_isBackgrounded = true;
-        for (int i = 0; i < 30; i++) assert(tick_flipping(&rs) == 0);
+        for (int i = 0; i < 30; i++) assert(tick_sending(&rs) == 0);
         assert(g_opens == 1);
     }
-    printf("backgrounded, even while flipping, is not a claim: PASSED\n");
+    printf("backgrounded, even with successful output, is not a claim: PASSED\n");
 
-    // 4. The transition itself: fg=1 for a while, then go background -- exactly ONE fg=0
+    // 4. The transition itself: fg=1 while output succeeds, then go background -- exactly ONE fg=0
     //    write, then total silence while it stays that way.
     {
         StateRunState rs; fresh_run(&rs, "CUSA44444");
         ambient_state_tick(&rs);
         g_isBackgrounded = false;
-        assert(tick_flipping(&rs) == 1);          // fg=1 seq=1
-        g_isBackgrounded = true;                  // now backgrounded (still flipping or not)
-        assert(tick_flipping(&rs) == 1);          // the ONE fg=0 write
+        assert(tick_sending(&rs) == 1);          // fg=1 seq=1
+        g_isBackgrounded = true;                  // now backgrounded (output counter can still move)
+        assert(tick_sending(&rs) == 1);          // the ONE fg=0 write
         char *t = read_state(NULL);
         assert(!strcmp(t, "v1 fg=0 seq=000001 title=CUSA44444\n")); free(t); // seq unchanged on the off-write
         int opensBefore = g_opens;
-        for (int i = 0; i < 30; i++) assert(tick_flipping(&rs) == 0); // stays quiet
+        for (int i = 0; i < 30; i++) assert(tick_sending(&rs) == 0); // stays quiet
         assert(g_opens == opensBefore);
     }
     printf("exactly one fg=0 write on the transition, then silence: PASSED\n");
 
-    // 4b. Flips simply stop (a game that froze or quit without a background event): the claim
-    //     is kept for the flip window, then ONE fg=0 write, then silence.
+    // 4b. Successful output simply stops without a background event: keep the claim inside the
+    //     activity window, then write one fg=0 before the shell's longer stale timeout.
     {
         StateRunState rs; fresh_run(&rs, "CUSA44445");
         ambient_state_tick(&rs);
         g_isBackgrounded = false;
-        assert(tick_flipping(&rs) == 1);
+        assert(tick_sending(&rs) == 1);
         for (int i = 1; i < IDLE_TO_FG0; i++) assert(tick_idle(&rs) == 0 || g_opens > 1); // heartbeat may land; fg stays 1
         char *t = read_state(NULL);
         assert(strstr(t, "fg=1") != NULL); free(t);                  // still inside the window
@@ -188,16 +193,16 @@ int main(void)
         for (int i = 0; i < 30; i++) assert(tick_idle(&rs) == 0);
         assert(g_opens == opensBefore);
     }
-    printf("flips stopping: fg=1 held for the ~1 s window, then one fg=0: PASSED\n");
+    printf("output stopping: fg=1 held for the 2.2 s window, then one fg=0: PASSED\n");
 
-    // 5. Resuming: seq keeps counting up from where it left off, does not reset to 0.
+    // 5. Resuming successful output: seq keeps counting up from where it left off, not 0.
     {
         StateRunState rs; fresh_run(&rs, "CUSA55555");
         ambient_state_tick(&rs);
-        g_isBackgrounded = false; tick_flipping(&rs);                    // seq=1
-        g_isBackgrounded = true;  tick_flipping(&rs);                    // fg=0, seq still 1
+        g_isBackgrounded = false; tick_sending(&rs);                    // seq=1
+        g_isBackgrounded = true;  tick_sending(&rs);                    // fg=0, seq still 1
         g_isBackgrounded = false;
-        assert(tick_flipping(&rs) == 1);                                 // rising edge again
+        assert(tick_sending(&rs) == 1);                                 // output resumed again
         char *t = read_state(NULL);
         assert(!strcmp(t, "v1 fg=1 seq=000002 title=CUSA55555\n")); free(t); // 2, not reset to 1
     }
@@ -236,10 +241,10 @@ int main(void)
         for (int i = 0; i < 3; i++) assert(ambient_state_tick(&rs) == 0);
         assert(rs.wroteOnce == 0);
         assert(ambient_state_tick(&rs) == 1 && rs.wroteOnce == 1); // works once the disk does
-        // A failed rising-edge write is retried on the next tick and does not burn a seq number.
+        // A failed first-claim write is retried next tick and does not burn a seq number.
         g_isBackgrounded = false; g_failOpens = 1;
-        assert(tick_flipping(&rs) == 0);
-        assert(tick_flipping(&rs) == 1);
+        assert(tick_sending(&rs) == 0);
+        assert(tick_sending(&rs) == 1);
         char *t = read_state(NULL);
         assert(!strcmp(t, "v1 fg=1 seq=000001 title=CUSA77777\n")); free(t);
     }

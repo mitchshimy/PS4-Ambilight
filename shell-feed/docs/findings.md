@@ -30,6 +30,22 @@ is `merged.log` (PuTTY serial log, 149 KB). Each row says what it rests on.
 | Per-frame cost is steady: avg about 1.9-2.1 ms, max under 3.7 ms at 30 Hz, `sent` always equal to the tick count, no skips. | Capture: the periodic `LIVE t=` lines (the last stretch, t=5s to t=85s, shows it). |
 | 30 minutes in rest mode, no crash, and the feed was correct afterwards. | **Person report only, and the later captures don't change that.** `capture_2.log` ends as the console starts suspending (`Standby Start: Fri, 09 Oct 2026 09:42:04 +0300`, then `System Suspend start`). The serial output stops in rest, so neither the 30 minutes nor the wake is in any log. What the capture does show is the feed healthy right up to that point (next section). |
 
+## Game/shell ownership handoff: output-driven claim (follow-up fix)
+
+The game plugin's state writer previously based `fg=1` on recent flip-hook counter
+movement, while `ambient_sample_thread` could continue sampling and submitting DDP from
+its selected buffer even during a quiet interval in those counters. That mismatch could
+release shell-feed while the game sender remained active. The state writer now watches
+`g_wledOutputCount`, incremented only when `sendto()` accepts a complete WLED DDP
+datagram, and keeps `fg=1` while the title is foregrounded and successful output has
+been observed within the last 2.2 seconds. If sends stop, it emits one `fg=0` before the
+shell reader's 2.5-second stale deadline; backgrounding still emits `fg=0` immediately.
+
+Host tests cover output continuing with flip counters unchanged, flips without successful
+DDP output, backgrounding while output is active, and sender-stall release. These tests
+verify the contract on a host, not actual WLED delivery or the visual symptom. A console
+capture is still needed to confirm whether this removes the intermittent flicker.
+
 ## Stage D: one smoothing implementation (merge plan, after step 14)
 
 The per-zone smoothing used to exist twice: inline in the plugin's

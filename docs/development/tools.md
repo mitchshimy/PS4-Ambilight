@@ -14,6 +14,8 @@ misbehaves.
 | `test_notices.c` | host test for the plugin's notifications (`notices.c`): what each says, and that each is said once |
 | `test_fw_support.c` | host test for the firmware support table and warning text the companion app uses (`common/fw_support.h`) |
 | `test_report.c` | host test for the report file: its text, when `report.c` writes, and the write itself |
+| `test_state.c` | game-to-shell ownership regression: successful output holds `fg=1` even without flip updates; flips alone do not claim; backgrounding and sender stalls release |
+| `test_output_activity.c` | only complete successful `sendto()` results advance the counter that drives the game claim |
 | `ps4_detile_2dthin.c` | standalone reference detiler, to cross-check the plugin's tiling |
 | `test_pq8bit_vote.c` | host test for the alpha byte vote that spots 8-bit ARGB under `0x88740000` |
 | `test_hdr2200_vote.c` | host test for the alpha byte vote that picks HDR or SDR under `0x80002200` |
@@ -295,33 +297,42 @@ gcc -Wall -Itools/host_stubs -Iplugin/include -Icommon -o /tmp/test_state tools/
 ```
 
 It `#include`s `plugin/source/state.c` itself, so it runs the real `ambient_state_tick()` against
-made-up flip counters and a fake `g_isBackgrounded`, one 100 ms tick at a time. Same stand-in file calls as `test_report.c`,
+a simulated successful-DDP-output counter and a fake `g_isBackgrounded`, one 100 ms tick at a time.
+The main regression intentionally keeps all flip counters unchanged while successful output advances;
+a separate case proves flips alone do not claim the strip. Same stand-in file calls as `test_report.c`,
 redirecting `/data` to a scratch directory and honoring the real flags, so a missing `O_TRUNC`
 (the wrong thing here, unlike the report file) would show up as an unexpected one. Exits 0 if all
 pass:
 
-- The very first tick writes `fg=0` immediately, before anything about foreground or flipping is
-  known, so a reader is never stuck treating a missing file as a special case.
-- `fg=1` only when foreground **and** a flip hook moved in the last second (ten 100 ms ticks);
-  foreground alone, or flipping alone while backgrounded, is not a claim.
-- The first flipping tick writes `fg=1` at once (also after a long run of flip-less loading
-  ticks), and while the claim holds the file is rewritten only at the one-second heartbeat.
-- A game whose flips just stop keeps the claim for the window, then gets exactly one `fg=0`.
+- The very first tick writes `fg=0` immediately if no output has been sent yet, so a reader is never
+  stuck treating a missing file as a special case.
+- `fg=1` only when foreground **and** a complete successful DDP datagram has been observed within
+  the last 2.2 seconds; foreground or flip-hook activity alone is not a claim.
+- The first successful-output observation writes `fg=1` at once, and while the claim holds the file
+  is rewritten only at the one-second heartbeat.
+- If successful sends stop, the claim persists for the 2.2-second window, then writes exactly one
+  `fg=0` before shell-feed's 2.5-second stale timeout.
 - Exactly one `fg=0` write on the transition out of a claim, then total silence while it stays
-  that way -- checked by counting open calls across several idle ticks, not just reading the file
-  once.
-- `seq` keeps counting up across a background/foreground cycle; it does not reset to 0.
-- The record length is a true constant -- checked against `state_format()` directly, not just
-  the ticks above -- across `fg` 0 and 1, a sequence number that needs to wrap at 1,000,000, and
-  a title longer than the field, which must truncate rather than overrun.
-- A write never carries `O_TRUNC`.
-- A disk that keeps failing just keeps retrying the same tick forever; there is no failure
-  counter to reset, unlike the report file, because every tick here is already cheap and
-  idempotent to repeat.
+  that way -- checked by counting open calls across several idle ticks, not just reading once.
+- `seq` keeps counting up across a background/foreground cycle; the record remains 35 bytes;
+  the writer never uses `O_TRUNC`; failed file writes are retried without burning sequence numbers.
 
 It can't show that a real console lets the compositor's own process (not a game process) read
 `/data`, or how a reader in another process actually behaves under real polling timing. See
 [shell-feed-coordination](shell-feed-coordination.md).
+
+## test_output_activity.c
+
+Build and run on a PC with no console SDK:
+
+```sh
+gcc -Wall -Wextra -Iplugin/include -o /tmp/test_output_activity tools/test_output_activity.c
+/tmp/test_output_activity
+```
+
+This tests the exact `wled_output_note_send()` helper used by `plugin/source/network.c`: failed
+and short `sendto()` results leave the ownership counter unchanged, while a complete datagram
+result advances it. CI runs this alongside `test_state.c`.
 
 ## update_payload_checksum.sh
 

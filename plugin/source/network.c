@@ -17,6 +17,7 @@
 
 #include "plugin_common.h"
 #include "ambient_internal.h"
+#include "output_activity.h"
 
 // --- WLED DDP transport (identical pattern used throughout this project) ---
 // v2.0: WLED host is now g_config.wledHost/wledPort (see the settings
@@ -35,6 +36,7 @@
 #define MAX_TOTAL_ZONES 512
 
 int g_wledSockfd = -1; // one socket, held open -- avoid a socket()/close() per send at frame rate
+volatile uint32_t g_wledOutputCount = 0; // observed by state.c to arbitrate ownership with shell-feed
 
 static int wled_ensure_socket(void)
 {
@@ -452,7 +454,13 @@ void wled_send_rgb_zones(const uint8_t *rgbTriplets, int numZones)
     packet[9] = (uint8_t)(dataSize & 0xFF);
     memcpy(packet + DDP_HEADER_SIZE, rgbTriplets, dataSize);
 
-    sendto(sockfd, packet, DDP_HEADER_SIZE + dataSize, 0, (struct sockaddr*)&destAddr, sizeof(destAddr));
+    ssize_t sentBytes = sendto(sockfd, packet, DDP_HEADER_SIZE + dataSize, 0,
+                               (struct sockaddr*)&destAddr, sizeof(destAddr));
+    // This counter is deliberately a transport-progress signal, not a flip signal.
+    // UDP cannot confirm receipt by WLED, but a complete sendto() result tells the
+    // ownership writer that this process is still successfully submitting DDP.
+    (void)wled_output_note_send(&g_wledOutputCount, sentBytes,
+                                (size_t)(DDP_HEADER_SIZE + dataSize));
 
     // v2.8: snapshot what actually went out, so a later stale-send check
     // (wled_send_keepalive_if_stale) has a real, previously-sent color to

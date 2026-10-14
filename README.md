@@ -519,8 +519,7 @@ saturation and smoothing pipeline in `plugin/source/color_processing.c`.
 color is resent once a second so WLED's realtime timeout doesn't fire. See
 [`docs/debugging/wled-heartbeat.md`](docs/debugging/wled-heartbeat.md).
 
-**Handing off to the shell screens.** The plugin writes `/data/ps4-ambilight/ps4_ambient_state` the moment it starts
-driving the strip and once a second while it does, saying whether it's actively driving the strip right now. It never reads this file itself -- [`shell-feed/`](shell-feed/), a second
+**Handing off to the shell screens.** The plugin writes `/data/ps4-ambilight/ps4_ambient_state` when successful WLED DDP output starts and once a second while output continues. Ownership follows successful send progress (plus foreground/background state), not flip counters alone, so a quiet flip-hook interval cannot make shell-feed compete while the game sender is still transmitting. The claim is released on backgrounding or after 2.2 seconds without a successful DDP send. It never reads this file itself -- [`shell-feed/`](shell-feed/), a second
 plugin in this repo, reads it to know when to back off and drive the strip from the PS4's own Home
 screen and Settings instead. See
 [`docs/development/shell-feed-coordination.md`](docs/development/shell-feed-coordination.md) for

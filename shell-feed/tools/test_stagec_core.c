@@ -14,6 +14,10 @@
 #include <fcntl.h>
 #include <sys/types.h>
 
+// The extracted span includes ambient_internal.h, whose hook declarations rely on the
+// same SDK Common.h macro normally pulled in through plugin_common.h in production files.
+#include "Common.h"
+
 #define TAG "[STAGEC-TEST]"
 
 // Signatures match this repo's own tools/host_stubs/orbis/libkernel.h and tools/test_plugin_config.c
