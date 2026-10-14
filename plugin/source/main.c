@@ -95,8 +95,9 @@
 
 #include "plugin_common.h"
 #include "ambient_internal.h"
+#include "plugin_entry_alignment.h"
 
-int32_t attr_public plugin_load(int32_t argc, const char* argv[])
+static __attribute__((noinline, used)) int32_t plugin_load_impl(int32_t argc, const char* argv[])
 {
     // v3.2: GoldHEN injects every plugin into every title's process,
     // including this project's OWN companion app (titleid SHMY00091 --
@@ -303,7 +304,15 @@ int32_t attr_public plugin_load(int32_t argc, const char* argv[])
     return 0;
 }
 
-int32_t attr_public plugin_unload(int32_t argc, const char* argv[])
+// GoldHEN is the external caller for these callbacks. The crash dump for
+// CUSA15090 recorded a SIGBUS at the first MOVAPS stack store in vfprintf,
+// with the destination 8 bytes off a 16-byte boundary. The implementation
+// above is ordinary compiler-generated C and assumes the SysV entry ABI;
+// this assembly-only shim repairs RSP before any C code or libc formatting
+// runs, without depending on how GoldHEN arrived at the export.
+AMBIENT_DEFINE_ALIGNED_ENTRY(plugin_load, plugin_load_impl)
+
+static __attribute__((noinline, used)) int32_t plugin_unload_impl(int32_t argc, const char* argv[])
 {
     // v2.3: sent first and unconditionally, before any of the teardown
     // below -- this must fire even if plugin_load returned early above
@@ -339,6 +348,11 @@ int32_t attr_public plugin_unload(int32_t argc, const char* argv[])
     if (g_wledSockfd >= 0) { close(g_wledSockfd); g_wledSockfd = -1; }
     return 0;
 }
+
+// Keep teardown under the same explicit ABI contract as plugin_load: the
+// loader is outside this C translation unit, so neither callback may assume
+// its incoming RSP already satisfies the 16-byte SysV call-site alignment.
+AMBIENT_DEFINE_ALIGNED_ENTRY(plugin_unload, plugin_unload_impl)
 
 s32 attr_module_hidden module_start(s64 argc, const void *args) { return 0; }
 s32 attr_module_hidden module_stop(s64 argc, const void *args) { return 0; }

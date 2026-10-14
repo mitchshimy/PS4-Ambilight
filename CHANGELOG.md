@@ -6,6 +6,13 @@ companion app) are documented here, newest first.
 ## Plugin
 
 ### Unreleased
+- **Realign the exported plugin callbacks before entering C code.** The CUSA15090 crash dump put the fault
+  at a `movaps` store in the bundled `vfprintf`, with the destination 8 bytes off the required 16-byte
+  boundary. `plugin_load` and `plugin_unload` are now tiny assembly entry shims that align `RSP` before
+  calling their ordinary C implementations, then restore the incoming frame before returning to GoldHEN.
+  `tools/test_plugin_entry_alignment.c` deliberately invokes the shim with a misaligned caller and checks
+  that the implementation enters with the ABI-required stack alignment. This is a targeted explanation
+  for the observed fault mechanism, not yet a claim of hardware validation.
 - **Replace the old firmware-offset loader with the standalone payload.** `payloads/ps4-ambilight.bin`
   is now the 58,400-byte standalone loader that starts `ps4_shell_feed.prx`; its source/build stays
   in the separate loader repository and is not copied into this repo. The binary was user-confirmed
