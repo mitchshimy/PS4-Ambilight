@@ -144,6 +144,10 @@ void *ambient_sample_thread(void *args)
                     bool nowBackgrounded = status.isInBackgroundExecution;
                     if (nowBackgrounded != g_isBackgrounded) {
                         g_isBackgrounded = nowBackgrounded;
+                        printf("[Ambilight] HANDOFF_DIAG GAME_FG_POLL fg=%d tsc=%llu hz=%llu\n",
+                               nowBackgrounded ? 0 : 1,
+                               (unsigned long long)sceKernelGetProcessTimeCounter(),
+                               (unsigned long long)sceKernelGetProcessTimeCounterFrequency());
                         // true ("on") = foregrounded again, this plugin
                         // is driving the strip; false ("off") =
                         // backgrounded, hand control back to wled-relay.
@@ -295,6 +299,14 @@ void *ambient_sample_thread(void *args)
 #endif
 
         if (liveBufferAddr != 0 && g_haveValidFormat) {
+            static bool handoffDiagFirstFrame = false;
+            if (!handoffDiagFirstFrame) {
+                handoffDiagFirstFrame = true;
+                printf("[Ambilight] HANDOFF_DIAG GAME_FIRST_VALID_FRAME idx=%u fmt=0x%08x zones=%u tsc=%llu hz=%llu\n",
+                       (unsigned)displayBufferIndex, (unsigned)g_activeFormat, (unsigned)g_numZones,
+                       (unsigned long long)sceKernelGetProcessTimeCounter(),
+                       (unsigned long long)sceKernelGetProcessTimeCounterFrequency());
+            }
             if (g_activeFormat == 0x80002200) {
                 detectHdr2200Format(liveBufferAddr); // v3.6: alpha byte vote every pass, then the throttled smoothness check on holds -- see zones.c
             } else if (g_activeFormat == 0x88740000) {

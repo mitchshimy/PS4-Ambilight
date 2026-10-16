@@ -12,6 +12,10 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+// Deterministic stand-ins for the event-only timing diagnostics in state.c.
+uint64_t sceKernelGetProcessTimeCounter(void) { static uint64_t t = 1000; return ++t; }
+uint64_t sceKernelGetProcessTimeCounterFrequency(void) { return 1000000; }
+
 #include "../plugin/source/state.c"
 
 char g_titleId[16];

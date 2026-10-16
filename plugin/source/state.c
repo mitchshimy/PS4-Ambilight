@@ -23,6 +23,10 @@
 #include "ambient_internal.h"
 #include "state_file.h"
 
+// Also declared here for the lightweight host test, whose kernel stubs provide these symbols.
+extern uint64_t sceKernelGetProcessTimeCounter(void);
+extern uint64_t sceKernelGetProcessTimeCounterFrequency(void);
+
 #define STATE_TICK_US 100000u
 
 typedef struct {
@@ -58,6 +62,11 @@ static int ambient_state_tick(StateRunState *rs)
         rs->seq = nextSeq;
         rs->wasForeground = foreground ? 1 : 0;
         rs->wroteOnce = 1;
+        // HANDOFF_DIAG: event-only instrumentation; never runs on unchanged ticks.
+        printf("[Ambilight] HANDOFF_DIAG GAME_STATE_WRITE fg=%d seq=%u tsc=%llu hz=%llu\n",
+               foreground ? 1 : 0, (unsigned)nextSeq,
+               (unsigned long long)sceKernelGetProcessTimeCounter(),
+               (unsigned long long)sceKernelGetProcessTimeCounterFrequency());
         return 1;
     }
 

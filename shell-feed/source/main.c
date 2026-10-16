@@ -1480,6 +1480,13 @@ static int claim_poll(uint64_t nowTsc, uint64_t tscHz)
         g_claimNextPollTsc = nowTsc + (tscHz > 0 ? (tscHz * STATE_POLL_MS / 1000) : 0);
         int fg;
         if (state_read_foreground(&fg) == 0) {
+            static int handoffDiagFirstState = 0;
+            if (!handoffDiagFirstState) {
+                handoffDiagFirstState = 1;
+                printf(TAG " HANDOFF_DIAG SHELL_FIRST_VALID_STATE fg=%d tsc=%llu hz=%llu\n", fg,
+                       (unsigned long long)sceKernelGetProcessTimeCounter(),
+                       (unsigned long long)sceKernelGetProcessTimeCounterFrequency());
+            }
             g_claimEverSeen = 1;
             g_stateForeground = fg;
         } else if (!g_claimEverSeen) {
@@ -1781,12 +1788,31 @@ static int live_send(void)
         }
 #endif
         if (!bufReady) { skipped++; continue; }
+        {
+            static int handoffDiagFirstBuffer = 0;
+            if (!handoffDiagFirstBuffer) {
+                handoffDiagFirstBuffer = 1;
+                printf(TAG " HANDOFF_DIAG SHELL_FIRST_READY_BUFFER index=%d buffers=%d tsc=%llu hz=%llu\n", b, g_nBuf,
+                       (unsigned long long)sceKernelGetProcessTimeCounter(),
+                       (unsigned long long)sceKernelGetProcessTimeCounterFrequency());
+            }
+        }
         uint32_t sampleIntervalUs = 1000000u / hz;
         uint32_t nz = shell_process_frame(g_buf[b].start, sampleIntervalUs, rgbTriplets);
         int dataSize = (int)(3 * nz);
         pk[8] = (uint8_t)((dataSize >> 8) & 255); pk[9] = (uint8_t)(dataSize & 255);
         memcpy(pk + 10, rgbTriplets, (size_t)dataSize);
-        sendto(sock, pk, 10 + dataSize, 0, (struct sockaddr *)&d, sizeof(d));
+        ssize_t handoffSendBytes = sendto(sock, pk, 10 + dataSize, 0, (struct sockaddr *)&d, sizeof(d));
+        {
+            static int handoffDiagFirstSend = 0;
+            if (!handoffDiagFirstSend) {
+                handoffDiagFirstSend = 1;
+                printf(TAG " HANDOFF_DIAG SHELL_FIRST_DDP_RESULT bytes=%lld expected=%d zones=%u tsc=%llu hz=%llu\n",
+                       (long long)handoffSendBytes, 10 + dataSize, (unsigned)nz,
+                       (unsigned long long)sceKernelGetProcessTimeCounter(),
+                       (unsigned long long)sceKernelGetProcessTimeCounterFrequency());
+            }
+        }
         uint64_t elapsedTsc = rdtsc17() - t0;
         uint32_t elapsedUs = (g_tscHz > 0) ? (uint32_t)(elapsedTsc * 1000000ULL / g_tscHz) : 0;
         sumUs += elapsedUs; if (elapsedUs > maxUs) maxUs = elapsedUs; if (elapsedUs < minUs) minUs = elapsedUs;

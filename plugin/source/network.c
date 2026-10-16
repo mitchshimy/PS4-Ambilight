@@ -456,6 +456,17 @@ void wled_send_rgb_zones(const uint8_t *rgbTriplets, int numZones)
 
     ssize_t sentBytes = sendto(sockfd, packet, DDP_HEADER_SIZE + dataSize, 0,
                                (struct sockaddr*)&destAddr, sizeof(destAddr));
+    // HANDOFF_DIAG: first game-feed DDP submission only; UDP send success is not WLED receipt.
+    {
+        static bool handoffDiagFirstSend = false;
+        if (!handoffDiagFirstSend) {
+            handoffDiagFirstSend = true;
+            printf("[Ambilight] HANDOFF_DIAG GAME_FIRST_DDP_RESULT bytes=%lld expected=%u zones=%d tsc=%llu hz=%llu\n",
+                   (long long)sentBytes, (unsigned)(DDP_HEADER_SIZE + dataSize), numZones,
+                   (unsigned long long)sceKernelGetProcessTimeCounter(),
+                   (unsigned long long)sceKernelGetProcessTimeCounterFrequency());
+        }
+    }
     // This counter is deliberately a transport-progress signal, not a flip signal.
     // UDP cannot confirm receipt by WLED, but a complete sendto() result tells the
     // ownership writer that this process is still successfully submitting DDP.
