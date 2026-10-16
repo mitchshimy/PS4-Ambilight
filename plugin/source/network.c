@@ -463,6 +463,7 @@ void wled_send_rgb_zones(const uint8_t *rgbTriplets, int numZones)
 
     if (numZones > MAX_ZONES) numZones = MAX_ZONES;
     int dataSize = numZones * 3;
+
     uint8_t packet[DDP_HEADER_SIZE + 3 * MAX_ZONES];
     packet[0] = 0x40 | 0x01;
     packet[1] = 0;
@@ -488,13 +489,46 @@ void wled_send_rgb_zones(const uint8_t *rgbTriplets, int numZones)
         }
         lgLastSendTsc = nowTsc;
     }
+    // LAUNCH_GAP dark-send tracking: tells "packets stopped" (LG_SEND_GAP) apart from "packets kept
+    // coming but were black". A run of >= LG_DARK_MIN_FRAMES sends whose brightest channel is <= LG_DARK_MAX
+    // is reported once when it is confirmed and once when it ends. Event-only, capped.
+    {
+        enum { LG_DARK_MAX = 2, LG_DARK_MIN_FRAMES = 5, LG_DARK_CAP = 16 };
+        static uint32_t darkFrames = 0, darkEvents = 0;
+        static uint64_t darkStartTsc = 0;
+        static bool darkReported = false;
+        uint8_t maxCh = 0;
+        for (int i = 0; i < dataSize; i++) if (rgbTriplets[i] > maxCh) maxCh = rgbTriplets[i];
+        uint64_t nowTsc = sceKernelGetProcessTimeCounter();
+        uint64_t hzTsc  = sceKernelGetProcessTimeCounterFrequency();
+        if (maxCh <= LG_DARK_MAX) {
+            if (darkFrames == 0) darkStartTsc = nowTsc;
+            darkFrames++;
+            if (!darkReported && darkFrames >= LG_DARK_MIN_FRAMES && darkEvents < LG_DARK_CAP) {
+                darkReported = true; darkEvents++;
+                ambient_handoff_diag("HANDOFF_DIAG LG_DARK_START frames=%u maxch=%u bg=%d tsc=%llu hz=%llu",
+                                     (unsigned)darkFrames, (unsigned)maxCh, g_isBackgrounded ? 1 : 0,
+                                     (unsigned long long)darkStartTsc, (unsigned long long)hzTsc);
+            }
+        } else {
+            if (darkReported && hzTsc != 0) {
+                ambient_handoff_diag("HANDOFF_DIAG LG_DARK_END frames=%u ms=%llu maxch=%u bg=%d tsc=%llu hz=%llu",
+                                     (unsigned)darkFrames, (unsigned long long)((nowTsc - darkStartTsc) * 1000ULL / hzTsc),
+                                     (unsigned)maxCh, g_isBackgrounded ? 1 : 0,
+                                     (unsigned long long)nowTsc, (unsigned long long)hzTsc);
+            }
+            darkFrames = 0; darkReported = false;
+        }
+    }
     // HANDOFF_DIAG: first game-feed DDP submission only; UDP send success is not WLED receipt.
     {
         static bool handoffDiagFirstSend = false;
         if (!handoffDiagFirstSend) {
             handoffDiagFirstSend = true;
-            ambient_handoff_diag("HANDOFF_DIAG GAME_FIRST_DDP_RESULT bytes=%lld expected=%u zones=%d tsc=%llu hz=%llu",
-                   (long long)sentBytes, (unsigned)(DDP_HEADER_SIZE + dataSize), numZones,
+            uint8_t firstMaxCh = 0;
+            for (int i = 0; i < dataSize; i++) if (rgbTriplets[i] > firstMaxCh) firstMaxCh = rgbTriplets[i];
+            ambient_handoff_diag("HANDOFF_DIAG GAME_FIRST_DDP_RESULT bytes=%lld expected=%u zones=%d maxch=%u tsc=%llu hz=%llu",
+                   (long long)sentBytes, (unsigned)(DDP_HEADER_SIZE + dataSize), numZones, (unsigned)firstMaxCh,
                    (unsigned long long)sceKernelGetProcessTimeCounter(),
                    (unsigned long long)sceKernelGetProcessTimeCounterFrequency());
         }

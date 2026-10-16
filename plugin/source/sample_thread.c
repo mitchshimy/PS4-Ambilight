@@ -131,6 +131,36 @@ static void launch_gap_milestones(void)
                              (unsigned)g_activeFormat, g_isBackgrounded ? 1 : 0,
                              (unsigned long long)now, (unsigned long long)hz);
     }
+
+    // Mid-session changes (the milestones above fire once; these catch what happens after). Capped so a
+    // title that flaps cannot flood the dev channel. Resolution is one sampler pass, so a change that
+    // flips and flips back inside one pass is not seen.
+    {
+        static uint32_t lastFmt = 0, lastCalls = 0;
+        static int lastValid = 0;
+        static unsigned emitted = 0;
+        const unsigned LG_CHANGE_CAP = 16;
+        int valid = g_haveValidFormat ? 1 : 0;
+        uint32_t fmt = (uint32_t)g_activeFormat;
+        uint32_t calls = (uint32_t)g_registerHookCallCount;
+        static bool primed = false; // first pass after LG_FORMAT_CONFIRMED only records the baseline
+        if (seenFormat && primed && emitted < LG_CHANGE_CAP) {
+            if (valid != lastValid || (valid && fmt != lastFmt)) {
+                emitted++;
+                ambient_handoff_diag("HANDOFF_DIAG LG_FORMAT_CHANGED old=0x%08x new=0x%08x ok=%d bg=%d tsc=%llu hz=%llu",
+                                     (unsigned)lastFmt, (unsigned)fmt, valid, g_isBackgrounded ? 1 : 0,
+                                     (unsigned long long)now, (unsigned long long)hz);
+            }
+            if (calls != lastCalls && lastCalls != 0 && emitted < LG_CHANGE_CAP) {
+                emitted++;
+                ambient_handoff_diag("HANDOFF_DIAG LG_REREGISTER calls=%u fmt=0x%08x ok=%d bg=%d tsc=%llu hz=%llu",
+                                     (unsigned)calls, (unsigned)fmt, valid, g_isBackgrounded ? 1 : 0,
+                                     (unsigned long long)now, (unsigned long long)hz);
+            }
+        }
+        if (seenFormat) { lastFmt = fmt; lastValid = valid; primed = true; }
+        if (seenRegister) lastCalls = calls;
+    }
 }
 
 void *ambient_sample_thread(void *args)
