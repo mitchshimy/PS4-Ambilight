@@ -18,9 +18,10 @@ Two different programs can both reasonably want to drive the same WLED strip: th
 a game, Netflix or YouTube is the foreground title, and a shell-level feed the rest of the time
 (Home, Settings, the quick menu, anywhere there's no foreground title with its own buffers to
 sample). Game always wins. Something has to say which situation it currently is, from the game plugin that owns its DDP
-sender and knows its own foreground status. The claim must track successful output progress,
-not flips alone: sampling/sending can continue from the selected buffer during a temporary
-quiet period in the flip hooks.
+sender and knows its own foreground status. The signal is the explicit foreground bit, not output
+progress or flip activity, with one launch-time exception: the plugin does not claim until its first
+DDP send, because a title is "foreground" seconds before it can drive the strip (see
+[launch-gap-test](../debugging/launch-gap-test.md)).
 
 ## The file
 
@@ -33,21 +34,21 @@ v1 fg=1 seq=000123 title=CUSA00000
 | Field | Meaning |
 |---|---|
 | `v1` | Format version. A reader that doesn't recognize it should treat the file as absent. |
-| `fg` | `1` while this plugin is foregrounded and a successful WLED DDP send has been observed within the last 2.2 s; `0` otherwise. Flip-hook freshness alone does not grant or release ownership. |
-| `seq` | Six digits, wraps at 1,000,000. Advances only while `fg=1`. A frozen `seq` while `fg=1` means the plugin stopped updating without writing `fg=0` -- a crash, not a clean handoff. |
+| `fg` | `1` while this plugin is foregrounded **and** its first complete DDP send has happened (a one-time launch latch, never cleared); `0` while backgrounded or before that first send. After the latch, output activity and flip-hook freshness do not change it. |
+| `seq` | Six digits, wraps at 1,000,000. Increments on each transition into `fg=1`. It is not rewritten while the state is unchanged, so a frozen `seq` is normal and is **not** a freshness signal. |
 | `title` | Nine characters, space-padded, the same title ID the report file uses. `-` when unknown. |
 
 ## What a reader should do
 
 - **Treat a missing, empty, or unparsable file as "no claim."** The plugin runs fine with
   nothing reading this file; a reader should run fine with the file not there yet, or ever.
-- **A claim is fresh if `fg=1` and `seq` has changed within your own staleness window** (the
-  shell feed used 2.5 s against this plugin's roughly 1 Hz write rate -- comfortable margin,
-  not a contract this plugin promises to keep exactly). Don't treat a single read as proof by
-  itself; poll and compare `seq` across reads.
-- **An explicit `fg=0` is a clean signal, not just an absence of freshness** -- the plugin writes
-  it exactly once on the way out, so a reader doesn't have to wait out a staleness timeout for an
-  ordinary game quit. The timeout is for the crash case, where no `fg=0` is ever written.
+- **Gate on the `fg` bit.** `fg=1` means back off, `fg=0` means you may send. Before any valid
+  record has been read, you may send. After a valid record, a missing, unreadable or malformed read
+  keeps the last known state; the shell feed does not fail open on a timeout and does not use `seq`
+  movement as a freshness test. Poll at about 10 Hz (the shell feed does).
+- **An explicit `fg=0` is the release signal.** The plugin writes it once on backgrounding. A
+  stale readable `fg=1` after a plugin crash is a known limitation: this version has no unload or
+  crash reset, and the reader deliberately does not guess from timing.
 - **Read the whole 35 bytes in one call.** The file is written with a single `write()` of the
   whole fixed-width record at offset 0, deliberately without truncating first, so a reader can
   only ever see the old complete record or the new one -- never a partial write. A read of fewer
@@ -56,18 +57,14 @@ v1 fg=1 seq=000123 title=CUSA00000
 
 ## What this plugin does and doesn't promise
 
-- `fg=1` is written within about 100 ms of the first successful DDP send observed by the state
-  thread, then once a second while output activity continues; `fg=0` is written once on backgrounding
-  or after 2.2 s without a successful send. The 2.2 s release window is shorter than shell-feed's
-  2.5 s claim-staleness timeout. A reader that wants to back off
-  without a visible overlap should poll every 50-100 ms; polling faster than that gains
-  nothing. It is **not** a high-rate heartbeat: between the first write and the next
-  heartbeat the file does not change (see `state.c`'s header comment for the exact logic).
-- A game that was already sending when the reader started is seen as `fg=1` with a `seq` the
-  reader has not seen change yet. A reader may wait for the next heartbeat (at most about a
-  second) before trusting it; the first read after the reader's own start is also where a
-  record left by a previous boot shows up, which is why the freshness rule above compares
-  `seq` across reads.
+- `fg=0` is written at load. `fg=1` is written within about one 100 ms state tick of the first
+  successful DDP send (so up to about 0.1 s after the first send, then up to one more reader poll
+  before the shell backs off: a short overlap of up to about 0.2 s, measured at 47 ms and 94 ms), and
+  `fg=0` is written once on backgrounding. There are no heartbeat writes: the file does not change
+  between transitions (see `state.c`'s header comment for the exact logic).
+- A game that was already sending when the reader started is seen as `fg=1`. A record left by a
+  previous boot is also read as-is, so a reader that wants to ignore it needs its own rule; the shell
+  feed doesn't, and the plugin rewrites the file at load.
 - The format (`v1`) is considered stable. A future incompatible change would use a new version
   tag, not silently change the field layout under `v1`.
 - This plugin makes no promise about *when* GoldHEN loads or unloads it relative to a title's own
@@ -88,7 +85,7 @@ Customization, and Test strip. Without a claim the shell feed sent alongside it 
 alternated between the two (a flicker, seen on hardware). So while the Shell feed switch is on
 and the app is sending, it writes the same record format with its own send lifecycle and
 `title=COMPANION`: `fg=1` the moment it starts sending, a heartbeat once a second, and `fg=0`
-when it stops, the switch is turned off, or the app quits. A crash expires like a crashed game.
+when it stops, the switch is turned off, or the app quits. A crash leaves the last record, like a crashed game (the reader does not expire claims by timeout).
 `seq` continues from whatever is already in the file, so the next record always differs from the
 last one a reader saw. With the switch off the app never touches the file. The code is
 `companion-app/include/claim_file.h`; `tests/test_claim_file.c` checks it against the plugin's

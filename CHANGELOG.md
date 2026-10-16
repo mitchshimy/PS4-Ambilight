@@ -6,7 +6,31 @@ companion app) are documented here, newest first.
 ## Plugin
 
 ### Unreleased
-- **Integrate both sides of the foreground gate.** `plugin/source/state.c` now writes the initial state and state transitions based only on `g_isBackgrounded` (`fg=1` foreground, `fg=0` background), without tying ownership to DDP success, output counters, flip counters, or sampler activity. `plugin/include/state_file.h` documents the contract and transition sequence counter. `shell-feed/source/main.c` gates sending on the explicit `fg` bit and preserves the last known state on read errors after a valid record. This version still has no unload/crash reset path, so a stale readable `fg=1` can persist after a plugin crash. The user reports a stretch of NFS Heat burnouts without flicker, but testing is ongoing and this is not yet a confirmed fix. Host-side tests are reported separately; no PS4 SDK build or new console validation is claimed for this source update.
+- **Close the launch-time silence: `fg=1` now waits for the game's first DDP send.** Three captures
+  (`tools/handoff_capture.py`, [launch-gap-test](docs/debugging/launch-gap-test.md)) showed the plugin
+  publishing `fg=1` at load, the shell feed backing off within 30-90 ms, and the game's first flip hook
+  (so its first send) arriving about 3.1 s later: a 3.16-3.17 s window in which nothing reached WLED, so
+  WLED fell back to its default color. `plugin/source/state.c` now publishes `fg=0` at load and holds `fg=1`
+  until the process's first complete DDP send (`g_wledOutputCount` first non-zero). It is a one-time latch,
+  set once and never cleared; after it, ownership follows `g_isBackgrounded` exactly as before, with no
+  per-send inference and no heartbeat writes. A title that never sends stays `fg=0`, so the shell feed keeps
+  the strip. Two post-change captures showed no gap (the shell backs off 47 ms and 94 ms after the game's
+  first send), and the user reports the fallback color no longer appears on the 4 games tried; the NFS Heat
+  burnout case was not re-run for this change, and this is not yet a broad title sweep. `tools/test_state.c`
+  covers the latch (and its link was fixed for the new HOF1 diagnostics); no PS4 SDK build was done for this
+  entry. `g_pluginVersion` is unchanged.
+- **Handoff and launch-gap diagnostics go over the `[dev]` UDP channel.** `HANDOFF_DIAG` events from the
+  plugin are sent as `HOF1` records through `ambient_handoff_diag()` (`network.c`), and the shell feed's go
+  out as `SHL1` records, both only with `dev_ip` and `dev_logging=true`. New plugin milestones, each sent
+  once per process from the sampler thread (the hooks stay record-only): `LG_SAMPLER_START`,
+  `LG_FIRST_REGISTER_HOOK`, `LG_FORMAT_CONFIRMED`, `LG_FIRST_FLIP_HOOK`, `LG_LAG_HISTORY_READY` and
+  `LG_LAG_WAIT_EXPIRED`, plus `LG_SEND_GAP ms=N` for any silence of 250 ms or more between game sends.
+  They are not `__FINAL__`-gated. `tools/udp_ground_truth_listener.py` prints `HOF1`/`SHL1` text instead of hex.
+- **`tools/handoff_capture.py`: isolated launch-gap capture and analysis.** Keeps only the `HOF1`/`SHL1`
+  handoff events (everything else on port 4048 is only counted), times them on the PC's clock, optionally
+  polls WLED's `/json/info` live flag, splits several launches in one capture, and prints a verdict and the
+  largest step. `selftest` runs 14 checks with no console. Shares port 4048 with the other two capture tools.
+- **Integrate both sides of the foreground gate.** `plugin/source/state.c` now writes the initial state and state transitions based on `g_isBackgrounded` (`fg=1` foreground, `fg=0` background), without tying ownership to DDP success, output counters, flip counters, or sampler activity (the one exception, a launch-only latch on the first DDP send, is the first entry above). `plugin/include/state_file.h` documents the contract and transition sequence counter. `shell-feed/source/main.c` gates sending on the explicit `fg` bit and preserves the last known state on read errors after a valid record. This version still has no unload/crash reset path, so a stale readable `fg=1` can persist after a plugin crash. The user reports a stretch of NFS Heat burnouts without flicker, but testing is ongoing and this is not yet a confirmed fix. Host-side tests are reported separately; no PS4 SDK build or new console validation is claimed for this source update.
 - **Realign the exported plugin callbacks before entering C code.** The CUSA15090 crash dump put the fault
   at a `movaps` store in the bundled `vfprintf`, with the destination 8 bytes off the required 16-byte
   boundary. `plugin_load` and `plugin_unload` are now tiny assembly entry shims that align `RSP` before

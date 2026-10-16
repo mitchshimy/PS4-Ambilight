@@ -26,6 +26,10 @@ What has actually been used to check the plugin:
   together. If the output is redirected from PowerShell with `>` the file is UTF-16
   and a parser reads nothing from it. Convert it first (`iconv -f UTF-16 -t UTF-8`)
   or use `Out-File -Encoding utf8`.
+- **`tools/handoff_capture.py`.** Isolated capture and analysis of the launch gap (nothing sent between a
+  game's launch picture and its first frames). Keeps only the HOF1/SHL1 handoff events, times them on the
+  PC clock, optionally polls WLED's live flag, and prints a verdict. Its `selftest` needs no console. See
+  [launch-gap-test](../debugging/launch-gap-test.md). Same port 4048 as the other two tools.
 - **`tools/test_pq8bit_vote.c`.** A host test for the alpha byte vote behind the
   `0x88740000` check, on real words from captures and on generated PQ. The one piece
   of plugin logic that is built and run on a PC, only because it lives in its own

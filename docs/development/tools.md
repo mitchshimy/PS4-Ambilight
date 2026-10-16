@@ -7,14 +7,15 @@ misbehaves.
 | Tool | What it's for |
 |---|---|
 | `flicker_capture.py` | capture and analyze the FLK1 flicker probe from a debug plugin build |
-| `udp_ground_truth_listener.py` | print every raw UDP packet on port 4048 |
+| `udp_ground_truth_listener.py` | print every raw UDP packet on port 4048 (decodes `HOF1`/`SHL1` telemetry text) |
+| `handoff_capture.py` | isolated launch-gap capture: keeps only the `HOF1`/`SHL1` handoff events, times them on the PC clock, prints a verdict; `selftest` needs no console |
 | `decode_verification_dump.py` | decode the plugin's older raw debug packets offline |
 | `decode_guard_packets.py` | decode the buffer guard's `GRDC`, `GRDI` and `RMAP` packets and the sampler's pass times from a listener log |
 | `test_buffer_guard.c` | host test for `buffer_guard.c`, run against a fake kernel, for the GPU-only buffer fix |
 | `test_notices.c` | host test for the plugin's notifications (`notices.c`): what each says, and that each is said once |
 | `test_fw_support.c` | host test for the firmware support table and warning text the companion app uses (`common/fw_support.h`) |
 | `test_report.c` | host test for the report file: its text, when `report.c` writes, and the write itself |
-| `test_state.c` | game-to-shell ownership regression: successful output holds `fg=1` even without flip updates; flips alone do not claim; backgrounding and sender stalls release |
+| `test_state.c` | game-to-shell state writer regression: `fg=0` until the first DDP send (launch latch), then `fg=1` regardless of output activity; backgrounding releases; a title that never sends stays `fg=0` |
 | `test_output_activity.c` | only complete successful `sendto()` results advance the counter that drives the game claim |
 | `ps4_detile_2dthin.c` | standalone reference detiler, to cross-check the plugin's tiling |
 | `test_pq8bit_vote.c` | host test for the alpha byte vote that spots 8-bit ARGB under `0x88740000` |
@@ -56,8 +57,20 @@ payload looks like a solid color it prints the first LED's RGB. It's what you us
 confirm what WLED would actually receive: that the heartbeat arrives, that nothing
 arrives during suspend. See
 [wled-heartbeat](../debugging/wled-heartbeat.md#how-it-was-checked). Port 4048 is
-shared with `flicker_capture.py`. Redirecting its output from PowerShell with `>` gives
+shared with `flicker_capture.py` and `handoff_capture.py`. It prints `HOF1` (plugin) and `SHL1`
+(shell feed) records as decoded text. Redirecting its output from PowerShell with `>` gives
 a UTF-16 file, convert it before parsing.
+
+## handoff_capture.py
+
+The isolated capture behind the [launch-gap test](../debugging/launch-gap-test.md). Run
+`python tools/handoff_capture.py capture --seconds 90 --out run.jsonl [--wled-ip IP]`, launch the
+game, and it prints the handoff timeline and a verdict (`NO SENDER GAP`, `SENDER GAP` with the largest
+step, `OVERLAP`, `INCOMPLETE`). Only `HOF1` and `SHL1` handoff events are kept; every other packet
+on port 4048 is counted and dropped, so a debug build's other telemetry doesn't get in the way. All
+times are arrival times on the PC. `analyze run.jsonl` re-reads a saved file; `selftest` runs the
+analyzer on synthetic scenarios, no console needed. Write the file with `--out`, not PowerShell's
+`>` (UTF-16). Shares port 4048 with the two tools above.
 
 ## decode_verification_dump.py
 
@@ -298,24 +311,22 @@ gcc -Wall -Itools/host_stubs -Iplugin/include -Icommon -o /tmp/test_state tools/
 
 It `#include`s `plugin/source/state.c` itself, so it runs the real `ambient_state_tick()` against
 a simulated successful-DDP-output counter and a fake `g_isBackgrounded`, one 100 ms tick at a time.
-The main regression intentionally keeps all flip counters unchanged while successful output advances;
-a separate case proves flips alone do not claim the strip. Same stand-in file calls as `test_report.c`,
-redirecting `/data` to a scratch directory and honoring the real flags, so a missing `O_TRUNC`
-(the wrong thing here, unlike the report file) would show up as an unexpected one. Exits 0 if all
-pass:
+Same stand-in file calls as `test_report.c`, redirecting `/data` to a scratch directory and honoring
+the real flags, so a missing `O_TRUNC` (the wrong thing here, unlike the report file) would show up
+as an unexpected one. The HOF1 diagnostic and the process timer are stand-ins. Exits 0 if all pass:
 
-- The very first tick writes `fg=0` immediately if no output has been sent yet, so a reader is never
-  stuck treating a missing file as a special case.
-- `fg=1` only when foreground **and** a complete successful DDP datagram has been observed within
-  the last 2.2 seconds; foreground or flip-hook activity alone is not a claim.
-- The first successful-output observation writes `fg=1` at once, and while the claim holds the file
-  is rewritten only at the one-second heartbeat.
-- If successful sends stop, the claim persists for the 2.2-second window, then writes exactly one
-  `fg=0` before shell-feed's 2.5-second stale timeout.
-- Exactly one `fg=0` write on the transition out of a claim, then total silence while it stays
-  that way -- checked by counting open calls across several idle ticks, not just reading once.
-- `seq` keeps counting up across a background/foreground cycle; the record remains 35 bytes;
-  the writer never uses `O_TRUNC`; failed file writes are retried without burning sequence numbers.
+- The very first tick writes `fg=0` (nothing sent yet) and then stays silent. Flip and register-hook
+  counts alone do not release the shell.
+- The first successful DDP send (counter non-zero) writes `fg=1` once: the launch latch. After it,
+  output activity, a counter that goes quiet or resets, and 100s of idle ticks write nothing more,
+  and there are no heartbeat writes (counted by open calls, not just a read).
+- Backgrounding writes exactly one `fg=0`, then total silence. Foregrounding again republishes `fg=1`
+  and increments `seq`.
+- Startup while already backgrounded publishes `fg=0`, and a first send while backgrounded does not
+  publish `fg=1` until the title is foregrounded.
+- A title that never sends stays `fg=0` for 300 ticks (the shell feed keeps the strip).
+- The record stays 35 bytes; the writer never uses `O_TRUNC`; failed file writes are retried
+  without burning sequence numbers.
 
 It can't show that a real console lets the compositor's own process (not a game process) read
 `/data`, or how a reader in another process actually behaves under real polling timing. See

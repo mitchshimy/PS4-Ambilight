@@ -24,6 +24,12 @@ Investigations with the evidence and the wrong turns left in.
   that never lit up
 - [wled-heartbeat](debugging/wled-heartbeat.md): WLED's realtime timeout and the
   once-a-second resend
+- [launch-gap-test](debugging/launch-gap-test.md): the 3.2 s of silence after a game's launch
+  screen, how it was measured, and the `fg=1` latch that closed it
+- [foreground-handoff-measurement](debugging/foreground-handoff-measurement.md): the handoff
+  events the launch-gap test builds on
+- [shell-feed-foreground-gate](shell-feed-foreground-gate.md): the explicit `fg` bit the shell
+  feed gates on
 - [black-screen-shows-color](debugging/black-screen-shows-color.md): the smoothing bug,
   and a guard that got reverted
 - [hdr-pixel-format](debugging/hdr-pixel-format.md): `0x80002200` and live HDR detection

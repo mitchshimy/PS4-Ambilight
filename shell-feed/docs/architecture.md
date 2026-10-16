@@ -42,22 +42,20 @@ half-written file):
 v1 fg=1 seq=000123 title=CUSA00000
 ```
 
-- `fg=1` and a rewrite (`seq` incrementing) about once a second means the
-  game is foregrounded and successful WLED DDP sends are still being submitted.
-  It follows output progress rather than flip-hook freshness because the sampler can
-  keep sending from its selected buffer during a temporary gap in flip callbacks.
-- `fg=0`, written once on backgrounding or after 2.2 seconds without a successful
-  DDP send, means the game has let go. The 2.2-second window is shorter than the
-  reader's 2.5-second stale-claim timeout.
-- Historically, v3.9.3 moved the first claim from up to one second after load to the
-  first flip (`89199fe`) to narrow a launch-time overlap. The current rule supersedes
-  flip-based ownership: the game claim follows successful DDP send progress.
+- `fg=1` means the game is foregrounded **and** has completed its first DDP send (a launch-only
+  latch: before that the shell feed keeps the strip, so there is no silent gap while the game loads).
+  It is written at startup and on transitions only, with no once-a-second rewrite.
+- `fg=0`, written at load and once on backgrounding, means the game has let go or hasn't started
+  sending yet.
+- History: v3.9.3 moved the first claim to the first flip (`89199fe`); a later version followed
+  output progress with a 2.2 s release window; the current rule is the explicit foreground bit plus the
+  launch latch. See [`docs/shell-feed-foreground-gate.md`](../../docs/shell-feed-foreground-gate.md).
 
-shell-feed polls this file every 50 ms. A claim counts as fresh only after
-the reader has *seen `seq` change* -- a leftover record from a previous boot
-never arms a claim on its own, so `/data` surviving a reboot is harmless.
-Missing, empty or unparsable file means "no claim": shell-feed runs
-standalone rather than going dark.
+shell-feed polls this file at 10 Hz and gates on the `fg` bit alone: `fg=1` backs off, `fg=0`
+may send, and after a first valid read an unreadable or malformed file keeps the last state.
+No `seq` movement or freshness timeout is used.
+Before any valid record has been read, a missing, empty or unparsable file means "no claim":
+shell-feed runs standalone rather than going dark.
 
 ## Shared code vs. shell-feed's own code
 
