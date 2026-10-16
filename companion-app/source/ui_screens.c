@@ -188,6 +188,7 @@ static const GroupLayout kGroupLayouts[] = {
     { "WLED connection",     ICON_WIFI,        {3},    1, 0.0f,  false },
     { "LED strip layout",    ICON_LED_STRIP,   {4,4},  2, 0.0f,  true  },
     { "Shell feed",          ICON_ACTIVITY,    {3},    1, 0.0f,  false },
+    { "Notifications",       ICON_ACTIVITY,    {1},    1, 0.0f,  false },
     { "Live reload",         ICON_REFRESH,     {1},    1, 0.0f,  false },
     { "Screen sampling",     ICON_FRAME,       {1},    1, 0.0f,  false },
     { "Auto letterbox",      ICON_FRAME,       {2},    1, 0.0f,  false },

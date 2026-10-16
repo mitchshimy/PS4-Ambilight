@@ -444,7 +444,7 @@ enabled=false
 It is **on by default** and not in the shipped ini. Some messages are sent whatever it says,
 because the strip can't work without them or you'd be misled: no WLED address (for the plugin and
 the shell feed, and a note when one is set), an ini value that was ignored or an ini that couldn't
-be read, and debug logging left on. The companion app keeps the section when it saves. As with the
+be read, and debug logging left on. The companion app has a Notifications switch on Set up, under Shell feed, that sets this (it writes the section only once it is off, or when the file already has it, so a fresh ini doesn't grow one). The companion app's own messages follow the same switch. As with the
 other switches in this file, `on`, `true` and `1` are on and any other word is off.
 
 ### Companion app controls

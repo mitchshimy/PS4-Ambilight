@@ -69,6 +69,7 @@
 #include "relay_signal.h"
 #include "layout.h"
 #include "sha256.h"
+#include "notify.h"
 #include "plugin_common.h" // ORBIS_O_CREAT_TRUNC_WRONLY -- see its BUG FIX comment
 #include "ui_canvas.h"
 #include "ui_theme.h"
@@ -552,6 +553,12 @@ static void handle_home_input(bool up, bool down, bool left, bool right, bool cr
                 set_status("Test strip stopped.", false);
             } else if (!g_state.setupComplete) {
                 g_state.toastVisible = true;
+                // Also in the console's notification bar, where the shell feed and the plugin say the same
+                // thing. Essential: the strip can't work without it, so it ignores [notifications] enabled.
+                if (g_cfg.wledHost[0] == '\0')
+                    app_notify(true, "Test strip can't start: no WLED address is set. Set wled_host in Set up.");
+                else
+                    app_notify(true, "Test strip can't start: no LED strip layout is set. Set the LED counts in Set up.");
             } else {
                 g_state.testRunning = true;
                 char msg[128];
@@ -788,9 +795,11 @@ static void handle_settings_input(bool up, bool down, bool left, bool right,
                     } else if (g_state.shellFeedRunning) {
                         // Its heartbeat is changing, so it is up: don't send it again.
                         autoload_hint("Ambilight payload is already running.");
+                        app_notify(false, "Ambilight payload is already running.");
                     } else if (g_state.shellFeedStarting) {
                         // Sent a moment ago, no heartbeat yet: a second send now would only race the first.
                         autoload_hint("Ambilight payload was just sent and is still starting up.");
+                        app_notify(false, "Ambilight payload was just sent and is still starting up.");
                     } else {
                         // Set up has no status line, so show launch_payload_now()'s result (sent, or why not) in the save bar.
                         launch_payload_now();

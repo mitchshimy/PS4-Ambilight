@@ -133,6 +133,11 @@ const MenuItem kMenuItems[] = {
     { "Ambilight payload", "ui",     "shell_run_now",             FIELD_ACTION, OFF(shellAutoload),   0,     0,   1, NULL, 0,
       MENU_SCREEN_SETUP, "Shell feed", NULL },
 
+    // Notifications: the real [notifications] enabled key the plugin and the shell feed read (and this
+    // app's own notify.c). Absent in the ini means ON, so the app only writes it once it is off or already there.
+    { "Notifications",     "notifications", "enabled",            FIELD_BOOL,   OFF(notificationsEnabled), 0, 1, 1, NULL, 0,
+      MENU_SCREEN_SETUP, "Notifications", "Messages in the console's notification bar from the plugin, the shell feed and this app, such as the shell feed starting, pausing or waiting. A few are always sent, like \"no WLED address is set\", because the strip can't work without them." },
+
     { "Reload check (seconds)", "timing", "config_reload_check_seconds", FIELD_U32, OFF(configReloadCheckSeconds), 0, 60, 1, NULL, 0,
       MENU_SCREEN_SETUP, "Live reload", "How often the plugin checks this file for changes while it's running, so updates apply without closing the game. Set to 0 to only read the file once, at load." },
 
@@ -241,6 +246,7 @@ void settings_set_defaults(AmbientConfig *cfg)
     cfg->smoothingEnabled = 0;
     cfg->settlingTimeMs = 200;
     cfg->configReloadCheckSeconds = 2;
+    cfg->notificationsEnabled = 1;   // on by default, as the plugin treats a missing [notifications] enabled
     // relayHost intentionally left blank (memset above) and
     // relaySignalEnabled defaults off, same reasoning as wledHost
     // above -- this app shouldn't ship pointed at this project's own
@@ -377,6 +383,9 @@ bool settings_load(AmbientConfig *cfg, const char *path)
     // it out explicitly so the two agree from then on.
     if (ini_table_get_entry_as_bool(table, "shell", "enabled", &bv)) cfg->shellEnabled = bv ? 1 : 0;
 
+    // Absent means ON (the plugin's own default), so a file that never mentions it stays on.
+    if (ini_table_get_entry_as_bool(table, "notifications", "enabled", &bv)) cfg->notificationsEnabled = bv ? 1 : 0;
+
     ini_table_destroy(table);
     return true;
 }
@@ -452,6 +461,7 @@ void settings_fill_table(ini_table_s *table, const AmbientConfig *cfg, bool pres
     bool hadRelayHost   = ini_table_get_entry(table, "network", "relay_host") != NULL;
     bool hadRelayPort   = ini_table_get_entry(table, "network", "relay_port") != NULL;
     bool hadRelaySignal = ini_table_get_entry(table, "network", "relay_signal_enabled") != NULL;
+    bool hadNotifications = ini_table_get_entry(table, "notifications", "enabled") != NULL;
 
     char buf[64];
     #define SET_INT(section, key, val) do { snprintf(buf, sizeof(buf), "%d", (int)(val)); ini_table_create_entry(table, section, key, buf); } while (0)
@@ -502,6 +512,11 @@ void settings_fill_table(ini_table_s *table, const AmbientConfig *cfg, bool pres
     // Always written (unlike the relay keys above): the shell feed reads a missing key as ON, so
     // leaving "off" unwritten would not actually turn it off for someone who has it installed.
     ini_table_create_entry(table, "shell", "enabled", cfg->shellEnabled ? "true" : "false");
+
+    // Absent already means on, so a fresh ini never grows this section just from a save: it is written
+    // once it is off, or when the file already had it (so turning it back on replaces the false).
+    if (hadNotifications || !cfg->notificationsEnabled)
+        ini_table_create_entry(table, "notifications", "enabled", cfg->notificationsEnabled ? "true" : "false");
 
     #undef SET_INT
 

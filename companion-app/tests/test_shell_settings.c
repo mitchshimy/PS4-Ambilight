@@ -87,6 +87,34 @@ int main(void)
     assert(!strcmp(kMenuItems[iShell].group, kMenuItems[iAuto].group));  // one card
     printf("menu rows: ok\n");
 
+    // [notifications] enabled: on by default, absent means on, a save only writes it once it is off
+    // or the file already has it, and the Set up row sits right after the Shell feed card.
+    {
+        settings_set_defaults(&cfg);
+        assert(cfg.notificationsEnabled == 1);
+        write_text(ini, "[network]\nwled_host=10.0.0.5\n");
+        settings_set_defaults(&cfg); assert(settings_load(&cfg, ini) && cfg.notificationsEnabled == 1);
+        assert(settings_save(&cfg, ini));
+        char *n1 = slurp(ini); assert(!strstr(n1, "[notifications]")); free(n1);       // on + absent: not introduced
+        cfg.notificationsEnabled = 0; assert(settings_save(&cfg, ini));
+        n1 = slurp(ini); assert(strstr(n1, "[notifications]")); free(n1);               // off: written
+        settings_set_defaults(&cfg); assert(settings_load(&cfg, ini) && cfg.notificationsEnabled == 0);
+        cfg.notificationsEnabled = 1; assert(settings_save(&cfg, ini));                 // back on: replaces the false
+        settings_set_defaults(&cfg); cfg.notificationsEnabled = 0; assert(settings_load(&cfg, ini) && cfg.notificationsEnabled == 1);
+        int iN = -1, iAutoN = -1, iRun = -1, iLiveN = -1;
+        for (int i = 0; i < kMenuItemCount; i++) {
+            if (!strcmp(kMenuItems[i].section, "notifications") && !strcmp(kMenuItems[i].key, "enabled")) iN = i;
+            if (!strcmp(kMenuItems[i].key, "shell_run_now")) iRun = i;
+            if (!strcmp(kMenuItems[i].key, "shell_autoload")) iAutoN = i;
+            if (!strcmp(kMenuItems[i].key, "config_reload_check_seconds")) iLiveN = i;
+        }
+        assert(iN >= 0 && iRun >= 0 && iAutoN >= 0 && iLiveN >= 0);
+        assert(iN > iRun && iN > iAutoN && iN < iLiveN);                                // below Shell feed, own card
+        assert(kMenuItems[iN].screen == MENU_SCREEN_SETUP && kMenuItems[iN].type == FIELD_BOOL);
+        assert(strcmp(kMenuItems[iN].group, kMenuItems[iRun].group) != 0);
+        printf("notifications: ok\n");
+    }
+
     // [dev] update_base_url cleanup
     char out[64];
     assert(update_source_normalize("http://192.168.2.117:8000", out, sizeof(out)) && !strcmp(out, "http://192.168.2.117:8000"));

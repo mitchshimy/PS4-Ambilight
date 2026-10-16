@@ -58,6 +58,8 @@ typedef struct {
     // console's own screens. Both are Set up rows. Default OFF: with it off the app behaves as it
     // did before the shell feed existed.
     int shellEnabled;    // ini [shell] enabled -- the same key the shell feed itself reads
+    int notificationsEnabled; // ini [notifications] enabled: the console's notification bar, for the plugin, the
+                              // shell feed and this app. Default ON (absent = on, like the plugin reads it).
     int shellAutoload;   // NOT an ini key: mirrors GoldHEN's payload AutoRun list (main.c reads
                          // and writes that file, see payload_ini.h). Never saved with the ini.
 } AmbientConfig;
