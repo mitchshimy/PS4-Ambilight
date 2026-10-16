@@ -10,8 +10,14 @@ The shell-feed loop reads `/data/ps4-ambilight/ps4_ambient_state` and uses the e
 - After a valid record has been read, a missing, unreadable, or malformed record preserves the last known `fg` state. It does not fail open after a timeout.
 - File reads are rate-limited to 10 Hz; the live-send loop otherwise checks the cached gate state.
 
-The code change is limited to `shell-feed/source/main.c`. The game-side writer was not changed in this update. In particular, the writer's current definition of `fg=1` still depends on its existing foreground/output-activity logic, so this reader change alone does not make the producer's flag a pure foreground indicator. A stale readable `fg=1` after a game-plugin crash also remains a recovery limitation until an explicit reset/unload path exists.
+The integrated change updates both sides of the contract:
+
+- `plugin/source/state.c` writes the initial state and subsequent transitions based only on `g_isBackgrounded`: `fg=1` while the title is foregrounded, `fg=0` while backgrounded. It does not use successful DDP sends, output counters, flip counters, or sampler activity to decide ownership. Writes stay on the separate 100 ms state thread, not the sampler hot path; there are no heartbeat writes.
+- `shell-feed/source/main.c` reads the explicit bit and applies the gate rules above.
+- `plugin/include/state_file.h` documents the new meaning of `fg` and the transition-based sequence counter.
+
+A stale readable `fg=1` after a game-plugin crash remains a recovery limitation: this version does not yet add an unload/crash reset path, and the reader deliberately does not use sequence freshness as an ownership signal.
 
 ## User test note — 2026-10-16
 
-The user reports performing burnouts for some time with **no flickering observed**. This is encouraging but not conclusive: testing is continuing, and the observation does not yet establish that the issue is fixed. No PS4 SDK build or console validation was performed as part of this source update.
+The user reports performing burnouts for some time with **no flickering observed**. This is encouraging but not conclusive: testing is continuing, and the observation does not yet establish that the issue is fixed. Host-side state-writer and shell-feed checks were run for this integrated source update. No PS4 SDK build or new console validation was performed as part of packaging this update.

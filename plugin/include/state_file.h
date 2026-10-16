@@ -1,8 +1,7 @@
 // state_file.h -- the text of the cross-process state file (v3.9.2).
 //
 // /data/ps4-ambilight/ps4_ambient_state tells a second, independent process -- a compositor-level feed
-// reading the shell's own screens (Home, Settings, the quick menu) -- whether a game is actively
-// submitting WLED DDP output while foregrounded, so the two never fight over the strip. This
+// reading the shell's own screens (Home, Settings, the quick menu) -- whether the game title is foregrounded, so the two never fight over the strip. This
 // plugin has no code that reads the other side; it only writes its own state,
 // unconditionally, the same way it already exposes report.c's counters. Holds no personal data:
 // a flag, a counter and a title ID, the same title ID already shown in the report file.
@@ -33,8 +32,8 @@
 #define STATE_RECORD_LEN  35
 
 typedef struct {
-    int      foreground;    // !g_isBackgrounded && successful WLED DDP send observed in last ~2.2 s
-    uint32_t seq;            // increments each time a foreground record is written; wraps mod 1,000,000
+    int      foreground;    // 1 while !g_isBackgrounded; independent of output/transmission activity
+    uint32_t seq;            // increments on each transition into foreground; wraps mod 1,000,000
     char     titleId[16];    // "" when sys_sdk_proc_info hasn't set it yet
 } StateSnapshot;
 
