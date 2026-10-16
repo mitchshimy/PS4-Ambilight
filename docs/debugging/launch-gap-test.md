@@ -21,6 +21,13 @@ sent once per process from the sampler thread (the hooks stay record-only):
 | `LG_FIRST_FLIP_HOOK` | first flip hook call seen (which of the three entry points, and the slot) |
 | `LG_LAG_HISTORY_READY` / `LG_LAG_WAIT_EXPIRED` | the sample-lag history existed / the ~1 s wait ran out |
 | `LG_SEND_GAP ms=N` | any silence of 250 ms or more between two game-feed sends (heartbeat resends count as sends) |
+| `LG_DARK_START` / `LG_DARK_END` | a run of 5 or more game-feed sends whose brightest channel is 2 or lower: start once confirmed, end with `frames`, `ms` and the first brighter `maxch` |
+| `LG_FORMAT_CHANGED old= new= ok=` | the active format changed (or became invalid) after `LG_FORMAT_CONFIRMED` |
+| `LG_REREGISTER calls=` | the game registered its buffers again after the first time |
+
+`GAME_FIRST_DDP_RESULT` also carries `maxch=`, the brightest channel of the first frame sent. The dark and
+format events are not once-per-process: each kind is capped at 16 per process, and a format change that
+reverts inside one sampler pass (about 33 ms) is not seen.
 
 They are not `__FINAL__`-gated, so a **release build** carries them. Use a release build for this test:
 a `DEBUG=1` build also streams FLK1/GRDC/... every second, which the tool ignores but you don't need.
@@ -102,6 +109,34 @@ listed in [shell-feed-foreground-gate](../shell-feed-foreground-gate.md#known-li
 
 Not covered: a wider title sweep, the NFS Heat burnout case re-run against this change, a title that
 never sends on a console (the host test covers it), and PS-button suspend/resume on a console.
+
+## Second finding: black frames, not silence (FC26, 2026-10-16)
+
+The first fix removed the silence but one title still showed a 3-4 s dark strip at launch. `LG_SEND_GAP`
+showed nothing, and `WLED_LIVE` never went to 0 in any run, so the controller was receiving packets the
+whole time. The new events showed what they were:
+
+| | HDR on (13:15 run) | HDR off (13:24 run) | After the hold (13:34 run) |
+|---|---|---|---|
+| Format | `0x88740000` | `0x88000000` | `0x88000000` |
+| First game frame sent | +27.47 s, `maxch=0` | +24.19 s, `maxch=0` | +30.92 s, `maxch=92` |
+| Black run | 64 frames, 2362 ms | 96 frames, 3489 ms | none |
+| `fg=1` / gate ON | +28.31 s | +24.22 s / +24.31 s | +31.00 s / +31.05 s |
+| What the user saw | dark about 4 s | dark 13:24:30 to 13:24:33 | no dark period |
+
+(Seconds are capture time; the user's clock times lined up with the black runs to within a second.)
+The game's registered buffers read all zeros for about 3 s while the launch picture was on screen, the
+plugin sent them, the first send published `fg=1`, and the shell feed, which can see the picture, backed
+off. That the picture is drawn somewhere the plugin's buffers do not show is an inference from this
+behaviour, not something the events prove. HDR on and off behave the same way. The hold in `network.c`
+(see [shell-feed-foreground-gate](../shell-feed-foreground-gate.md#startup-hold-on-black-frames)) fixed it.
+
+Unexplained: in the HDR-on run the shell feed's counters put its last send about 1.4 s before the gate
+event arrived, and a brief flicker in the 13:34 run fell before the game had started, when only the shell
+feed was driving the strip. Neither left a distinguishing event.
+
+Reading a capture for this: `LG_SEND_GAP` plus `WLED_LIVE live=0` means packets stopped; `LG_DARK_START`
+/ `LG_DARK_END` with `live` still 1 means black frames were sent.
 
 ## Checks
 

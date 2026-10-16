@@ -6,6 +6,44 @@ companion app) are documented here, newest first.
 ## Plugin
 
 ### Unreleased
+- **Hold the game feed's first send while it is still black, and only while the shell feed is running.**
+  In FC26 the launch picture is on screen while the game's registered buffers read all zeros for about
+  3 s. The plugin sent those black frames; the first send published `fg=1`; the shell feed, which could
+  see the picture, backed off; and the strip went dark until the buffers filled in. Captures
+  ([launch-gap-test](docs/debugging/launch-gap-test.md)): with HDR on, 64 black frames over 2362 ms; with
+  HDR off, 96 over 3489 ms, both matching the 3-4 s the user watched. WLED never left live mode in either,
+  so this was black data, not a stall. `wled_send_rgb_zones()` (`plugin/source/network.c`) now sends
+  nothing until it has a frame whose brightest channel is above 2 (a one-way latch), so `fg` stays 0 and
+  the shell feed keeps the strip. With the shell feed off that would leave WLED on its default color
+  through a genuinely black loading screen, so the hold applies only while the shell feed is actually
+  running. The shell feed rewrites `/data/ps4-ambilight/ps4_shell_alive`, a changing 20-digit counter,
+  once a second from its main loop (also while the game owns the strip). The plugin's state thread, from
+  load until the first send, asks `ambient_shell_feed_expected()` (`settings.c`) about every 300 ms and
+  keeps `g_shellFeedAlive`: false once the counter has not changed for 3 s, or at once if the disable file
+  or `[shell] enabled=false` is present. Not installed, crashed, switched off and an older shell feed
+  without the heartbeat all look the same (the counter never changes), and all mean no hold. After the
+  first send nothing is read, so normal play does no extra file or ini reads. **Both the plugin and the
+  shell feed must be rebuilt**: with only the plugin, the heartbeat never appears and the hold never
+  applies. After the change, a capture of the same title showed the first frame sent at `maxch=92`, no
+  `LG_DARK_START`, no send gap, and the shell feed backing off 0.12 s after the first send; the user
+  reports no dark period on the LEDs. The one flicker noted in that run fell at a moment when only the
+  shell feed was driving the strip and left no event. **Known limitations:** for the first 3 s after load
+  the plugin assumes the shell feed is running, so a black loading screen with no shell feed can still show
+  WLED's default color if the first frame arrives sooner than 3 s after load (it arrived 3.4-4.9 s after
+  load in the captures); a title whose buffers stay black for a long time while the shell feed runs
+  leaves the shell feed in control with no timeout; the heartbeat reader has no host test (the state test
+  only gained stubs). The shell-off path has no capture of its own. Built and run by the user with
+  the OpenOrbis toolchain; no PS4 SDK build in the environment that wrote this entry. `g_pluginVersion` is
+  unchanged.
+- **More launch-gap events: dark sends, mid-session format changes and the first frame's brightness.**
+  `LG_SEND_GAP` only sees silence, so a strip going dark because the game feed was sending black frames
+  looked the same as no data. New HOF1 records over the `[dev]` channel: `LG_DARK_START` / `LG_DARK_END`
+  (a run of 5 or more sends whose brightest channel is 2 or lower, with frame count and duration),
+  `LG_FORMAT_CHANGED` (the active format changed or became invalid after the first confirmation),
+  `LG_REREGISTER` (the game registered its buffers again), and `GAME_FIRST_DDP_RESULT` now carries
+  `maxch=`. Each kind is capped at 16 per process; they are not `__FINAL__`-gated. A format change that
+  reverts inside one sampler pass (about 33 ms) is not seen. `tools/handoff_capture.py` keeps them in the
+  capture file but its verdict does not use them yet.
 - **Close the launch-time silence: `fg=1` now waits for the game's first DDP send.** Three captures
   (`tools/handoff_capture.py`, [launch-gap-test](docs/debugging/launch-gap-test.md)) showed the plugin
   publishing `fg=1` at load, the shell feed backing off within 30-90 ms, and the game's first flip hook

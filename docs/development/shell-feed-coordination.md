@@ -60,7 +60,7 @@ v1 fg=1 seq=000123 title=CUSA00000
 - `fg=0` is written at load. `fg=1` is written within about one 100 ms state tick of the first
   successful DDP send (so up to about 0.1 s after the first send, then up to one more reader poll
   before the shell backs off: a short overlap of up to about 0.2 s, measured at 47 ms and 94 ms), and
-  `fg=0` is written once on backgrounding. There are no heartbeat writes: the file does not change
+  `fg=0` is written once on backgrounding. There are no heartbeat writes to this file: it does not change
   between transitions (see `state.c`'s header comment for the exact logic).
 - A title that never sends (unsupported format, unreadable buffers, hooks that never fire) stays
   `fg=0`, so a reader keeps its own output for it. Known and untested; see
@@ -73,6 +73,18 @@ v1 fg=1 seq=000123 title=CUSA00000
 - This plugin makes no promise about *when* GoldHEN loads or unloads it relative to a title's own
   lifecycle -- the same uncertainty the report file already lives with (see
   [report-file.md](../debugging/report-file.md)).
+
+## The shell feed's heartbeat file
+
+The other direction, for one purpose: `/data/ps4-ambilight/ps4_shell_alive` is a single line, a 20-digit
+zero-padded counter and a newline, rewritten in place (no truncate) by the shell feed about once a second
+from its main loop, including while the game owns the strip. The plugin never trusts its value, only
+that it keeps changing: the state thread, from load until the plugin's first DDP send, reads it about
+every 300 ms (`ambient_shell_feed_expected()` in `settings.c`) and treats the shell feed as gone when it
+has not changed for 3 s. That decides whether `network.c` holds its first send while the frames are black
+(see [shell-feed-foreground-gate](../shell-feed-foreground-gate.md#startup-hold-on-black-frames)). A
+missing file, an older shell feed without the heartbeat, a crashed one and an uninstalled one all read as
+"not running". A reader of `ps4_ambient_state` does not need this file.
 
 ## Source
 
