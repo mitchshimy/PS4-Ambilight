@@ -74,7 +74,7 @@
 //  - writing a default ini: if the file is missing v22 keeps the sister's compiled defaults and says so.
 //  The values in an INI line in the log are therefore the sister's own, with the shell's choice of preset.
 //
-// Claim reader, flip tracking, the 50 ms poll and the CLAIM log lines are v21's, unchanged.
+// Foreground-bit reader gate; the shell feed polls the state file at 10 Hz.
 //
 // ENTRY POINT: module_start.
 // CRASH-LOOP GUARD: marker /data/shell_probe_v22_ran (delete over FTP to rerun).
@@ -136,10 +136,9 @@
 
 // [v20] the sister plugin's claim file. Format and contract: PS4-Ambilight v3.9.2+ (v3.9.3 writes fg=1 sooner),
 // docs/development/shell-feed-coordination.md. This probe only reads it.
-#define CLAIM_PATH        AMBILIGHT_DATA_DIR "/ps4_ambient_state"
-#define CLAIM_RECORD_LEN  35
-#define CLAIM_POLL_MS      50   // [v21] how often to re-read the file (v20: 250)
-#define CLAIM_STALE_MS    2500  // a seen-but-unchanging seq older than this is not a claim
+#define STATE_PATH        AMBILIGHT_DATA_DIR "/ps4_ambient_state"
+#define STATE_RECORD_LEN  35
+#define STATE_POLL_MS     100  // poll the explicit foreground bit at 10 Hz
 #define REPORT_PERIOD   5
 #define RING_SIZE       8
 #define MAX_ADDRS       4
@@ -1447,88 +1446,60 @@ static void sh_notify(bool essential, const char *fmt, ...)
 
 // ---------------------------------------------------------------------
 // ---------------------------------------------------------------------
-// [v20] The sister plugin's claim file: read-only, polled, never written here.
-// ---------------------------------------------------------------------
-// Fixed layout of "v1 fg=%d seq=%06u title=%-9s\n" (35 bytes), parsed by byte offset rather
-// than sscanf, consistent with how this probe parses everything else. Returns 0 and fills
-// *fg/*seq on a well-formed record; returns -1 (meaning: treat as no claim) on anything else,
-// including a short read, a missing file, or a record that doesn't start "v1 fg=".
-static int claim_read(int *fgOut, uint32_t *seqOut)
+// [v25] Simple foreground-bit gate. The shell reader does not infer ownership from seq
+// changes, heartbeat freshness, or WLED send activity. A readable fg=1 backs shell feed off;
+// a readable fg=0 releases it. Before any valid record, allow shell feed. After a valid record,
+// retain the last foreground bit on read errors rather than failing open.
+static int state_read_foreground(int *fgOut)
 {
-    int32_t fd = sceKernelOpen(CLAIM_PATH, 0 /* O_RDONLY */, 0);
+    int32_t fd = sceKernelOpen(STATE_PATH, 0 /* O_RDONLY */, 0);
     if (fd < 0) return -1;
-    uint8_t buf[CLAIM_RECORD_LEN + 4];
+    uint8_t buf[STATE_RECORD_LEN + 4];
     int32_t n = sceKernelRead(fd, buf, sizeof(buf));
     sceKernelClose(fd);
-    if (n < CLAIM_RECORD_LEN) return -1;
-    if (buf[0] != 'v' || buf[1] != '1' || buf[2] != ' ' || buf[3] != 'f' || buf[4] != 'g' || buf[5] != '=')
-        return -1;
+    if (n < 8) return -1;
+    if (buf[0] != 'v' || buf[1] != '1' || buf[2] != ' ' ||
+        buf[3] != 'f' || buf[4] != 'g' || buf[5] != '=') return -1;
     int fg = buf[6] - '0';
-    if (fg != 0 && fg != 1) return -1;
-    if (buf[7] != ' ' || buf[8] != 's' || buf[9] != 'e' || buf[10] != 'q' || buf[11] != '=')
-        return -1;
-    uint32_t seq = 0;
-    for (int i = 0; i < 6; i++) {
-        uint8_t c = buf[12 + i];
-        if (c < '0' || c > '9') return -1;
-        seq = seq * 10 + (uint32_t)(c - '0');
-    }
-    if (buf[18] != ' ' || buf[19] != 't' || buf[20] != 'i' || buf[21] != 't' || buf[22] != 'l' || buf[23] != 'e' || buf[24] != '=')
-        return -1;
-    *fgOut = fg; *seqOut = seq;
+    if ((fg != 0 && fg != 1) || buf[7] != ' ') return -1;
+    *fgOut = fg;
     return 0;
 }
 
-// Polled from live_send()'s loop every CLAIM_POLL_MS, never more often. State lives across
-// calls in these statics (this probe has no other caller of claim_poll).
 static uint64_t g_claimNextPollTsc = 0;
-static uint64_t g_claimDeadlineTsc = 0;  // claim considered fresh until this TSC value
-static uint32_t g_claimLastSeq = 0xFFFFFFFFu;
-static int      g_claimEverSeen = 0;     // have we parsed a valid record at least once?
-static int      g_claimActive = 0;       // the CURRENT gate state, for transition logging only
-static int      g_claimReleaseExplicit = 0; // [v21] last release came from fg=0 (1) or the timeout (0)
-static uint64_t g_liveStartTsc = 0;      // [v21] set by live_send(); CLAIM lines print ms since this
+static int      g_claimEverSeen = 0;
+static int      g_claimActive = 0;
+static int      g_stateForeground = 0;
+static uint64_t g_liveStartTsc = 0;
 
-// Returns 1 if the strip is currently claimed by the sister plugin (skip this tick), 0 if not.
-// Does the actual file read only when it's time to poll; every other call is just a TSC compare.
+// Returns 1 when the game state says foreground and shell feed must back off.
+// File I/O is rate-limited to 10 Hz; the live-send loop only does a TSC comparison otherwise.
 static int claim_poll(uint64_t nowTsc, uint64_t tscHz)
 {
     if (nowTsc >= g_claimNextPollTsc) {
-        g_claimNextPollTsc = nowTsc + (tscHz > 0 ? (tscHz * CLAIM_POLL_MS / 1000) : 0);
-        int fg; uint32_t seq;
-        if (claim_read(&fg, &seq) == 0) {
-            if (!g_claimEverSeen) {
-                // [v21] The first record ever read cannot arm a claim: it may be a frozen fg=1
-                // left by a previous boot. Remember its seq; only a CHANGE arms (v20 armed it).
-                g_claimEverSeen = 1;
-                g_claimLastSeq = seq;
-            } else if (fg == 0) {
-                g_claimDeadlineTsc = 0;   // explicit "not driving": clears immediately
-                g_claimLastSeq = 0xFFFFFFFFu; // [v21] a new game process restarts seq; always treat it as new
-                g_claimReleaseExplicit = 1;
-            } else if (seq != g_claimLastSeq) {
-                g_claimLastSeq = seq;
-                g_claimDeadlineTsc = nowTsc + (tscHz > 0 ? (tscHz * CLAIM_STALE_MS / 1000) : 0);
-                g_claimReleaseExplicit = 0;
-            }
-            // fg==1 but seq unchanged: leave the existing deadline alone, let it run out.
+        g_claimNextPollTsc = nowTsc + (tscHz > 0 ? (tscHz * STATE_POLL_MS / 1000) : 0);
+        int fg;
+        if (state_read_foreground(&fg) == 0) {
+            g_claimEverSeen = 1;
+            g_stateForeground = fg;
+        } else if (!g_claimEverSeen) {
+            g_stateForeground = 0; // no valid state yet: shell feed is allowed
         }
-        // A read failure changes nothing: whatever deadline is already set keeps counting
-        // down on its own, which is exactly the crash-recovery behaviour the design wants.
     }
-    int active = (nowTsc < g_claimDeadlineTsc);
+
+    int active = g_stateForeground;
     if (active != g_claimActive) {
-        unsigned long long ms = (tscHz > 0 && nowTsc >= g_liveStartTsc) ? (unsigned long long)((nowTsc - g_liveStartTsc) * 1000ULL / tscHz) : 0ULL;
-        char mir[80];
+        unsigned long long ms = (tscHz > 0 && nowTsc >= g_liveStartTsc)
+            ? (unsigned long long)((nowTsc - g_liveStartTsc) * 1000ULL / tscHz) : 0ULL;
+        char mir[96];
         if (active) {
-            printf(TAG " CLAIM ACQUIRED: sister plugin is driving the strip, this probe backs off (seq=%u, t=%llums)\n", g_claimLastSeq, ms);
-            snprintf(mir, sizeof(mir), "CLAIM ACQUIRED seq=%u t=%llums", g_claimLastSeq, ms);
+            printf(TAG " FOREGROUND GATE ON: game state is fg=1; shell feed backs off (t=%llums)\n", ms);
+            snprintf(mir, sizeof(mir), "FOREGROUND GATE ON t=%llums", ms);
         } else {
-            printf(TAG " CLAIM RELEASED: resuming shell-side sends (%s, t=%llums)\n",
-                   g_claimReleaseExplicit ? "explicit fg=0" : "timeout", ms);
-            snprintf(mir, sizeof(mir), "CLAIM RELEASED %s t=%llums", g_claimReleaseExplicit ? "fg=0" : "timeout", ms);
+            printf(TAG " FOREGROUND GATE OFF: game state is fg=0 or not yet valid; shell feed may send (t=%llums)\n", ms);
+            snprintf(mir, sizeof(mir), "FOREGROUND GATE OFF t=%llums", ms);
         }
-        sh_dev_send(mir); // [v24]
+        sh_dev_send(mir);
         g_claimActive = active;
     }
     return active;
@@ -1716,7 +1687,7 @@ static int live_send(void)
     uint32_t hz = g_config.updateFrequencyHz;
     uint64_t periodTsc = (g_tscHz > 0) ? (g_tscHz / hz) : 0;
     uint64_t nextTick = rdtsc17();
-    g_liveStartTsc = nextTick;   // [v21] CLAIM lines print ms since here
+    g_liveStartTsc = nextTick;   // Foreground-gate transition lines print ms since here
     // [v23] no endTsc: the loop runs until a clean stop (disable file, shell enabled=false) or process exit.
     uint64_t nextRowTsc = nextTick + 5 * g_tscHz, rows = 0;
     uint64_t nextEnabledPollTsc = nextTick; // [v46] due immediately on the first tick
@@ -1782,11 +1753,11 @@ static int live_send(void)
             gameOwned++;
             if (rowDue) {
                 rows++; nextRowTsc += 5 * g_tscHz;
-                printf(TAG " LIVE t=%llus: sent=%llu skipped=%llu gameOwned=%llu buf0=%llu buf1=%llu (claim active)\n",
+                printf(TAG " LIVE t=%llus: sent=%llu skipped=%llu gameOwned=%llu buf0=%llu buf1=%llu (foreground gate active)\n",
                        (unsigned long long)(rows * 5), (unsigned long long)sent, (unsigned long long)skipped,
                        (unsigned long long)gameOwned, (unsigned long long)buf0, (unsigned long long)buf1);
                 sh_publish(sent, skipped, gameOwned); // [v24]
-                { char m[110]; snprintf(m, sizeof(m), "LIVE t=%llus sent=%llu skipped=%llu gameOwned=%llu (claim active)",
+                { char m[110]; snprintf(m, sizeof(m), "LIVE t=%llus sent=%llu skipped=%llu gameOwned=%llu (foreground gate active)",
                                         (unsigned long long)(rows * 5), (unsigned long long)sent, (unsigned long long)skipped, (unsigned long long)gameOwned); sh_dev_send(m); }
                 sumUs = 0; maxUs = 0; minUs = 0xFFFFFFFFu; rowTicks = 0;
             }

@@ -519,9 +519,9 @@ saturation and smoothing pipeline in `plugin/source/color_processing.c`.
 color is resent once a second so WLED's realtime timeout doesn't fire. See
 [`docs/debugging/wled-heartbeat.md`](docs/debugging/wled-heartbeat.md).
 
-**Handing off to the shell screens.** The plugin writes `/data/ps4-ambilight/ps4_ambient_state` when successful WLED DDP output starts and once a second while output continues. Ownership follows successful send progress (plus foreground/background state), not flip counters alone, so a quiet flip-hook interval cannot make shell-feed compete while the game sender is still transmitting. The claim is released on backgrounding or after 2.2 seconds without a successful DDP send. It never reads this file itself -- [`shell-feed/`](shell-feed/), a second
-plugin in this repo, reads it to know when to back off and drive the strip from the PS4's own Home
-screen and Settings instead. See
+**Handing off to the shell screens.** The game plugin writes `/data/ps4-ambilight/ps4_ambient_state` using its existing foreground/output-activity logic. The shell-feed reader now gates only on the record's explicit `fg` bit: `fg=1` means back off and `fg=0` means shell sending is allowed. It does not use sequence changes or a freshness timeout; after a valid record, read errors retain the last known state. This reader change does not alter how the game-side writer decides to set `fg`, and stale `fg=1` after a crash remains a known limitation. See
+[`docs/shell-feed-foreground-gate.md`](docs/shell-feed-foreground-gate.md) and
+[`docs/development/shell-feed-coordination.md`](docs/development/shell-feed-coordination.md) for
 [`docs/development/shell-feed-coordination.md`](docs/development/shell-feed-coordination.md) for
 the handoff protocol, including how the companion app claims the strip while it is sending, and
 [`shell-feed/README.md`](shell-feed/README.md) for that module itself,
