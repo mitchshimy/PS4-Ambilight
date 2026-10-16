@@ -16,6 +16,8 @@
 uint64_t sceKernelGetProcessTimeCounter(void) { static uint64_t t = 1000; return ++t; }
 uint64_t sceKernelGetProcessTimeCounterFrequency(void) { return 1000000; }
 
+void ambient_handoff_diag(const char *fmt, ...) { (void)fmt; } // HOF1 mirror is network.c; not under test here
+
 #include "../plugin/source/state.c"
 
 char g_titleId[16];
@@ -74,31 +76,46 @@ int main(void)
 {
     system("rm -rf " SCRATCH " && mkdir -p " SCRATCH "/ps4-ambilight");
 
-    // Startup publishes the current foreground state immediately.
+    // Launch latch: startup publishes fg=0 until the game's first DDP send, so the shell feed keeps the
+    // strip through the launch picture. The first send then publishes fg=1 (the launch-gap fix).
     {
         StateRunState rs; fresh_run(&rs, "CUSA00000");
         assert(ambient_state_tick(&rs) == 1);
         char *t = read_state(NULL);
+        assert(!strcmp(t, "v1 fg=0 seq=000000 title=CUSA00000\n")); free(t);
+        assert(rs.wroteOnce && !rs.wasForeground);
+        for (int i = 0; i < 50; ++i) assert(ambient_state_tick(&rs) == 0); // no send yet: stays fg=0, no writes
+        g_flipHookCallCount = 5; g_registerHookCallCount = 1;               // hooks alone do not release the shell
+        assert(ambient_state_tick(&rs) == 0);
+        g_wledOutputCount = 1;                                              // first complete DDP send
+        assert(ambient_state_tick(&rs) == 1);
+        t = read_state(NULL);
         assert(!strcmp(t, "v1 fg=1 seq=000001 title=CUSA00000\n")); free(t);
-        assert(rs.wroteOnce && rs.wasForeground);
+        assert(rs.wasForeground && rs.firstSendSeen);
     }
-    printf("initial foreground state is published immediately: PASSED\n");
+    printf("fg=0 until the first DDP send, then fg=1 (launch latch): PASSED\n");
 
-    // Foreground ownership does not depend on successful output or changing sequence activity.
+    // After the latch, ownership does not depend on output or sequence activity: output going quiet,
+    // counters changing or not, nothing moves fg. No heartbeat writes.
     {
         StateRunState rs; fresh_run(&rs, "CUSA11111");
-        g_wledOutputCount = 0; g_flipHookCallCount = 0;
+        g_wledOutputCount = 1; g_flipHookCallCount = 0;
         assert(ambient_state_tick(&rs) == 1);
-        for (int i = 0; i < 100; ++i) assert(ambient_state_tick(&rs) == 0);
         char *t = read_state(NULL);
+        assert(!strcmp(t, "v1 fg=1 seq=000001 title=CUSA11111\n")); free(t);
+        for (int i = 0; i < 100; ++i) { g_wledOutputCount += (i % 3 == 0); assert(ambient_state_tick(&rs) == 0); }
+        g_wledOutputCount = 0; // a counter reset or silence must not release or re-latch anything
+        for (int i = 0; i < 100; ++i) assert(ambient_state_tick(&rs) == 0);
+        t = read_state(NULL);
         assert(!strcmp(t, "v1 fg=1 seq=000001 title=CUSA11111\n")); free(t);
         assert(g_opens == 1); // no heartbeat and no transmission-driven polling/writes
     }
-    printf("foreground remains fg=1 with no output/flip changes; no heartbeat writes: PASSED\n");
+    printf("after the latch fg=1 holds regardless of output activity; no heartbeat writes: PASSED\n");
 
     // Background transition releases immediately; repeated background ticks stay quiet.
     {
         StateRunState rs; fresh_run(&rs, "CUSA22222");
+        g_wledOutputCount = 1;
         assert(ambient_state_tick(&rs) == 1);
         g_isBackgrounded = true;
         assert(ambient_state_tick(&rs) == 1);
@@ -113,6 +130,7 @@ int main(void)
     // Foreground transition increments the sequence, but the gate's decision is the fg bit.
     {
         StateRunState rs; fresh_run(&rs, "CUSA33333");
+        g_wledOutputCount = 1;
         assert(ambient_state_tick(&rs) == 1);
         g_isBackgrounded = true; assert(ambient_state_tick(&rs) == 1);
         g_isBackgrounded = false; assert(ambient_state_tick(&rs) == 1);
@@ -134,6 +152,7 @@ int main(void)
     // Failed writes retry without changing the remembered state or burning a sequence number.
     {
         StateRunState rs; fresh_run(&rs, "CUSA55555");
+        g_wledOutputCount = 1;
         g_failOpens = 1;
         assert(ambient_state_tick(&rs) == 0 && !rs.wroteOnce);
         assert(ambient_state_tick(&rs) == 1 && rs.wroteOnce);
@@ -146,12 +165,37 @@ int main(void)
     }
     printf("failed file writes retry safely: PASSED\n");
 
+    // A title that never sends (unsupported, unreadable buffers) never claims the strip.
+    {
+        StateRunState rs; fresh_run(&rs, "CUSA77777");
+        assert(ambient_state_tick(&rs) == 1);
+        for (int i = 0; i < 300; ++i) assert(ambient_state_tick(&rs) == 0);
+        char *t = read_state(NULL);
+        assert(!strcmp(t, "v1 fg=0 seq=000000 title=CUSA77777\n")); free(t);
+    }
+    printf("a title that never sends stays fg=0 (shell feed keeps the strip): PASSED\n");
+
+    // Backgrounded before the first send: sending later must not publish fg=1 while backgrounded.
+    {
+        StateRunState rs; fresh_run(&rs, "CUSA88888");
+        g_isBackgrounded = true;
+        assert(ambient_state_tick(&rs) == 1);
+        g_wledOutputCount = 1;
+        assert(ambient_state_tick(&rs) == 0);
+        g_isBackgrounded = false;
+        assert(ambient_state_tick(&rs) == 1);
+        char *t = read_state(NULL);
+        assert(!strcmp(t, "v1 fg=1 seq=000001 title=CUSA88888\n")); free(t);
+    }
+    printf("latch never overrides backgrounded; foregrounding then publishes fg=1: PASSED\n");
+
     // Fixed-width record and safe non-truncating file writes remain unchanged.
     {
         char buf[STATE_RECORD_LEN + 1];
         assert(state_format(buf, sizeof(buf), 0, 0, "CUSA00000") == STATE_RECORD_LEN);
         assert(state_format(buf, sizeof(buf), 1, 999999, "CUSA99999") == STATE_RECORD_LEN);
         StateRunState rs; fresh_run(&rs, "CUSA66666");
+        g_wledOutputCount = 1;
         assert(ambient_state_tick(&rs) == 1);
         assert((g_lastFlags & 0x0400) == 0);
         assert((g_lastFlags & (0x0001 | 0x0200)) == (0x0001 | 0x0200));

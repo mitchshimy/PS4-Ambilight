@@ -5,6 +5,14 @@
 // deliberately simple: while this game plugin reports the title in the foreground,
 // publish fg=1; when the title is backgrounded, publish fg=0.
 //
+// ONE exception, a launch-only latch (docs/debugging/launch-gap-test.md): fg=1 is not published
+// until this process has completed its first DDP send. Before that the game is "foreground" but
+// cannot drive the strip yet (launch captures: first flip hook ~3.1 s after load), and publishing
+// fg=1 early made the shell feed back off into a ~3.2 s silence. The latch is read once, becomes
+// true once, and is never cleared; after it, ownership follows g_isBackgrounded exactly as before
+// (no per-frame or per-send inference, no heartbeat). A title that never sends (unsupported,
+// unreadable buffers) stays fg=0, so the shell feed keeps the strip instead of leaving it dark.
+//
 // This thread polls the already-maintained g_isBackgrounded flag at 10 Hz and writes
 // only the initial state and actual state transitions. File I/O stays off the sampler's
 // hot path. Records remain fixed-width and are written at offset zero without O_TRUNC.
@@ -33,6 +41,7 @@ typedef struct {
     uint32_t seq;
     int      wasForeground;
     int      wroteOnce;
+    int      firstSendSeen; // launch latch: set once g_wledOutputCount first becomes non-zero, never cleared
 } StateRunState;
 
 // O_WRONLY|O_CREAT, deliberately WITHOUT O_TRUNC. A fresh fd starts at offset zero.
@@ -45,11 +54,12 @@ static int state_write_file(const char *text, size_t len)
     return (w == (ssize_t)len) ? 0 : -1;
 }
 
-// One turn of the state thread. Writes only at startup or when foreground status changes.
+// One turn of the state thread. Writes only at startup or when the published foreground status changes.
 // Kept separate from the thread so tools/test_state.c can exercise the exact state logic.
 static int ambient_state_tick(StateRunState *rs)
 {
-    bool foreground = !g_isBackgrounded;
+    if (!rs->firstSendSeen && g_wledOutputCount != 0) rs->firstSendSeen = 1;
+    bool foreground = !g_isBackgrounded && rs->firstSendSeen;
     char text[STATE_RECORD_LEN + 1];
 
     if (!rs->wroteOnce || (int)foreground != rs->wasForeground) {
@@ -63,7 +73,7 @@ static int ambient_state_tick(StateRunState *rs)
         rs->wasForeground = foreground ? 1 : 0;
         rs->wroteOnce = 1;
         // HANDOFF_DIAG: event-only instrumentation; never runs on unchanged ticks.
-        printf("[Ambilight] HANDOFF_DIAG GAME_STATE_WRITE fg=%d seq=%u tsc=%llu hz=%llu\n",
+        ambient_handoff_diag("HANDOFF_DIAG GAME_STATE_WRITE fg=%d seq=%u tsc=%llu hz=%llu",
                foreground ? 1 : 0, (unsigned)nextSeq,
                (unsigned long long)sceKernelGetProcessTimeCounter(),
                (unsigned long long)sceKernelGetProcessTimeCounterFrequency());

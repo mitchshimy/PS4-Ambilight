@@ -32,7 +32,7 @@
 #define STATE_RECORD_LEN  35
 
 typedef struct {
-    int      foreground;    // 1 while !g_isBackgrounded; independent of output/transmission activity
+    int      foreground;    // 1 while !g_isBackgrounded AND the first DDP send has happened (launch latch, state.c); otherwise independent of output activity
     uint32_t seq;            // increments on each transition into foreground; wraps mod 1,000,000
     char     titleId[16];    // "" when sys_sdk_proc_info hasn't set it yet
 } StateSnapshot;
