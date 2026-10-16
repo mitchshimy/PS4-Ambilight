@@ -44,6 +44,11 @@ typedef struct {
     // is home_plan(install, shell) (install_plan.h) -- computed from these two on demand, so the
     // renderer and main.c can never disagree about it.
     ShellSummary shell;
+    // Whether the Ambilight payload is actually running, read from the shell feed's heartbeat file
+    // (shell_feed.c: shell_alive_poll). Running means the heartbeat is changing; starting means the
+    // payload was sent a moment ago and no heartbeat has shown up yet. Both false = not running.
+    bool shellFeedRunning;
+    bool shellFeedStarting;
     bool setupComplete;
     bool testRunning;
     bool toastVisible;

@@ -741,7 +741,7 @@ static void nudge_field(const MenuItem *item, int dir)
 }
 
 static void handle_settings_input(bool up, bool down, bool left, bool right,
-                                   bool cross, bool circle, bool l1, bool r1)
+                                   bool cross, bool circle, bool l1, bool r1, bool square)
 {
     MenuScreen menuScreen = (g_state.screen == UI_SCREEN_SETUP) ? MENU_SCREEN_SETUP : MENU_SCREEN_CUSTOMIZE;
     int start, fieldCount;
@@ -756,12 +756,16 @@ static void handle_settings_input(bool up, bool down, bool left, bool right,
     if (moved) { scroll_to_focus(g_fonts, fieldCount); g_dirty = true; }
 
     // Anything other than the confirming press itself cancels a pending reset.
-    if (moved || l1 || r1 || circle) { preset_reset_disarm(); g_dirty = true; }
+    if (moved || l1 || r1 || circle || square) { preset_reset_disarm(); g_dirty = true; }
 
     bool onSaveButton = (g_state.focusField >= fieldCount);
 
     // The row hint (see autoload_hint) lasts until the next press; a press that needs it again re-sets it.
-    if (moved || cross || circle || l1 || r1) g_state.settingsHint[0] = '\0';
+    if (moved || cross || circle || l1 || r1 || square) g_state.settingsHint[0] = '\0';
+
+    // Square = quick save, from anywhere on the page. Same call as pressing the Save button, so the
+    // button turns to "Saved!" the same way. (Options still saves and quits.)
+    if (square) do_save();
 
     if (cross) {
         if (onSaveButton) {
@@ -781,8 +785,16 @@ static void handle_settings_input(bool up, bool down, bool left, bool right,
                         autoload_hint("Launch Ambilight payload needs the plugin enabled: enable it from Home first.");
                     } else if (!g_assetPresent[ASSET_PAYLOAD] || !g_assetPresent[ASSET_SHELL_PRX]) {
                         autoload_hint("Launch Ambilight payload needs the Ambilight payload and shell feed files: install them from Home first.");
+                    } else if (g_state.shellFeedRunning) {
+                        // Its heartbeat is changing, so it is up: don't send it again.
+                        autoload_hint("Ambilight payload is already running.");
+                    } else if (g_state.shellFeedStarting) {
+                        // Sent a moment ago, no heartbeat yet: a second send now would only race the first.
+                        autoload_hint("Ambilight payload was just sent and is still starting up.");
                     } else {
+                        // Set up has no status line, so show launch_payload_now()'s result (sent, or why not) in the save bar.
                         launch_payload_now();
+                        autoload_hint(g_state.statusLine);
                     }
                 } else {
                     // Default FIELD_ACTION handling: "Reset preset" (the only other action today).
@@ -1063,6 +1075,7 @@ int main(void)
             bool circle   = PRESSED(ORBIS_PAD_BUTTON_CIRCLE);
             bool options  = PRESSED(ORBIS_PAD_BUTTON_OPTIONS);
             bool triangle = PRESSED(ORBIS_PAD_BUTTON_TRIANGLE);
+            bool square   = PRESSED(ORBIS_PAD_BUTTON_SQUARE);
             // Cross fires on release, not press: opening the keyboard
             // on the press edge left a stale press for the IME dialog
             // to consume as an immediate Cancel before any real input
@@ -1079,7 +1092,7 @@ int main(void)
                 else if (g_state.screen == UI_SCREEN_HELP)
                     handle_help_input(up, down, circle, crossUp, triangle);
                 else
-                    handle_settings_input(up, down, left, right, crossUp, circle, l1, r1);
+                    handle_settings_input(up, down, left, right, crossUp, circle, l1, r1, square);
             }
         }
 
@@ -1153,6 +1166,7 @@ int main(void)
                                         (screenHasLedFrame || g_state.testRunning),
                        claim_write_cb, NULL);
             sync_shell_summary();
+            shell_alive_poll(nowMs);
         }
 
         g_state.saveJustConfirmed = (nowMs < g_saveConfirmUntilMs);

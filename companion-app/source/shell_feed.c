@@ -62,6 +62,61 @@ void sync_shell_summary(void)
     }
 }
 
+// When the payload was last sent to BinLoader, so the UI can say "starting" until the heartbeat shows up.
+static uint32_t g_payloadSentMs = 0;
+static bool     g_payloadSentOnce = false;
+static bool     g_payloadSentPending = false;
+
+// ---- is the payload already running? ----
+//
+// The running shell feed rewrites /data/ps4-ambilight/ps4_shell_alive (a changing counter) about once a
+// second; that is the same proof of life the game plugin uses (plugin/source/settings.c). A value that
+// stops changing for SHELL_ALIVE_STALE_MS means it is off, stopped, waiting for a WLED address, or was
+// never loaded. The first read after this app starts is only a baseline, so "running" shows up about
+// one heartbeat (1-2 s) after the app opens.
+#define SHELL_ALIVE_FILE        APP_DATA_DIR "/ps4_shell_alive"
+#define SHELL_ALIVE_POLL_MS     500u
+#define SHELL_ALIVE_STALE_MS    3500u
+#define PAYLOAD_STARTING_MS     12000u   // how long after a send we say "starting" before giving up
+
+void shell_alive_poll(uint32_t nowMs)
+{
+    static uint32_t lastPollMs = 0, lastChangeMs = 0;
+    static char lastText[32];
+    static bool haveBaseline = false;
+
+    if (g_payloadSentPending) { g_payloadSentPending = false; g_payloadSentOnce = true; g_payloadSentMs = nowMs; }
+    if (nowMs - lastPollMs < SHELL_ALIVE_POLL_MS) return;
+    lastPollMs = nowMs;
+
+    if (g_cfg.shellEnabled) {
+        char cur[32]; memset(cur, 0, sizeof(cur));
+        int32_t fd = sceKernelOpen(SHELL_ALIVE_FILE, 0 /* O_RDONLY */, 0);
+        if (fd >= 0) {
+            long r = sceKernelRead(fd, cur, sizeof(cur) - 1);
+            sceKernelClose(fd);
+            if (r <= 0) cur[0] = '\0';
+        }
+        if (cur[0] != '\0' && strcmp(cur, lastText) != 0) {
+            memcpy(lastText, cur, sizeof(lastText));
+            // Only a change after a baseline read proves it is alive right now (the value on disk
+            // may be left over from before the app started).
+            if (haveBaseline) lastChangeMs = nowMs;
+            haveBaseline = true;
+        }
+    }
+
+    bool running = g_cfg.shellEnabled && lastChangeMs != 0 && (nowMs - lastChangeMs) < SHELL_ALIVE_STALE_MS;
+    if (running) g_payloadSentOnce = false;   // it came up; a later stop is not "starting"
+    bool starting = g_cfg.shellEnabled && !running && g_payloadSentOnce && (nowMs - g_payloadSentMs) < PAYLOAD_STARTING_MS;
+
+    if (running != g_state.shellFeedRunning || starting != g_state.shellFeedStarting) {
+        g_state.shellFeedRunning  = running;
+        g_state.shellFeedStarting = starting;
+        g_dirty = true;
+    }
+}
+
 // Downloads one file from the update source into its own staging path, checks it against the
 // published sha256, and only then renames it over the live file -- the same sequence do_plugin_update()
 // uses, so a failure at any point leaves whatever was installed before exactly as it was.
@@ -211,6 +266,8 @@ bool launch_payload_now(void)
         set_status("Ambilight payload: send to BinLoader failed partway through.", true);
         return false;
     }
+
+    g_payloadSentPending = true;   // shell_alive_poll() stamps the time on its next call
 
     if (g_state.fwTitle[0]) {
         // Sent, but the loader is untested on this firmware or has no entry for it: the text says which.

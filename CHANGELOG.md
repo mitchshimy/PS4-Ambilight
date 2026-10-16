@@ -6,6 +6,17 @@ companion app) are documented here, newest first.
 ## Plugin
 
 ### Unreleased
+- **Companion app: Home reads whether the Ambilight payload is running, "Launch Ambilight payload" says so, and Square quick-saves.**
+  The app now watches the shell feed's `ps4_shell_alive` heartbeat (the one the game plugin uses). The Home banner says
+  "Shell feed running" while it changes, "Shell feed starting" for up to 12 s after a send, and only otherwise shows the
+  old "run it from GoldHEN or turn on Autoload" text, which used to stay up right after the install had already launched
+  the payload. Pressing "Launch Ambilight payload" in Set up while it is running (or was sent a moment ago) shows
+  "Ambilight payload is already running." instead of sending it again; a real send now shows its result in the save bar,
+  since Set up has no status line. Square on Set up and Customization saves like the Save button (same "Saved!" state),
+  with a "quick save" hint in the save bar; Options still saves and quits. "Running" appears 1-2 s after the app opens
+  (the first heartbeat read is only a baseline). A shell feed waiting for a WLED address writes no heartbeat, so it
+  reads as not running. Not built on a console here: `ui_screens.c` passes a host syntax check and the heartbeat logic
+  was run against a fake file, but the rest needs the PS4 SDK.
 - **The shell feed no longer falls back to a hard-coded WLED address.** `WLED_HOST` in
   `shell-feed/source/main.c` was `192.168.2.110`, the maintainer's own WLED, and `live_send()` used it
   whenever the ini had no `wled_host`, so a shell feed with no address set kept transmitting UDP to that

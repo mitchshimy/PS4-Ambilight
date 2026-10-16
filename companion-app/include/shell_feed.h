@@ -9,6 +9,7 @@
 #include "claim_file.h"      // ClaimRun
 #include "install_plan.h"
 #include <stdbool.h>
+#include <stdint.h>
 #include <stddef.h>
 
 extern ClaimRun g_claim;
@@ -16,6 +17,7 @@ extern ClaimRun g_claim;
 void rescan_shell_files(void);
 void sync_shell_summary(void);
 bool launch_payload_now(void);
+void shell_alive_poll(uint32_t nowMs);   // call every frame; updates g_state.shellFeedRunning / shellFeedStarting
 void do_shell_repair(void);
 bool read_autoload_on(void);
 void autoload_hint(const char *msg);

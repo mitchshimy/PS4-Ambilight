@@ -702,12 +702,13 @@ static void render_settings_screen(UiCanvas *c, const UiFonts *f, const AmbientC
 
         float hintsTop = noteBoxTop + ui_font_line_normal(f->note) + 12.0f;
         float hintsBase = hintsTop + ui_hint_row_baseline_above(f);
-        UiHintItem hints[3] = {
+        UiHintItem hints[4] = {
             { "L1/R1", "nudge value" },
             { "\xE2\x9C\x95", "edit / cycle" },
+            { "\xE2\x96\xA1", "quick save" },
             { "\xE2\x97\x8B", "back" },
         };
-        ui_draw_hint_row(c, f, PAGE_MARGIN_X, hintsBase, hints, 3);
+        ui_draw_hint_row(c, f, PAGE_MARGIN_X, hintsBase, hints, 4);
 
         // .save-btn -- a solid amber fill, same as the blueprint,
         // always, EXCEPT for two states layered on top, neither of
@@ -903,10 +904,20 @@ static void shell_banner_text(const UiState *st, const AmbientConfig *cfg, UiCol
             break;
         default:
             *accent = COL_OK;
-            *title = "Shell feed installed";
-            snprintf(desc, dn, cfg->shellAutoload
-                     ? "Ambilight payload and ps4_shell_feed.prx are in place. Autoload at boot is on."
-                     : "Ambilight payload and ps4_shell_feed.prx are in place. Autoload is off: run the Ambilight payload from GoldHEN, or turn it on in Set up.");
+            if (st->shellFeedRunning) {
+                *title = "Shell feed running";
+                snprintf(desc, dn, cfg->shellAutoload
+                         ? "Ambilight payload is running. Autoload at boot is on."
+                         : "Ambilight payload is running. Autoload is off, so turn it on in Set up to start it after a reboot.");
+            } else if (st->shellFeedStarting) {
+                *title = "Shell feed starting";
+                snprintf(desc, dn, "Ambilight payload sent to GoldHEN. It should be running in a few seconds.");
+            } else {
+                *title = "Shell feed installed";
+                snprintf(desc, dn, cfg->shellAutoload
+                         ? "Ambilight payload and ps4_shell_feed.prx are in place. Autoload at boot is on."
+                         : "Ambilight payload and ps4_shell_feed.prx are in place. Autoload is off: run the Ambilight payload from GoldHEN, or turn it on in Set up.");
+            }
             break;
     }
 }
