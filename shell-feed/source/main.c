@@ -1683,6 +1683,7 @@ static int live_send(void)
     if (curHost[0] == '\0') {
         printf(TAG " LIVE: no wled_host in the ini (and no compiled-in default), nothing to send\n");
         snprintf(g_shNotStartedWhy, sizeof(g_shNotStartedWhy), "no destination host");
+        g_liveSendEverStarted = 0; // never actually started: the start after wait_for_destination() is a real first LOAD
         return 0;
     }
 
@@ -1695,6 +1696,7 @@ static int live_send(void)
     if (inet_pton(AF_INET, curHost, &d.sin_addr) != 1) {
         printf(TAG " LIVE: inet_pton failed for host \"%s\"\n", curHost);
         snprintf(g_shNotStartedWhy, sizeof(g_shNotStartedWhy), "destination is not an address");
+        g_liveSendEverStarted = 0; // same: not started yet
         close(sock);
         return 0;
     }
@@ -1945,6 +1947,36 @@ static void wait_for_reenable(int stopReason)
     }
 }
 
+// Standby for a missing or unusable wled_host. With no compiled-in fallback address, a first-run shell feed has
+// nowhere to send; this used to stop the thread for good (a console restart to recover). Instead wait here, re-reading
+// the ini once a second (the same cadence wait_for_reenable() uses), and return as soon as wled_host holds something
+// other than the value that failed, so setting it in the ini or the companion app starts the feed on its own, the same
+// way a destination change is already followed live once the feed is running. No heartbeat is written while waiting
+// (there is no loop), so the game plugin correctly treats the shell feed as not running.
+static void wait_for_destination(void)
+{
+    char failedHost[sizeof(g_config.wledHost)];
+    strncpy(failedHost, g_config.wledHost, sizeof(failedHost) - 1);
+    failedHost[sizeof(failedHost) - 1] = '\0';
+    g_shState = SH_STANDBY;
+    sh_dev_send("STANDBY: no usable wled_host");
+    printf(TAG " STANDBY: no usable wled_host (\"%s\"), waiting for one (re-checking the ini every %us).\n",
+           failedHost, (unsigned)(STANDBY_RELOAD_MS / 1000u));
+    uint32_t elapsedMs = 0;
+    for (;;) {
+        usleep(STANDBY_POLL_MS * 1000);
+        elapsedMs += STANDBY_POLL_MS;
+        if (elapsedMs < STANDBY_RELOAD_MS) continue;
+        elapsedMs = 0;
+        shell_cfg_load(); // a read failure leaves g_config as it was, same as shell_cfg_poll()
+        if (g_config.wledHost[0] != '\0' && strcmp(g_config.wledHost, failedHost) != 0) {
+            printf(TAG " RESUMING: wled_host is now \"%s\", starting the send loop.\n", g_config.wledHost);
+            sh_dev_send("RESUMING: wled_host set");
+            return;
+        }
+    }
+}
+
 #endif
 
 #if DO_DUMP_BUFFERS
@@ -2046,21 +2078,26 @@ static void *probe_thread(void *args)
     // [shell] enabled=true back in the ini, or removing the disable file, did not actually resume
     // anything -- found on hardware in capture v23-A. Loop here instead: wait in wait_for_reenable()
     // for both kill-switches to clear, then call live_send() again. Buffers found earlier are not
-    // re-scanned; a stop with reason 0 (buffers/host/socket) is not retried automatically.
+    // re-scanned; a stop with reason 0 (buffers/socket) is not retried automatically (a missing or unusable host now waits in wait_for_destination()).
     for (;;) {
         int stopReason = live_send();
+        if (stopReason == 0 && (strcmp(g_shNotStartedWhy, "no destination host") == 0 ||
+                                strcmp(g_shNotStartedWhy, "destination is not an address") == 0)) {
+            // A host problem is fixed in the ini or the companion app, so wait for that instead of needing a reboot.
+            if (strcmp(g_shNotStartedWhy, "no destination host") == 0)
+                sh_notify(true, "shell feed is waiting: no WLED address is set. Set wled_host in the ini or the companion app and it will start on its own.");
+            else
+                sh_notify(true, "shell feed is waiting: wled_host isn't an IP address. Fix it in the ini or the companion app and it will start on its own.");
+            wait_for_destination();
+            continue;
+        }
         if (stopReason == 0) {
-            printf(TAG " probe_thread: send loop stopped and will not retry (no buffers, no destination, or"
+            printf(TAG " probe_thread: send loop stopped and will not retry (no buffers or"
                    " socket setup failed -- see the LIVE line above); hooks stay installed. Reboot to retry.\n");
             g_shState = SH_STOPPED; // [v24] the report file says why (not_started:)
             shell_event("STOPPED for good: %s", g_shNotStartedWhy[0] ? g_shNotStartedWhy : "see the LIVE line");
-            // [v47] The reasons are the four live_send() sets above. Nothing retries them, so say how to.
-            if (strcmp(g_shNotStartedWhy, "no destination host") == 0)
-                sh_notify(true, "shell feed can't start: no WLED address is set. Set wled_host in the ini or the companion app, then restart the console.");
-            else if (strcmp(g_shNotStartedWhy, "destination is not an address") == 0)
-                sh_notify(true, "shell feed can't start: wled_host isn't an IP address. Fix it in the ini or the companion app, then restart the console.");
-            else
-                sh_notify(false, "shell feed stopped: %s. Restart the console to try again.", g_shNotStartedWhy[0] ? g_shNotStartedWhy : "it couldn't start");
+            // [v47] The two host reasons are handled above (they wait for a fix); what is left is not retried, so say how to.
+            sh_notify(false, "shell feed stopped: %s. Restart the console to try again.", g_shNotStartedWhy[0] ? g_shNotStartedWhy : "it couldn't start");
             break;
         }
         wait_for_reenable(stopReason);

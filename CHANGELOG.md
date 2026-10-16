@@ -10,14 +10,21 @@ companion app) are documented here, newest first.
   `shell-feed/source/main.c` was `192.168.2.110`, the maintainer's own WLED, and `live_send()` used it
   whenever the ini had no `wled_host`, so a shell feed with no address set kept transmitting UDP to that
   address on whatever network it was on (another device there could receive it). It is now empty, like the
-  plugin's `wledHost`: with no `wled_host` the send loop does not start, reports "no destination host", and
-  shows the existing notification telling the user to set `wled_host` in the ini or the companion app and
-  restart. That path already existed and is now the first-run behavior; nothing retries it without a restart.
-  Because no loop runs, no `ps4_shell_alive` heartbeat is written, so the plugin sees "shell feed not
-  running" and does not hold its first send. A shell feed that already has `wled_host` set is unchanged.
-  Not built or run on a console in the environment that wrote this entry; the Stage C host test sets its own
-  `wled_host` and doesn't depend on the old default. The unused `DEBUG_IP` define in `plugin/source/network.c`
-  and the example addresses in comments and test fixtures are left as they are.
+  plugin's `wledHost`: with no `wled_host` it does not send. **It does not need a restart to recover:** an
+  empty or unusable `wled_host` used to end the probe thread for good ("restart the console"), which with no
+  fallback address would have made a first-run setup need a reboot, so the probe thread now waits instead
+  (`wait_for_destination()`): it shows "shell feed is waiting: no WLED address is set..." (or "wled_host isn't
+  an IP address..."), re-reads the ini once a second, and starts the send loop by itself as soon as
+  `wled_host` holds a usable value other than the one that failed, whether set in the ini or the companion
+  app. A failed host check no longer counts as a start, so the first real start still says "shell feed
+  running (sending to ...)". Once running, a changed `wled_host` is followed live as before
+  (`config_reload_check_seconds`, 2 s by default; 0 turns that off). While waiting no `ps4_shell_alive`
+  heartbeat is written, so the plugin sees "shell feed not running" and does not hold its first send. Still
+  stopped for good, as before: no display buffers and `socket()` failure. A shell feed that already has
+  `wled_host` set is unchanged. Not built or run on a console in the environment that wrote this entry (the
+  PS4 SDK types stop a host compile; the same 18 SDK-type errors appear before and after, none new), so the
+  wait loop is untested; the Stage C host test sets its own `wled_host`. The unused `DEBUG_IP` define in
+  `plugin/source/network.c` and the example addresses in comments and test fixtures are left as they are.
 - **Stop checking for the shell feed after about one minute if the title never sends.** The state thread's
   heartbeat check (`ambient_shell_feed_expected()`: open the disable file, parse the ini, read the heartbeat
   file, about every 300 ms) ran from load until the first send, so a title that never sends (unsupported
