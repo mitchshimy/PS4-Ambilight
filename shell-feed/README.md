@@ -26,11 +26,9 @@ both now call it (see `docs/findings.md` for how that was checked).
 
 **Status.** Builds with the same toolchain and link pattern as `plugin/`
 (see `Makefile`), now with a second source list for the shared files.
-`shell-feed/tools/run_stagec_core_test.sh` compiles and runs the exact
-refactored span against the real linked sister files and a real ini
-fixture (not the PS4 SDK, which isn't available in this environment) --
-see `docs/architecture.md`'s status section for what it checks and what it
-found.
+An earlier host check of the refactored span, `shell-feed/tools/run_stagec_core_test.sh`
+(removed from the repo, last present at `b53e9b0`), is described in
+`docs/architecture.md`'s status section, with what it checked and what it found.
 
 **Hardware status (merge plan step 14, done 2026-10-09).** Built and run on
 a real 9.00 console with the Stage C code. Cold boot, disable/resume, a game

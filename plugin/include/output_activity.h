@@ -1,4 +1,4 @@
-// output_activity.h -- tiny host-testable helper for the game-to-shell ownership signal.
+// output_activity.h -- tiny helper for the game-to-shell ownership signal.
 #ifndef AMBIENT_OUTPUT_ACTIVITY_H
 #define AMBIENT_OUTPUT_ACTIVITY_H
 

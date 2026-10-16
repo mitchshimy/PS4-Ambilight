@@ -9,7 +9,7 @@
 // Every other path macro (AMBIENT_CONFIG_PATH, STATE_PATH, REPORT_PATH_PREFIX, VERSION_MARKER,
 // DISABLE_FILE, CLAIM_PATH, ...) is AMBILIGHT_DATA_DIR "/file", so moving the folder is this one
 // line. The companion app builds with only its own include/ and keeps a matching copy in
-// companion-app/include/app_paths.h; companion-app/tests/test_claim_file.c fails if they differ.
+// companion-app/include/app_paths.h. Keep the two identical by hand; nothing checks it.
 //
 // The folder must exist before the first write. The companion app, the plugin (plugin_load) and
 // the shell feed's installer each create it; creating an existing folder is not an error.

@@ -11,8 +11,7 @@
 // a second, so every record is a FIXED WIDTH and every write lands at offset 0 WITHOUT
 // truncating -- a reader can only ever see the old complete record or the new one, never a torn
 // write. state.c fills a StateSnapshot from the live globals and does the file I/O; this header
-// is string logic only, so tools/test_state.c can build and check it on a PC (same split as
-// report_file.h / report.c).
+// is string logic only (same split as report_file.h / report.c).
 #ifndef STATE_FILE_H
 #define STATE_FILE_H
 
@@ -27,8 +26,8 @@
 #define STATE_TITLE_LEN    9    // PS4 title IDs are always exactly this (e.g. "CUSA00000")
 
 // "v1 fg=0 seq=000000 title=CUSA00000\n" -- 6+1+5+6+7+9+1 = 35 bytes, constant for every
-// fg (0/1, one digit) and every seq (wrapped mod 1,000,000, always 6 digits). Checked equal
-// to this constant by tools/test_state.c, not just hand-counted.
+// fg (0/1, one digit) and every seq (wrapped mod 1,000,000, always 6 digits). Keep this constant equal
+// to that length if the format ever changes.
 #define STATE_RECORD_LEN  35
 
 typedef struct {

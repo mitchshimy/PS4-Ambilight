@@ -1,6 +1,5 @@
 // preset_select.h -- which ini section supplies the preset-owned settings.
-// Own header, string logic only, so tools/test_preset_select.c can build it on
-// a PC.
+// Own header, string logic only.
 //
 // The ini holds two complete presets, [preset_game] and [preset_movie], and
 // [presets] active= says which one runs. A title in media_titles.h runs movie

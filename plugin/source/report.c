@@ -2,7 +2,7 @@
 //
 // Writes /data/ps4-ambilight/ps4_ambient_report_<TITLEID>.txt from a release build, so a tester can send
 // one small file instead of running a debug build and capturing UDP. The text itself is
-// built by report_file.h (string logic only, host-tested). This file does the two things
+// built by report_file.h (string logic only). This file does the two things
 // that need the console: reading the plugin's existing globals, and writing the file.
 //
 // Why a thread of its own and not a call from ambient_sample_thread: a file write takes
@@ -103,8 +103,8 @@ static void report_take_snapshot(ReportSnapshot *s, uint32_t uptimeSecs)
     s->remapLastRet    = g_remapLastRet;
 }
 
-// One turn of the thread loop. Returns 1 if it wrote the file this turn. Separate from the
-// thread so tools/test_report.c can drive it with made-up counters.
+// One turn of the thread loop. Returns 1 if it wrote the file this turn. Kept separate from
+// the thread loop so the write logic reads on its own.
 static int ambient_report_tick(ReportRunState *rs)
 {
     if (!g_reportEnabled || rs->failures >= REPORT_MAX_FAILURES) return 0;

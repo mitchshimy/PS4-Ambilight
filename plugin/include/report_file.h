@@ -6,8 +6,8 @@
 // already kept in plain globals in every build; only the packets that send them are
 // debug-only. It holds no personal data: no WLED address, no ini values, nothing typed.
 //
-// This header is string logic only, with no console calls, so tools/test_report.c can build
-// it on a PC (same idea as preset_select.h and pq8bit_vote.h). report.c fills a
+// This header is string logic only, with no console calls (same idea as preset_select.h and
+// pq8bit_vote.h). report.c fills a
 // ReportSnapshot from the live globals and does the file I/O.
 #ifndef REPORT_FILE_H
 #define REPORT_FILE_H

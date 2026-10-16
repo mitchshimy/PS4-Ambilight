@@ -1,6 +1,6 @@
-// TEST-ONLY stubs for sceKernel* file I/O, so config.c (which calls
+// Desktop stand-ins for sceKernel* file I/O, so config.c (which calls
 // these directly, matching the real plugin's fopen-crash fix) can be
-// compiled and tested on this Linux sandbox. NOT part of the shipped
+// compiled on a PC by tools/ui_preview.sh. NOT part of the shipped
 // app -- the real PS4 build gets these from orbis/libkernel.h via the
 // actual toolchain, same as every other sceKernel* call in this
 // entire project.

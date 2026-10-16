@@ -224,11 +224,11 @@ made before the tags were added: same fields, the first 4 bytes are the tag now.
 
 ## Tests
 
-`tools/test_buffer_guard.c` includes `buffer_guard.c` and runs it against a fake kernel
+`tools/test_buffer_guard.c` (removed from the repo, last present at `b53e9b0`) included `buffer_guard.c` and ran it against a fake kernel
 built from what the captures showed, on a PC (27 checks): a readable buffer is left
 alone and never reaches the remap path, a short readable buffer is used with its real
 limit, MK11 as captured ends with protection `0x31` and the type unchanged, every refused
 method is tried once per region and not again, a re-created region gets a new try, an
 `mprotect` that reports success without the bit sticking is treated as a failure, and
 each `gpu_only_remap` value does what it says. What it can't show is a real kernel's
-answers for another title. See [tools](../development/tools.md#test_buffer_guardc).
+answers for another title.

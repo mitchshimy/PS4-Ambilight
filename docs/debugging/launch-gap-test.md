@@ -108,7 +108,7 @@ Known limitations of the fix (unsupported titles stay with the shell feed; a sho
 listed in [shell-feed-foreground-gate](../shell-feed-foreground-gate.md#known-limitations-of-the-launch-latch).
 
 Not covered: a wider title sweep, the NFS Heat burnout case re-run against this change, a title that
-never sends on a console (the host test covers it), and PS-button suspend/resume on a console.
+never sends on a console (a host test covered it before it was removed), and PS-button suspend/resume on a console.
 
 ## Second finding: black frames, not silence (FC26, 2026-10-16)
 
@@ -144,5 +144,5 @@ Reading a capture for this: `LG_SEND_GAP` plus `WLED_LIVE live=0` means packets 
 `SHL1` form) and runs the verdict logic on synthetic scenarios: flip-wait gap, lag-wait gap, no gap,
 the latch handoff (shell 150 ms late), overlap, incomplete, two launches in one capture, and a WLED
 fallback interval. No console needed.
-The state writer's latch has its own host test, `tools/test_state.c` (see [tools](../development/tools.md#test_statec)).
+The state writer's latch had its own host test, `tools/test_state.c` (removed from the repo, last present at `b53e9b0`).
 The console evidence is the captures above; no PS4 SDK build was done in the environment that wrote this.

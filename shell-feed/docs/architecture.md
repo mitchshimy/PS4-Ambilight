@@ -123,8 +123,9 @@ Stage D then replaced its pasted copy of the sister's per-frame smoothing
 `plugin/include/smoothing.h`, a header-only pair of functions both call;
 each process keeps its own smoothing state, only the arithmetic is shared.
 
-Verification done for this stage, without hardware: `shell-feed/tools/
-run_stagec_core_test.sh` compiles and links the exact span of
+Verification done for this stage, without hardware. (The script and its fixture were removed from the repo, last present at `b53e9b0`;
+this is a record of what they showed.) `shell-feed/tools/
+run_stagec_core_test.sh` compiled and linked the exact span of
 `source/main.c` that now calls into the shared files -- the v17 tiling
 math through `shell_process_frame()` -- against those real, linked sister
 files, and runs it against a real ini fixture. It confirms the real

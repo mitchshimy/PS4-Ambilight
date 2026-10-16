@@ -1,6 +1,6 @@
 // pq8bit_vote.h -- alpha byte vote for 0x88740000 buffers that actually hold
-// 8-bit ARGB. Its own header and nothing but stdint so tools/test_pq8bit_vote.c
-// can build it on a PC. Why it works: docs/debugging/youtube-hdr-8bit.md.
+// 8-bit ARGB. Its own header and nothing but stdint.
+// Why it works: docs/debugging/youtube-hdr-8bit.md.
 #ifndef PQ8BIT_VOTE_H
 #define PQ8BIT_VOTE_H
 
