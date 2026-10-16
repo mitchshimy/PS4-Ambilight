@@ -46,7 +46,8 @@ v1 fg=1 seq=000123 title=CUSA00000
   latch: before that the shell feed keeps the strip, so there is no silent gap while the game loads).
   It is written at startup and on transitions only, with no once-a-second rewrite.
 - `fg=0`, written at load and once on backgrounding, means the game has let go or hasn't started
-  sending yet.
+  sending yet. A title the plugin can't use never starts sending, so it stays `fg=0` and shell-feed
+  keeps the strip (a known, untested limitation; see the foreground-gate doc).
 - History: v3.9.3 moved the first claim to the first flip (`89199fe`); a later version followed
   output progress with a 2.2 s release window; the current rule is the explicit foreground bit plus the
   launch latch. See [`docs/shell-feed-foreground-gate.md`](../../docs/shell-feed-foreground-gate.md).

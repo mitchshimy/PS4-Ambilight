@@ -25,3 +25,21 @@ The user reports performing burnouts for some time with **no flickering observed
 ## Launch latch — 2026-10-16
 
 Three `tools/handoff_capture.py` captures (`docs/debugging/launch-gap-test.md`) showed `fg=1` written at plugin load, the shell backing off within 30-90 ms, and the game's first flip hook (so first DDP) arriving about 3.1 s later: a 3.16-3.17 s sender gap in all three runs. The latch above is the change made for that. Expected after the change: `GAME_STATE_WRITE fg=1` follows `GAME_FIRST_DDP_RESULT` by up to one state tick, and the shell's gate ON follows by up to one more poll, so a short (about 0.2 s) two-sender overlap replaces the gap. Measured on a console afterwards: two captures show no sender gap (the shell backed off 47 ms and 94 ms after the game's first send), and the user reports the fallback color gone on 4 games. See [launch-gap-test](debugging/launch-gap-test.md). `tools/test_state.c` covers the state logic; the burnout case and a wider title sweep are still to be re-checked.
+
+## Known limitations of the launch latch
+
+- **Unsupported titles leave the shell feed in control.** `fg=1` now waits for the game's first DDP
+  send, so a title that never sends (a pixel format the plugin doesn't know, a display buffer it can't
+  read, flip hooks that never fire) stays `fg=0` and the shell feed keeps the strip. Before the latch,
+  such a title published `fg=1` at load and the shell feed backed off. Not observed on a console: no
+  unsupported title was available. Planned, untested: also publish `fg=1` when the plugin concludes the
+  title is unusable, using the verdict `notices.c` already reaches after its ~5 s dwell. A plain timeout
+  was rejected because a supported title with a long splash would hit it and the launch gap would come
+  back (the first flip took about 3.1 s in the captured title; others may be slower).
+- **Short two-sender overlap at handoff.** The state tick and the shell's poll are both 100 ms, so
+  the shell feed can keep sending for up to about 0.2 s after the game's first send (47 ms and 94 ms
+  measured). The only flicker seen in testing coincided with the plugin's notification toast; whether
+  the toast or the overlap causes it has not been separated (a run with `[notifications] enabled=false`
+  would). Halving both intervals would roughly halve the overlap at the price of twice the state-file
+  reads in the shell feed; deliberately not done.
+- A stale readable `fg=1` after a plugin crash (above) is unchanged.

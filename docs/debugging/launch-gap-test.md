@@ -97,6 +97,9 @@ longer appearing on 4 games. That is the evidence for the visible result: the WL
 (`--wled-ip`) stayed live in every run, before and after, with 1-7 poll errors per run, so it never
 detected the fallback and shouldn't be read as proof either way.
 
+Known limitations of the fix (unsupported titles stay with the shell feed; a short handoff overlap) are
+listed in [shell-feed-foreground-gate](../shell-feed-foreground-gate.md#known-limitations-of-the-launch-latch).
+
 Not covered: a wider title sweep, the NFS Heat burnout case re-run against this change, a title that
 never sends on a console (the host test covers it), and PS-button suspend/resume on a console.
 

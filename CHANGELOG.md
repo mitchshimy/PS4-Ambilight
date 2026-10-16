@@ -14,7 +14,14 @@ companion app) are documented here, newest first.
   until the process's first complete DDP send (`g_wledOutputCount` first non-zero). It is a one-time latch,
   set once and never cleared; after it, ownership follows `g_isBackgrounded` exactly as before, with no
   per-send inference and no heartbeat writes. A title that never sends stays `fg=0`, so the shell feed keeps
-  the strip. Two post-change captures showed no gap (the shell backs off 47 ms and 94 ms after the game's
+  the strip. **Known limitation:** that is a change for unsupported titles (unknown pixel format,
+  unreadable display buffer, hooks that never fire): before, they published `fg=1` at load and the
+  shell feed backed off; now the shell feed stays in control of the strip. This has not been observed on
+  a console, because no unsupported title was available to test. A planned, untested fix is to also
+  publish `fg=1` when the plugin concludes the title is unusable (the same verdict `notices.c` reaches after
+  its ~5 s dwell), rather than a plain timeout, which would bring the launch gap back for slow-starting
+  titles. The handoff overlap (both senders for up to about 0.2 s; 47 ms and 94 ms measured) is also
+  unchanged: the 100 ms state tick and shell poll were deliberately left as they are. Two post-change captures showed no gap (the shell backs off 47 ms and 94 ms after the game's
   first send), and the user reports the fallback color no longer appears on the 4 games tried; the NFS Heat
   burnout case was not re-run for this change, and this is not yet a broad title sweep. `tools/test_state.c`
   covers the latch (and its link was fixed for the new HOF1 diagnostics); no PS4 SDK build was done for this

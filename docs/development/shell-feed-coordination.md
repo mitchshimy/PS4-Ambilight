@@ -62,6 +62,9 @@ v1 fg=1 seq=000123 title=CUSA00000
   before the shell backs off: a short overlap of up to about 0.2 s, measured at 47 ms and 94 ms), and
   `fg=0` is written once on backgrounding. There are no heartbeat writes: the file does not change
   between transitions (see `state.c`'s header comment for the exact logic).
+- A title that never sends (unsupported format, unreadable buffers, hooks that never fire) stays
+  `fg=0`, so a reader keeps its own output for it. Known and untested; see
+  [shell-feed-foreground-gate](../shell-feed-foreground-gate.md#known-limitations-of-the-launch-latch).
 - A game that was already sending when the reader started is seen as `fg=1`. A record left by a
   previous boot is also read as-is, so a reader that wants to ignore it needs its own rule; the shell
   feed doesn't, and the plugin rewrites the file at load.
