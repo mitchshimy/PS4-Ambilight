@@ -83,7 +83,7 @@
 #define DO_WLED_SEND             1   // [v18] ON: this is the live-send run
 #define DO_LIVE_DDP              1   // [v19] FIX: v18 used this in two #if lines but never defined it, so the whole send loop compiled out
 #define DO_WLED_SEND_INCLUDES    DO_WLED_SEND
-#define WLED_HOST                "192.168.2.110"  // [v18] person's own WLED device
+#define WLED_HOST                ""  // no compiled-in fallback: with no wled_host in the ini the shell feed does not start (same as the plugin). Was the maintainer's own WLED, which sent UDP to that address on other users' networks when wled_host was unset.
 #define WLED_PORT                4048
 #include <stdio.h>
 #include <stdint.h>
@@ -1656,7 +1656,7 @@ static int live_send(void)
     }
 
     // [v22] The ini first: it decides the destination, the pace, the zone count and every colour setting.
-    // A missing or unreadable file is not fatal: the sister's compiled defaults stand (and WLED_HOST is the fallback host).
+    // A missing or unreadable file is not fatal: the sister's compiled defaults stand (WLED_HOST is empty, so with no wled_host the send loop does not start).
     // [v23-fix v44] Only the very first call this process lifetime is a real LOAD; every later call is a
     // resume out of wait_for_reenable() re-reading the same ini, which is a RELOAD in every sense that
     // matters to a reader of the log (and should count toward g_cfgReloads, same as shell_cfg_poll()'s).
@@ -1681,7 +1681,7 @@ static int live_send(void)
     curHost[sizeof(curHost) - 1] = '\0';
     curPort = g_config.wledPort != 0 ? (int)g_config.wledPort : (int)WLED_PORT;
     if (curHost[0] == '\0') {
-        printf(TAG " LIVE: no wled_host in the ini and WLED_HOST is empty, nothing to send\n");
+        printf(TAG " LIVE: no wled_host in the ini (and no compiled-in default), nothing to send\n");
         snprintf(g_shNotStartedWhy, sizeof(g_shNotStartedWhy), "no destination host");
         return 0;
     }

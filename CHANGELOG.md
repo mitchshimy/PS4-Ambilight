@@ -6,6 +6,18 @@ companion app) are documented here, newest first.
 ## Plugin
 
 ### Unreleased
+- **The shell feed no longer falls back to a hard-coded WLED address.** `WLED_HOST` in
+  `shell-feed/source/main.c` was `192.168.2.110`, the maintainer's own WLED, and `live_send()` used it
+  whenever the ini had no `wled_host`, so a shell feed with no address set kept transmitting UDP to that
+  address on whatever network it was on (another device there could receive it). It is now empty, like the
+  plugin's `wledHost`: with no `wled_host` the send loop does not start, reports "no destination host", and
+  shows the existing notification telling the user to set `wled_host` in the ini or the companion app and
+  restart. That path already existed and is now the first-run behavior; nothing retries it without a restart.
+  Because no loop runs, no `ps4_shell_alive` heartbeat is written, so the plugin sees "shell feed not
+  running" and does not hold its first send. A shell feed that already has `wled_host` set is unchanged.
+  Not built or run on a console in the environment that wrote this entry; the Stage C host test sets its own
+  `wled_host` and doesn't depend on the old default. The unused `DEBUG_IP` define in `plugin/source/network.c`
+  and the example addresses in comments and test fixtures are left as they are.
 - **Stop checking for the shell feed after about one minute if the title never sends.** The state thread's
   heartbeat check (`ambient_shell_feed_expected()`: open the disable file, parse the ini, read the heartbeat
   file, about every 300 ms) ran from load until the first send, so a title that never sends (unsupported
