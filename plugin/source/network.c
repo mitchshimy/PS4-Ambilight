@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -72,6 +73,24 @@ static int wled_ensure_socket(void)
                                     // debug_send_raw now requires g_config.devIp
                                     // to be set via an explicit [dev] section in the ini; see
                                     // that function and the AmbientConfig struct comment.
+
+// Event-only foreground-handoff diagnostics. Reuse the existing opt-in dev UDP path
+// (INI [dev] dev_ip + dev_logging=true), not stdout/printf. HOF1 lets the ground
+// listener distinguish these ASCII records from the plugin's existing binary telemetry.
+void ambient_handoff_diag(const char *fmt, ...)
+{
+    char payload[192];
+    int prefix = snprintf(payload, sizeof(payload), "HOF1 ");
+    if (prefix < 0 || (size_t)prefix >= sizeof(payload)) return;
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(payload + prefix, sizeof(payload) - (size_t)prefix, fmt, ap);
+    va_end(ap);
+    if (n < 0) return;
+    size_t used = (size_t)prefix + (size_t)n;
+    if (used >= sizeof(payload)) used = sizeof(payload) - 1;
+    debug_send_raw((const uint8_t *)payload, (int)used);
+}
 
 void debug_send_raw(const uint8_t *data, int len)
 {
@@ -456,12 +475,25 @@ void wled_send_rgb_zones(const uint8_t *rgbTriplets, int numZones)
 
     ssize_t sentBytes = sendto(sockfd, packet, DDP_HEADER_SIZE + dataSize, 0,
                                (struct sockaddr*)&destAddr, sizeof(destAddr));
+    // LAUNCH_GAP: any silence between two game-feed submissions longer than LG_GAP_MS (heartbeat resends
+    // included, since they come through here). Event-only, once per gap, never per frame.
+    {
+        static uint64_t lgLastSendTsc = 0;
+        uint64_t nowTsc = sceKernelGetProcessTimeCounter();
+        uint64_t hzTsc  = sceKernelGetProcessTimeCounterFrequency();
+        if (lgLastSendTsc != 0 && hzTsc != 0 && (nowTsc - lgLastSendTsc) * 1000ULL / hzTsc >= 250ULL) {
+            ambient_handoff_diag("HANDOFF_DIAG LG_SEND_GAP ms=%llu bg=%d tsc=%llu hz=%llu",
+                                 (unsigned long long)((nowTsc - lgLastSendTsc) * 1000ULL / hzTsc),
+                                 g_isBackgrounded ? 1 : 0, (unsigned long long)nowTsc, (unsigned long long)hzTsc);
+        }
+        lgLastSendTsc = nowTsc;
+    }
     // HANDOFF_DIAG: first game-feed DDP submission only; UDP send success is not WLED receipt.
     {
         static bool handoffDiagFirstSend = false;
         if (!handoffDiagFirstSend) {
             handoffDiagFirstSend = true;
-            printf("[Ambilight] HANDOFF_DIAG GAME_FIRST_DDP_RESULT bytes=%lld expected=%u zones=%d tsc=%llu hz=%llu\n",
+            ambient_handoff_diag("HANDOFF_DIAG GAME_FIRST_DDP_RESULT bytes=%lld expected=%u zones=%d tsc=%llu hz=%llu",
                    (long long)sentBytes, (unsigned)(DDP_HEADER_SIZE + dataSize), numZones,
                    (unsigned long long)sceKernelGetProcessTimeCounter(),
                    (unsigned long long)sceKernelGetProcessTimeCounterFrequency());

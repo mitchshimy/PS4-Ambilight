@@ -164,7 +164,8 @@ void send_flip_diag_packet(uint32_t registerHookCallCount, uint32_t flipHookCall
                             uint32_t gnmForWorkloadPtrResolved); // called by sample_thread.c, v3.1
 void ambient_read_content_preview(uint8_t *out, size_t previewLen); // called by settings.c
 #define CONFIG_DEBUG_PREVIEW_LEN 16
-void debug_send_raw(const uint8_t *data, int len); // also called directly by zones.c's detectHdr2200Format for its own diagnostic packet
+void debug_send_raw(const uint8_t *data, int len);
+void ambient_handoff_diag(const char *fmt, ...); // event-only HOF1 record over the opt-in dev UDP channel
 void send_config_reload_debug_packet(uint32_t event, uint32_t statErrno,
                                       uint64_t curMtime, uint64_t lastMtime,
                                       uint64_t curSize, uint64_t lastSize,

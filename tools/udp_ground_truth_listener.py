@@ -29,8 +29,11 @@ while True:
         color_note = ""
 
     print(f"[{ts}] from {addr[0]}:{addr[1]}  len={len(data)}  header={header}{color_note}")
-    # Full payload hex — needed for raw byte dumps (e.g. disassembling a
-    # function's prologue), not just solid-color checkpoints. Short enough
-    # to just print inline; paste this back for anything that isn't a
-    # plain color signal.
-    print(f"    payload_hex={payload}")
+    # Existing dev telemetry wraps text in a 10-byte DDP-like header.
+    # SHL1 is the shell-feed mirror; HOF1 is the plugin's handoff-event mirror.
+    body = data[10:] if len(data) >= 10 else b""
+    if body.startswith((b"SHL1", b"HOF1")):
+        print("    telemetry=" + body.decode("ascii", errors="replace"))
+    else:
+        # Full payload hex for existing binary diagnostics / color packets.
+        print(f"    payload_hex={payload}")

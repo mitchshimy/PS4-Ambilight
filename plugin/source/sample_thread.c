@@ -100,8 +100,44 @@ static uint32_t s_rawDiagFrameCounter = 0; // v2.2.2: throttles the raw-pixel di
 #endif
 
 
+// LAUNCH_GAP milestones (docs/debugging/launch-gap-test.md). Event-only HOF1 records over the opt-in
+// [dev] UDP channel, each sent ONCE per process, from the sampler thread only -- the flip/register hooks
+// stay record-only. Resolution is one sampler pass (~33 ms): these are "first seen by the sampler", not
+// the exact instant a hook ran. Every record carries bg= so a launch that starts backgrounded is visible.
+static void launch_gap_milestones(void)
+{
+    static bool seenRegister = false, seenFlip = false, seenFormat = false;
+    uint64_t now = sceKernelGetProcessTimeCounter();
+    uint64_t hz  = sceKernelGetProcessTimeCounterFrequency();
+    if (!seenRegister && g_registerHookCallCount != 0) {
+        seenRegister = true;
+        ambient_handoff_diag("HANDOFF_DIAG LG_FIRST_REGISTER_HOOK calls=%u fmt=0x%08x ok=%d bg=%d tsc=%llu hz=%llu",
+                             (unsigned)g_registerHookCallCount, (unsigned)g_activeFormat, (int)g_haveValidFormat,
+                             g_isBackgrounded ? 1 : 0, (unsigned long long)now, (unsigned long long)hz);
+    }
+    if (!seenFlip) {
+        uint32_t flips = g_flipHookCallCount + g_videoOutSubmitFlipHookCallCount + g_gnmForWorkloadHookCallCount;
+        if (flips != 0) {
+            seenFlip = true;
+            ambient_handoff_diag("HANDOFF_DIAG LG_FIRST_FLIP_HOOK gnm=%u vo=%u wl=%u idx=%u bg=%d tsc=%llu hz=%llu",
+                                 (unsigned)g_flipHookCallCount, (unsigned)g_videoOutSubmitFlipHookCallCount,
+                                 (unsigned)g_gnmForWorkloadHookCallCount, (unsigned)g_currentDisplayBufferIndex,
+                                 g_isBackgrounded ? 1 : 0, (unsigned long long)now, (unsigned long long)hz);
+        }
+    }
+    if (!seenFormat && g_haveValidFormat) {
+        seenFormat = true;
+        ambient_handoff_diag("HANDOFF_DIAG LG_FORMAT_CONFIRMED fmt=0x%08x bg=%d tsc=%llu hz=%llu",
+                             (unsigned)g_activeFormat, g_isBackgrounded ? 1 : 0,
+                             (unsigned long long)now, (unsigned long long)hz);
+    }
+}
+
 void *ambient_sample_thread(void *args)
 {
+    ambient_handoff_diag("HANDOFF_DIAG LG_SAMPLER_START bg=%d tsc=%llu hz=%llu", g_isBackgrounded ? 1 : 0,
+                         (unsigned long long)sceKernelGetProcessTimeCounter(),
+                         (unsigned long long)sceKernelGetProcessTimeCounterFrequency());
     uint32_t sampleIntervalUs = 1000000u / g_config.updateFrequencyHz;
     uint32_t smoothingAlpha = 256u; // recomputed every iteration below (cheap), so live reload picks up changes
     // sceKernelGetProcessTimeCounter[Frequency] -- same TSC-based timer
@@ -144,7 +180,7 @@ void *ambient_sample_thread(void *args)
                     bool nowBackgrounded = status.isInBackgroundExecution;
                     if (nowBackgrounded != g_isBackgrounded) {
                         g_isBackgrounded = nowBackgrounded;
-                        printf("[Ambilight] HANDOFF_DIAG GAME_FG_POLL fg=%d tsc=%llu hz=%llu\n",
+                        ambient_handoff_diag("HANDOFF_DIAG GAME_FG_POLL fg=%d tsc=%llu hz=%llu",
                                nowBackgrounded ? 0 : 1,
                                (unsigned long long)sceKernelGetProcessTimeCounter(),
                                (unsigned long long)sceKernelGetProcessTimeCounterFrequency());
@@ -183,6 +219,8 @@ void *ambient_sample_thread(void *args)
             }
         }
         smoothingAlpha = smoothing_alpha(sampleIntervalUs, g_config.settlingTimeMs);
+
+        launch_gap_milestones(); // once-per-process events; a few loads and compares per pass otherwise
 
         if (g_isBackgrounded) {
             // v2.4: closes the real, confirmed gap from --
@@ -239,15 +277,28 @@ void *ambient_sample_thread(void *args)
 #define LAG_HISTORY_WAIT_PASSES 30 // ~1 s at 30 Hz
             static uint32_t s_noHistoryPasses = 0;
             if (displayBufferIndex != 0xFFFFFFFFu) {
+                static bool lgSeenHistory = false, lgSeenFallback = false;
                 if (prevIdx != 0xFFFFFFFFu && prevIdx < (uint32_t)MAX_TRACKED_BUFFERS &&
                     g_bufferAddrs[prevIdx] != 0) {
                     liveBufferAddr = g_bufferAddrs[prevIdx];
+                    if (!lgSeenHistory) {
+                        lgSeenHistory = true;
+                        ambient_handoff_diag("HANDOFF_DIAG LG_LAG_HISTORY_READY prev=%u waited=%u tsc=%llu hz=%llu",
+                                             (unsigned)prevIdx, (unsigned)s_noHistoryPasses,
+                                             (unsigned long long)sceKernelGetProcessTimeCounter(),
+                                             (unsigned long long)sceKernelGetProcessTimeCounterFrequency());
+                    }
                     s_noHistoryPasses = 0;
                 } else if (s_noHistoryPasses < LAG_HISTORY_WAIT_PASSES) {
                     s_noHistoryPasses++;
                     liveBufferAddr = 0;
+                } else if (!lgSeenFallback) {
+                    lgSeenFallback = true; // waited long enough -- keep the reported slot (old fallback)
+                    ambient_handoff_diag("HANDOFF_DIAG LG_LAG_WAIT_EXPIRED passes=%u tsc=%llu hz=%llu",
+                                         (unsigned)s_noHistoryPasses,
+                                         (unsigned long long)sceKernelGetProcessTimeCounter(),
+                                         (unsigned long long)sceKernelGetProcessTimeCounterFrequency());
                 }
-                // else: waited long enough -- keep the reported slot (old fallback)
             }
         }
 #endif
@@ -302,7 +353,7 @@ void *ambient_sample_thread(void *args)
             static bool handoffDiagFirstFrame = false;
             if (!handoffDiagFirstFrame) {
                 handoffDiagFirstFrame = true;
-                printf("[Ambilight] HANDOFF_DIAG GAME_FIRST_VALID_FRAME idx=%u fmt=0x%08x zones=%u tsc=%llu hz=%llu\n",
+                ambient_handoff_diag("HANDOFF_DIAG GAME_FIRST_VALID_FRAME idx=%u fmt=0x%08x zones=%u tsc=%llu hz=%llu",
                        (unsigned)displayBufferIndex, (unsigned)g_activeFormat, (unsigned)g_numZones,
                        (unsigned long long)sceKernelGetProcessTimeCounter(),
                        (unsigned long long)sceKernelGetProcessTimeCounterFrequency());

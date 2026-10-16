@@ -1483,7 +1483,7 @@ static int claim_poll(uint64_t nowTsc, uint64_t tscHz)
             static int handoffDiagFirstState = 0;
             if (!handoffDiagFirstState) {
                 handoffDiagFirstState = 1;
-                printf(TAG " HANDOFF_DIAG SHELL_FIRST_VALID_STATE fg=%d tsc=%llu hz=%llu\n", fg,
+                shell_event("HANDOFF_DIAG SHELL_FIRST_VALID_STATE fg=%d tsc=%llu hz=%llu", fg,
                        (unsigned long long)sceKernelGetProcessTimeCounter(),
                        (unsigned long long)sceKernelGetProcessTimeCounterFrequency());
             }
@@ -1792,7 +1792,7 @@ static int live_send(void)
             static int handoffDiagFirstBuffer = 0;
             if (!handoffDiagFirstBuffer) {
                 handoffDiagFirstBuffer = 1;
-                printf(TAG " HANDOFF_DIAG SHELL_FIRST_READY_BUFFER index=%d buffers=%d tsc=%llu hz=%llu\n", b, g_nBuf,
+                shell_event("HANDOFF_DIAG SHELL_FIRST_READY_BUFFER index=%d buffers=%d tsc=%llu hz=%llu", b, g_nBuf,
                        (unsigned long long)sceKernelGetProcessTimeCounter(),
                        (unsigned long long)sceKernelGetProcessTimeCounterFrequency());
             }
@@ -1807,7 +1807,7 @@ static int live_send(void)
             static int handoffDiagFirstSend = 0;
             if (!handoffDiagFirstSend) {
                 handoffDiagFirstSend = 1;
-                printf(TAG " HANDOFF_DIAG SHELL_FIRST_DDP_RESULT bytes=%lld expected=%d zones=%u tsc=%llu hz=%llu\n",
+                shell_event("HANDOFF_DIAG SHELL_FIRST_DDP_RESULT bytes=%lld expected=%d zones=%u tsc=%llu hz=%llu",
                        (long long)handoffSendBytes, 10 + dataSize, (unsigned)nz,
                        (unsigned long long)sceKernelGetProcessTimeCounter(),
                        (unsigned long long)sceKernelGetProcessTimeCounterFrequency());
