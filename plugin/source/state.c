@@ -15,8 +15,10 @@
 //
 // The same thread also keeps g_shellFeedAlive for network.c's startup hold: from load until the first
 // send it asks ambient_shell_feed_expected() (settings.c) about every 300 ms whether the shell feed's
-// heartbeat file is still changing, then stops, so normal play does no file or ini reads. That is a
-// read of a different file, not a write of this one; this file still has no heartbeat.
+// heartbeat file is still changing, then stops, so normal play does no file or ini reads. It also stops
+// after about one minute (SHELL_POLL_CAP_TICKS) if the title never sends, so an unsupported title does not
+// open files and parse the ini for the whole session; g_shellFeedAlive then keeps its last answer. That is
+// a read of a different file, not a write of this one; this file still has no heartbeat.
 //
 // This thread polls the already-maintained g_isBackgrounded flag at 10 Hz and writes
 // only the initial state and actual state transitions. File I/O stays off the sampler's
@@ -47,7 +49,12 @@ typedef struct {
     int      wasForeground;
     int      wroteOnce;
     int      firstSendSeen; // launch latch: set once g_wledOutputCount first becomes non-zero, never cleared
+    unsigned shellPollTicks; // ticks since the last shell-feed heartbeat check
+    unsigned shellTicks;     // ticks spent checking so far; checking stops at SHELL_POLL_CAP_TICKS
 } StateRunState;
+
+#define SHELL_POLL_EVERY_TICKS 3u   // about every 300 ms
+#define SHELL_POLL_CAP_TICKS   600u // about one minute from load; a title that never sends stops being polled
 
 // O_WRONLY|O_CREAT, deliberately WITHOUT O_TRUNC. A fresh fd starts at offset zero.
 static int state_write_file(const char *text, size_t len)
@@ -88,20 +95,27 @@ static int ambient_state_tick(StateRunState *rs)
     return 0; // unchanged foreground state: no transmission checks, no heartbeat, no write
 }
 
+// Is the shell feed really running? Judged from plugin load until the first send, so the answer is already
+// there when the game feed's first frame arrives (network.c's startup hold reads it). About every 300 ms.
+// Stops for good once the first send has gone out, and after about one minute if none ever does (an
+// unsupported title), so neither normal play nor a title that never sends keeps reading files or the ini;
+// g_shellFeedAlive keeps its last answer. Separate from the thread so tools/test_state.c can exercise it.
+static void ambient_state_shell_poll(StateRunState *rs)
+{
+    if (rs->firstSendSeen || rs->shellTicks >= SHELL_POLL_CAP_TICKS) return;
+    rs->shellTicks++;
+    if (++rs->shellPollTicks < SHELL_POLL_EVERY_TICKS) return;
+    rs->shellPollTicks = 0;
+    g_shellFeedAlive = ambient_shell_feed_expected() ? 1 : 0;
+}
+
 void *ambient_state_thread(void *args)
 {
     (void)args;
     static StateRunState rs; // static: zero-initialized, off the stack
-    unsigned pollTicks = 0;
     for (;;) {
         ambient_state_tick(&rs);
-        // Is the shell feed really running? Judged here, from plugin load until the first send, so the answer is
-        // already there when the game feed's first frame arrives (network.c's startup hold reads it). About every
-        // 300 ms; stops for good once the first send has gone out, so normal play does no file or ini reads.
-        if (!rs.firstSendSeen && ++pollTicks >= 3) {
-            pollTicks = 0;
-            g_shellFeedAlive = ambient_shell_feed_expected() ? 1 : 0;
-        }
+        ambient_state_shell_poll(&rs);
         usleep(STATE_TICK_US);
     }
     return NULL;

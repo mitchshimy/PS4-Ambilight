@@ -24,7 +24,8 @@ char g_titleId[16];
 volatile uint32_t g_registerHookCallCount, g_flipHookCallCount, g_videoOutSubmitFlipHookCallCount, g_gnmForWorkloadHookCallCount;
 volatile uint32_t g_wledOutputCount;
 volatile int g_shellFeedAlive = 1;
-bool ambient_shell_feed_expected(void) { return true; } // heartbeat logic is settings.c; not under test here
+static int g_hbCalls, g_hbAnswer = 1;
+bool ambient_shell_feed_expected(void) { g_hbCalls++; return g_hbAnswer; } // heartbeat logic is settings.c; only its scheduling is under test here
 bool g_isBackgrounded;
 
 #define SCRATCH "/tmp/test_state_data"
@@ -190,6 +191,38 @@ int main(void)
         assert(!strcmp(t, "v1 fg=1 seq=000001 title=CUSA88888\n")); free(t);
     }
     printf("latch never overrides backgrounded; foregrounding then publishes fg=1: PASSED\n");
+
+    // Shell-feed heartbeat polling: every 3rd tick until the first send; stops at the first send; stops after
+    // the cap (about one minute) if no send ever comes; keeps its last answer afterwards.
+    {
+        StateRunState rs; fresh_run(&rs, "CUSA99999");
+        g_wledOutputCount = 0; g_hbCalls = 0; g_hbAnswer = 1; g_shellFeedAlive = 1;
+        for (int i = 0; i < 30; ++i) { ambient_state_tick(&rs); ambient_state_shell_poll(&rs); }
+        assert(g_hbCalls == 10); // one check per 3 ticks
+    }
+    printf("heartbeat checked every 3rd tick before the first send: PASSED\n");
+    {
+        StateRunState rs; fresh_run(&rs, "CUSA99999");
+        g_wledOutputCount = 0; g_hbCalls = 0; g_hbAnswer = 0; g_shellFeedAlive = 1;
+        for (int i = 0; i < 700; ++i) { ambient_state_tick(&rs); ambient_state_shell_poll(&rs); }
+        assert(g_hbCalls == (int)(SHELL_POLL_CAP_TICKS / SHELL_POLL_EVERY_TICKS)); // 200, none after the cap
+        assert(g_shellFeedAlive == 0);
+        g_hbAnswer = 1; // the shell feed "comes back" after the cap: no longer asked, last answer is kept
+        for (int i = 0; i < 300; ++i) { ambient_state_tick(&rs); ambient_state_shell_poll(&rs); }
+        assert(g_hbCalls == 200 && g_shellFeedAlive == 0);
+    }
+    printf("a title that never sends stops being polled after the cap, keeps its last answer: PASSED\n");
+    {
+        StateRunState rs; fresh_run(&rs, "CUSA99999");
+        g_wledOutputCount = 0; g_hbCalls = 0; g_hbAnswer = 1;
+        for (int i = 0; i < 9; ++i) { ambient_state_tick(&rs); ambient_state_shell_poll(&rs); }
+        assert(g_hbCalls == 3);
+        g_wledOutputCount = 1; // first send
+        for (int i = 0; i < 300; ++i) { ambient_state_tick(&rs); ambient_state_shell_poll(&rs); }
+        assert(g_hbCalls == 3); // nothing read after the first send
+        g_wledOutputCount = 0;
+    }
+    printf("no heartbeat reads after the first send: PASSED\n");
 
     // Fixed-width record and safe non-truncating file writes remain unchanged.
     {

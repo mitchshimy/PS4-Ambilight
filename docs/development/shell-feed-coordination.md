@@ -79,7 +79,7 @@ v1 fg=1 seq=000123 title=CUSA00000
 The other direction, for one purpose: `/data/ps4-ambilight/ps4_shell_alive` is a single line, a 20-digit
 zero-padded counter and a newline, rewritten in place (no truncate) by the shell feed about once a second
 from its main loop, including while the game owns the strip. The plugin never trusts its value, only
-that it keeps changing: the state thread, from load until the plugin's first DDP send, reads it about
+that it keeps changing: the state thread, from load until the plugin's first DDP send (or about one minute, if none ever comes), reads it about
 every 300 ms (`ambient_shell_feed_expected()` in `settings.c`) and treats the shell feed as gone when it
 has not changed for 3 s. That decides whether `network.c` holds its first send while the frames are black
 (see [shell-feed-foreground-gate](../shell-feed-foreground-gate.md#startup-hold-on-black-frames)). A

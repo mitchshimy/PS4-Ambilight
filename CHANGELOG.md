@@ -6,6 +6,18 @@ companion app) are documented here, newest first.
 ## Plugin
 
 ### Unreleased
+- **Stop checking for the shell feed after about one minute if the title never sends.** The state thread's
+  heartbeat check (`ambient_shell_feed_expected()`: open the disable file, parse the ini, read the heartbeat
+  file, about every 300 ms) ran from load until the first send, so a title that never sends (unsupported
+  format, unreadable buffers, hooks that never fire) would have done that for the whole session.
+  `ambient_state_shell_poll()` in `state.c` now also stops after `SHELL_POLL_CAP_TICKS` (600 ticks of
+  100 ms, about one minute) and `g_shellFeedAlive` keeps its last answer, so a shell feed that starts or
+  stops after that is not noticed by a title that has still not sent. `tools/test_state.c` covers the
+  schedule (every 3rd tick, none after the first send, none after the cap, last answer kept). A title that
+  never sends could not be tried on a console; the one-minute figure is a conservative first value, not a
+  measured one. **No change for long black loading screens:** the hold has no timeout, and that is
+  intended, because per the maintainer's testing the shell feed lights the LEDs for neither a dark screen
+  nor a black loading screen, so leaving it in control of a long-black title costs nothing.
 - **Hold the game feed's first send while it is still black, and only while the shell feed is running.**
   In FC26 the launch picture is on screen while the game's registered buffers read all zeros for about
   3 s. The plugin sent those black frames; the first send published `fg=1`; the shell feed, which could
@@ -31,7 +43,7 @@ companion app) are documented here, newest first.
   the plugin assumes the shell feed is running, so a black loading screen with no shell feed can still show
   WLED's default color if the first frame arrives sooner than 3 s after load (it arrived 3.4-4.9 s after
   load in the captures); a title whose buffers stay black for a long time while the shell feed runs
-  leaves the shell feed in control with no timeout; the heartbeat reader has no host test (the state test
+  leaves the shell feed in control with no timeout (harmless: the shell feed lights nothing on a dark screen, see the entry above); the heartbeat reader has no host test (the state test
   only gained stubs). The shell-off path has no capture of its own. Built and run by the user with
   the OpenOrbis toolchain; no PS4 SDK build in the environment that wrote this entry. `g_pluginVersion` is
   unchanged.

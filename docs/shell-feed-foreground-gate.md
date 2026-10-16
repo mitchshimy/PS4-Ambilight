@@ -38,12 +38,15 @@ scenes are sent normally.
 The hold only makes sense while the shell feed is there to cover. With it off, holding would leave WLED on
 its default color through a black loading screen. So the shell feed rewrites
 `/data/ps4-ambilight/ps4_shell_alive` (a changing 20-digit counter and newline) about once a second, and
-the plugin's state thread, from load until the first send, checks it about every 300 ms through
+the plugin's state thread, from load until the first send (or about one minute if none ever comes), checks it about every 300 ms through
 `ambient_shell_feed_expected()` in `settings.c`. It reports the shell feed gone when the counter has not
 changed for 3 s, or at once when the disable file or `[shell] enabled=false` is present, and publishes the
 answer as `g_shellFeedAlive`; with it false, the plugin sends from the first frame as it did before the
 hold. A missing file, an older shell feed without the heartbeat, a crashed shell feed and one that was
-never installed all read the same way. After the first send nothing is read.
+never installed all read the same way. After the first send nothing is read, and a title that never
+sends stops being checked after about one minute (`SHELL_POLL_CAP_TICKS` in `state.c`; `g_shellFeedAlive`
+keeps its last answer). The one-minute value is a conservative first choice, untested on a real
+never-sending title.
 
 ## Known limitations of the launch latch
 
@@ -65,5 +68,6 @@ never installed all read the same way. After the first send nothing is read.
 - **Startup hold:** for the first 3 s after load the plugin assumes the shell feed is running, so a
   black loading screen with no shell feed could show WLED's default color if the first frame arrives sooner
   than 3 s after load (it arrived 3.4-4.9 s after load in the captures). A title whose buffers
-  stay black for a long time while the shell feed runs leaves the shell feed in control; there is no
-  timeout. The shell-off path has no capture of its own, and the heartbeat reader has no host test.
+  stay black for a long time while the shell feed runs leaves the shell feed in control with no timeout,
+  which costs nothing: the shell feed lights the LEDs for neither a dark screen nor a black loading screen
+  (maintainer's observation). The shell-off path has no capture of its own, and the heartbeat reader has no host test.
