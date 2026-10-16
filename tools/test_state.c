@@ -23,6 +23,8 @@ void ambient_handoff_diag(const char *fmt, ...) { (void)fmt; } // HOF1 mirror is
 char g_titleId[16];
 volatile uint32_t g_registerHookCallCount, g_flipHookCallCount, g_videoOutSubmitFlipHookCallCount, g_gnmForWorkloadHookCallCount;
 volatile uint32_t g_wledOutputCount;
+volatile int g_shellFeedAlive = 1;
+bool ambient_shell_feed_expected(void) { return true; } // heartbeat logic is settings.c; not under test here
 bool g_isBackgrounded;
 
 #define SCRATCH "/tmp/test_state_data"

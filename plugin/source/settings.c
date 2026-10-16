@@ -601,3 +601,53 @@ void ambient_check_config_reload(void)
     g_smoothedRgbValid = false; // avoid smoothing a hard cut between old and new zone counts/positions
 }
 
+
+
+// Is the shell feed really running? True only while it keeps proving it: it rewrites
+// /data/ps4-ambilight/ps4_shell_alive with a changing counter about once a second, and this reports false once that
+// value has not changed for SHELL_ALIVE_STALE_MS (file missing, shell feed off, crashed, older build, or not
+// installed all look the same: the value never changes). A switch-off the shell feed itself honours (the disable
+// file, [shell] enabled=false) is believed immediately. Right after load there is nothing to compare yet, so it
+// answers true for the first SHELL_ALIVE_STALE_MS. Stateful; call from one thread, about every 250 ms, not per frame.
+extern uint64_t sceKernelGetProcessTimeCounter(void);          // same declarations state.c carries; harmless if the SDK header already has them
+extern uint64_t sceKernelGetProcessTimeCounterFrequency(void);
+#define SHELL_ALIVE_PATH     AMBILIGHT_DATA_DIR "/ps4_shell_alive"
+#define SHELL_ALIVE_STALE_MS 3000ULL
+bool ambient_shell_feed_expected(void)
+{
+    static char     lastText[32];
+    static uint64_t firstCheckTsc = 0, lastChangeTsc = 0;
+    uint64_t now = sceKernelGetProcessTimeCounter();
+    uint64_t hz  = sceKernelGetProcessTimeCounterFrequency();
+    if (hz == 0) return true;
+    if (firstCheckTsc == 0) firstCheckTsc = now;
+
+    int32_t dfd = sceKernelOpen(AMBILIGHT_DATA_DIR "/ps4_shell_feed_off", 0 /* O_RDONLY */, 0);
+    if (dfd >= 0) { sceKernelClose(dfd); return false; }
+
+    ini_table_s *table = ini_table_create();
+    if (table != NULL) {
+        if (ini_table_read_from_file(table, AMBIENT_CONFIG_PATH)) {
+            bool bv = true;
+            bool enabled = ini_table_get_entry_as_bool(table, "shell", "enabled", &bv) ? bv : true;
+            if (!enabled) { ini_table_destroy(table); return false; }
+        }
+        ini_table_destroy(table);
+    }
+
+    char cur[32]; memset(cur, 0, sizeof(cur));
+    int32_t fd = sceKernelOpen(SHELL_ALIVE_PATH, 0 /* O_RDONLY */, 0);
+    if (fd >= 0) {
+        ssize_t r = sceKernelRead(fd, cur, sizeof(cur) - 1);
+        sceKernelClose(fd);
+        if (r <= 0) cur[0] = '\0';
+    }
+    if (cur[0] != '\0' && strcmp(cur, lastText) != 0) {
+        memcpy(lastText, cur, sizeof(lastText));
+        // The first read after load is only a baseline, so it does not count as proof of life by itself.
+        if (lastChangeTsc != 0 || firstCheckTsc != now) lastChangeTsc = now;
+        else lastChangeTsc = 0;
+    }
+    uint64_t ref = (lastChangeTsc != 0) ? lastChangeTsc : firstCheckTsc;
+    return ((now - ref) * 1000ULL / hz) < SHELL_ALIVE_STALE_MS;
+}

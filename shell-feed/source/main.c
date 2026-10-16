@@ -886,6 +886,24 @@ static int shell_cfg_poll(uint64_t nowTsc, uint64_t tscHz)
 // or the gamma LUTs. Logged separately from "INI RELOAD" and does not increment g_cfgReloads, since
 // nothing but the one key changed.
 #define ENABLED_POLL_MS 1000u
+// Heartbeat for the game plugin: a fixed-width, ever-changing counter rewritten about once a second, so the plugin can
+// tell a shell feed that is really running from one that is switched off, crashed, or not installed (it sees the value
+// stop changing). Deliberately the same tiny open/write/close the state file uses, without O_TRUNC, and on the same
+// 1 s cadence as the ini poll next to it, so it adds nothing the loop was not already doing every second.
+#define SHELL_ALIVE_PATH AMBILIGHT_DATA_DIR "/ps4_shell_alive"
+static void shell_heartbeat(uint64_t nowTsc, uint64_t tscHz, uint64_t *nextBeatTsc, uint64_t counter)
+{
+    if (tscHz == 0 || nowTsc < *nextBeatTsc) return;
+    *nextBeatTsc = nowTsc + tscHz; // 1 s
+    char text[32];
+    int len = snprintf(text, sizeof(text), "%020llu\n", (unsigned long long)counter);
+    if (len <= 0) return;
+    int32_t fd = sceKernelOpen(SHELL_ALIVE_PATH, 0x0001 | 0x0200, 0777);
+    if (fd < 0) return;
+    (void)sceKernelWrite(fd, text, (size_t)len);
+    sceKernelClose(fd);
+}
+
 static void shell_enabled_poll(uint64_t nowTsc, uint64_t tscHz, uint64_t *nextPollTsc)
 {
     if (tscHz == 0 || nowTsc < *nextPollTsc) return;
@@ -1698,6 +1716,8 @@ static int live_send(void)
     // [v23] no endTsc: the loop runs until a clean stop (disable file, shell enabled=false) or process exit.
     uint64_t nextRowTsc = nextTick + 5 * g_tscHz, rows = 0;
     uint64_t nextEnabledPollTsc = nextTick; // [v46] due immediately on the first tick
+    uint64_t nextBeatTsc = nextTick;        // heartbeat for the game plugin, due immediately
+    uint64_t beatCounter = 0;
     uint64_t k = 0, sent = 0, skipped = 0, buf0 = 0, buf1 = 0, gameOwned = 0;
     uint64_t sumUs = 0, maxUs = 0, minUs = 0xFFFFFFFFu, rowTicks = 0;
     int stopReason = 0; // [v23-fix] set just before each break below; 0 here only guards against a logic error
@@ -1729,6 +1749,7 @@ static int live_send(void)
         // (see shell_enabled_poll()'s comment) -- was previously "picked up by the live-reload poll above",
         // which meant config_reload_check_seconds=0 silently made this unreachable until the next fresh start.
         shell_enabled_poll(rdtsc17(), g_tscHz, &nextEnabledPollTsc);
+        shell_heartbeat(rdtsc17(), g_tscHz, &nextBeatTsc, ++beatCounter); // runs every tick, writes once a second, including while the game owns the strip
         if (!g_shellEnabled) { printf(TAG " DISABLED: shell disabled in ini ([shell] enabled=false).\n"); sh_dev_send("DISABLED: [shell] enabled=false"); stopReason = 2; break; }
 
         if (shell_cfg_poll(rdtsc17(), g_tscHz)) {

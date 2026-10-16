@@ -13,6 +13,11 @@
 // (no per-frame or per-send inference, no heartbeat). A title that never sends (unsupported,
 // unreadable buffers) stays fg=0, so the shell feed keeps the strip instead of leaving it dark.
 //
+// The same thread also keeps g_shellFeedAlive for network.c's startup hold: from load until the first
+// send it asks ambient_shell_feed_expected() (settings.c) about every 300 ms whether the shell feed's
+// heartbeat file is still changing, then stops, so normal play does no file or ini reads. That is a
+// read of a different file, not a write of this one; this file still has no heartbeat.
+//
 // This thread polls the already-maintained g_isBackgrounded flag at 10 Hz and writes
 // only the initial state and actual state transitions. File I/O stays off the sampler's
 // hot path. Records remain fixed-width and are written at offset zero without O_TRUNC.
@@ -87,8 +92,16 @@ void *ambient_state_thread(void *args)
 {
     (void)args;
     static StateRunState rs; // static: zero-initialized, off the stack
+    unsigned pollTicks = 0;
     for (;;) {
         ambient_state_tick(&rs);
+        // Is the shell feed really running? Judged here, from plugin load until the first send, so the answer is
+        // already there when the game feed's first frame arrives (network.c's startup hold reads it). About every
+        // 300 ms; stops for good once the first send has gone out, so normal play does no file or ini reads.
+        if (!rs.firstSendSeen && ++pollTicks >= 3) {
+            pollTicks = 0;
+            g_shellFeedAlive = ambient_shell_feed_expected() ? 1 : 0;
+        }
         usleep(STATE_TICK_US);
     }
     return NULL;

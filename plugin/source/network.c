@@ -38,6 +38,7 @@
 
 int g_wledSockfd = -1; // one socket, held open -- avoid a socket()/close() per send at frame rate
 volatile uint32_t g_wledOutputCount = 0; // observed by state.c to arbitrate ownership with shell-feed
+volatile int      g_shellFeedAlive = 1;  // 1 until state.c's thread has evidence the shell feed is not running; read by the startup hold in wled_send_rgb_zones
 
 static int wled_ensure_socket(void)
 {
@@ -463,6 +464,29 @@ void wled_send_rgb_zones(const uint8_t *rgbTriplets, int numZones)
 
     if (numZones > MAX_ZONES) numZones = MAX_ZONES;
     int dataSize = numZones * 3;
+
+    // Startup hold: until the game feed has produced one non-black frame, send nothing -- but only while the
+    // shell feed is actually running to cover for us. The first send is what publishes fg=1 (state.c), and
+    // fg=1 makes the shell feed back off. During a launch picture the game's own buffers can read all zeros
+    // while the picture is on screen, so sending those frames both blacks out the strip and silences the
+    // shell feed that still has the right colours. If the shell feed is not running (switched off, crashed or
+    // not installed: g_shellFeedAlive, kept by state.c from its heartbeat file) there is nobody to cover, and
+    // holding would leave the strip on WLED's default colour through a genuinely black loading screen, so the
+    // plugin sends from the first available frame, as it did before the hold existed. One-way latch: once a
+    // frame has passed, dark scenes are sent normally.
+    {
+        static bool sawLiveFrame = false;
+        if (!sawLiveFrame) {
+            if (!g_shellFeedAlive) {
+                sawLiveFrame = true; // no shell feed to hand over from: no hold
+            } else {
+                uint8_t holdMax = 0;
+                for (int i = 0; i < dataSize; i++) if (rgbTriplets[i] > holdMax) holdMax = rgbTriplets[i];
+                if (holdMax <= 2) return;
+                sawLiveFrame = true;
+            }
+        }
+    }
 
     uint8_t packet[DDP_HEADER_SIZE + 3 * MAX_ZONES];
     packet[0] = 0x40 | 0x01;

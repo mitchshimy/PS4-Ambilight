@@ -145,6 +145,8 @@ void ambient_rebuild_perchannel_gamma_luts(void); // gamma.c -- called by settin
 // [settings] -- ini load/save + live-reload detection (settings.c)
 void ambient_load_config(void);       // called by main.c (plugin_load)
 void ambient_check_config_reload(void); // called by sample_thread.c, once per loop pass
+bool ambient_shell_feed_expected(void); // false when the shell feed is not running (heartbeat file stopped changing, or switched off); stateful, state thread only
+extern volatile int g_shellFeedAlive;   // state.c's latest answer from the above, read by the startup hold in network.c; 1 until proven otherwise
 bool ambient_get_real_config_size_and_hash(int64_t *outSize, uint32_t *outHash); // v3.9.4: exposed for shell-feed's own reload poll
 
 // [network] -- WLED/relay/debug transport (network.c)
