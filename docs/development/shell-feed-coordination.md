@@ -48,7 +48,10 @@ v1 fg=1 seq=000123 title=CUSA00000
   movement as a freshness test. Poll at about 10 Hz (the shell feed does).
 - **An explicit `fg=0` is the release signal.** The plugin writes it once on backgrounding. A
   stale readable `fg=1` after a plugin crash is a known limitation: this version has no unload or
-  crash reset, and the reader deliberately does not guess from timing.
+  crash reset, and the reader deliberately does not guess from timing. The one exception is at load:
+  an `fg=1` already in the file when the shell feed starts is treated as left over (a game can't be
+  in front while the payload loads) and ignored until its `seq` changes or `fg=0` is read. A live
+  game or the companion app is picked up at its next claim or heartbeat.
 - **Read the whole 35 bytes in one call.** The file is written with a single `write()` of the
   whole fixed-width record at offset 0, deliberately without truncating first, so a reader can
   only ever see the old complete record or the new one -- never a partial write. A read of fewer

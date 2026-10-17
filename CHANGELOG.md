@@ -6,6 +6,11 @@ companion app) are documented here, newest first.
 ## Plugin
 
 ### Unreleased
+- **The shell feed no longer stays dark after a reboot because of an old `fg=1`.** A game that was killed,
+  crashed or lost power while in front leaves `fg=1` in `ps4_ambient_state`, and a freshly loaded shell feed
+  backed off until some game was opened and backgrounded. At load, an `fg=1` already in the file is now ignored
+  until its `seq` changes or `fg=0` is read; any new claim, including the companion app's next heartbeat, is
+  honoured at once. Logged as `STALE_CLAIM`. Checked on a PC only (`tools/test_claim_stale.c`).
 - **`shell-feed/source/main.c` is split into modules.** It was 2,244 lines; it is now the entry point only
   (about 200 lines) plus `shell_modules.c`, `shell_hooks.c`, `shell_buffers.c`, `shell_config.c`,
   `shell_frame.c`, `shell_state.c`, `shell_log.c`, `shell_report.c`, `shell_live.c`, `shell_thread.c`,
