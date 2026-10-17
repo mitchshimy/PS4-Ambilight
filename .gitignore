@@ -9,3 +9,11 @@ pkg.gp4
 x64/
 common/git_ver.h
 __pycache__/
+
+# Host tests and their fixtures: kept locally, NOT committed, on purpose. CI only builds.
+# DO NOT remove these lines, `git add -f` these paths, or delete the files.
+/tools/test_*.c
+/tools/host_stubs/
+/tools/data/
+/companion-app/tests/
+/shell-feed/tools/

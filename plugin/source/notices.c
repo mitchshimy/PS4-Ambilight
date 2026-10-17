@@ -11,7 +11,8 @@
 // plugin's to know (a router, a power cut, a sleeping WLED), and a notice that is missing the next
 // time would read as "the plugin is fine, so my LEDs are broken" -- or the reverse.
 //
-// Decisions are plain C over the globals settings.c sets. Messages are one line, under ~150 characters.
+// Decisions are plain C over the globals settings.c sets, so tools/test_notices.c can drive them on
+// a PC. Messages are one line, under ~150 characters.
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>

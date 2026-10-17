@@ -89,8 +89,9 @@ missing file, an older shell feed without the heartbeat, a crashed one and an un
 ## Source
 
 - [`plugin/include/state_file.h`](../../plugin/include/state_file.h) -- the record format, pure
-  string logic.
+  string logic, host-testable.
 - [`plugin/source/state.c`](../../plugin/source/state.c) -- the thread and the file I/O.
+- [`tools/test_state.c`](../../tools/test_state.c) -- the host test.
 
 ## The companion app writes it too
 

@@ -41,7 +41,7 @@ datagram, and keeps `fg=1` while the title is foregrounded and successful output
 been observed within the last 2.2 seconds. If sends stop, it emits one `fg=0` before the
 shell reader's 2.5-second stale deadline; backgrounding still emits `fg=0` immediately.
 
-Host tests (since removed from the repo, last present at `b53e9b0`) covered output continuing with flip counters unchanged, flips without successful
+Host tests cover output continuing with flip counters unchanged, flips without successful
 DDP output, backgrounding while output is active, and sender-stall release. These tests
 verify the contract on a host, not actual WLED delivery or the visual symptom. A console
 capture is still needed to confirm whether this removes the intermittent flicker.
@@ -53,8 +53,6 @@ The per-zone smoothing used to exist twice: inline in the plugin's
 now two functions in `plugin/include/smoothing.h` (`smoothing_alpha()`,
 `smoothing_step()`), header-only and `static inline`, so neither Makefile's
 source list changed. Each caller keeps its own state array and valid flag.
-
-_The host tests named in this table were removed from the repo, last present at `b53e9b0`; results are as recorded when they ran._
 
 | Finding | How established |
 |---|---|
@@ -128,9 +126,9 @@ smoothing) were still verbatim, `0 not verbatim`, when this was written;
 Stage D has since removed both (see its section above), so there is nothing left to compare.
 
 For everything Stage C actually changed, this merge added its own
-equivalent: `shell-feed/tools/run_stagec_core_test.sh` (removed from the repo, last present at `b53e9b0`), which extracted the
+equivalent: `shell-feed/tools/run_stagec_core_test.sh`, which extracts the
 current shared-code span of `source/main.c` by marker (not a frozen
-snapshot) and compiled + linked + ran it against the real, linked
+snapshot) and compiles + links + runs it against the real, linked
 `plugin/source/{tiling,pixel_formats,zones,gamma,color_processing,
 settings,config}.c` and a real ini fixture. Results:
 

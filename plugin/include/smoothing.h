@@ -1,5 +1,6 @@
 // smoothing.h -- the per-zone exponential smoothing, in one place.
-// Own header, integer maths only, shared by the plugin and shell-feed.
+// Own header, integer maths only, so tools/test_smoothing.c can build it on a
+// PC and prove it matches the code it replaced.
 //
 // Until the Stage D merge step this lived as two copies: inline in
 // sample_thread.c's pass 3, and pasted into the shell feed's main.c (now shell-feed/source/shell_frame.c). Both now

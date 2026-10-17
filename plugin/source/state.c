@@ -38,6 +38,7 @@
 #include "ambient_internal.h"
 #include "state_file.h"
 
+// Also declared here for the lightweight host test, whose kernel stubs provide these symbols.
 extern uint64_t sceKernelGetProcessTimeCounter(void);
 extern uint64_t sceKernelGetProcessTimeCounterFrequency(void);
 
@@ -66,7 +67,7 @@ static int state_write_file(const char *text, size_t len)
 }
 
 // One turn of the state thread. Writes only at startup or when the published foreground status changes.
-// Kept separate from the thread so the state logic reads on its own.
+// Kept separate from the thread so tools/test_state.c can exercise the exact state logic.
 static int ambient_state_tick(StateRunState *rs)
 {
     if (!rs->firstSendSeen && g_wledOutputCount != 0) rs->firstSendSeen = 1;
@@ -98,7 +99,7 @@ static int ambient_state_tick(StateRunState *rs)
 // there when the game feed's first frame arrives (network.c's startup hold reads it). About every 300 ms.
 // Stops for good once the first send has gone out, and after about one minute if none ever does (an
 // unsupported title), so neither normal play nor a title that never sends keeps reading files or the ini;
-// g_shellFeedAlive keeps its last answer. Separate from the thread.
+// g_shellFeedAlive keeps its last answer. Separate from the thread so tools/test_state.c can exercise it.
 static void ambient_state_shell_poll(StateRunState *rs)
 {
     if (rs->firstSendSeen || rs->shellTicks >= SHELL_POLL_CAP_TICKS) return;

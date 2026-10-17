@@ -22,15 +22,17 @@ companion app) are documented here, newest first.
   unresolved externals; 77 of the 78 functions compile to the same instruction sequence, and the 78th is
   `module_start()`, whose three carved-out pieces account for the difference; flipping each compile-time gate
   compiles the same as before. Needs a real build and a console run before release.
-- **Host tests removed from the repo, and CI no longer runs any.** `tools/test_*.c`, `tools/host_stubs/`,
-  `tools/data/`, `companion-app/tests/` and `shell-feed/tools/` are gone (last present at commit `b53e9b0`, so
-  `git show b53e9b0:<path>` still reads them). CI now only builds the plugin, shell feed and companion app and
-  uploads them; the payload checksum check and the tag-versus-plugin-version check stay, since they guard the
-  release rather than test code. `companion-app/tools/ui_preview.sh` linked one of the test files, so that
-  stand-in is kept as `companion-app/tools/sce_file_stubs.c`. Comments and docs that named a test now say so or
-  were reworded. **Nothing now checks these by machine, so keep them in step by hand:** `default_ini.h` against
-  `plugin/config/ps4_ambient_light.ini` and the app's preset values, `ambilight_paths.h` against
-  `companion-app/include/app_paths.h`, `AMBIENT_VERSION_STRING` against `g_pluginVersion`, and `fw_support.h`'s table.
+- **Host tests are no longer committed, and CI no longer runs any.** `tools/test_*.c`, `tools/host_stubs/`,
+  `tools/data/`, `companion-app/tests/` and `shell-feed/tools/` are listed in `.gitignore`, so they stay on a
+  maintainer's disk but out of the repo (the last commit that has them is `b53e9b0`: `git checkout b53e9b0 -- <path>`
+  restores them). CI now only builds the plugin, shell feed and companion app and uploads them; the payload checksum
+  check and the tag-versus-plugin-version check stay, since they guard the release rather than test code.
+  `companion-app/tools/ui_preview.sh` linked one of the test files, so that stand-in is now tracked as
+  `companion-app/tools/sce_file_stubs.c` and the preview no longer needs the ignored folder. The docs and comments that
+  name a test are unchanged: they describe the local copies. **Nothing in the repo now checks these by machine, so
+  keep them in step by hand when working without the tests:** `default_ini.h` against `plugin/config/ps4_ambient_light.ini`
+  and the app's preset values, `ambilight_paths.h` against `companion-app/include/app_paths.h`, and
+  `AMBIENT_VERSION_STRING` against `g_pluginVersion`.
 - **Companion app: Home reads whether the Ambilight payload is running, "Launch Ambilight payload" says so, and Square quick-saves.**
   The app now watches the shell feed's `ps4_shell_alive` heartbeat (the one the game plugin uses). The Home banner says
   "Shell feed running" while it changes, "Shell feed starting" for up to 12 s after a send, and only otherwise shows the

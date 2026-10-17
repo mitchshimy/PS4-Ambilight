@@ -9,7 +9,7 @@
 // forces Movie (sampling depth 4, 200 ms smoothing) on whatever runs under
 // it, so one that turns out to be a game is worse than a missing one --
 // CUSA05682, for example, looks like a YouTube ID in some lists and is
-// Horizon Zero Dawn. Do not add that one.
+// Horizon Zero Dawn. tools/test_plugin_config.c guards that one by name.
 //
 // Known but NOT listed, unconfirmed: YouTube TV (one catalogue gives CUSA18680).
 // A YouTube beta build, CUSA06021, also exists and is left out.

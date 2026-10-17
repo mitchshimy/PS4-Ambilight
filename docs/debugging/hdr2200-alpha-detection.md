@@ -111,7 +111,7 @@ HITMAN 3 frames hold, and they keep the PQ mode they already have.
 
 Debug builds, `HDRV` packets. Frames are the plugin's 8-word reads. The counts are
 PQ / SDR / hold and are in `tools/data/hdr2200_frames.csv`, which
-`tools/test_hdr2200_vote.c` replayed (both removed from the repo, last present at `b53e9b0`).
+`tools/test_hdr2200_vote.c` replays.
 
 | Capture | Frames | PQ / SDR / hold | First frame with data | Wrong-way votes |
 |---|---|---|---|---|
@@ -136,8 +136,8 @@ with it off and switched to HDR (37 s). HITMAN 3 was toggled to on mid-game (71 
 None of the three captures changed: the PQ one stayed PQ, the SDR ones stayed 8-bit
 (all 675 raw words in the RDR2 off capture have alpha `0xff`).
 
-`tools/test_hdr2200_vote.c` also checked, with the exact-equality guard the first
-build would have had, that the fade-in fixtures fail. So they did catch the flaw.
+`tools/test_hdr2200_vote.c` also checks, with the exact-equality guard the first
+build would have had, that the fade-in fixtures fail. So they do catch the flaw.
 
 ## Not verified
 

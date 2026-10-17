@@ -1,5 +1,6 @@
 // hdr2200_vote.h -- per-frame PQ-or-SDR vote for 0x80002200 buffers. Its own
-// header and nothing but stdint. Why it works: docs/debugging/hdr2200-alpha-detection.md.
+// header and nothing but stdint so tools/test_hdr2200_vote.c can build it on a
+// PC. Why it works: docs/debugging/hdr2200-alpha-detection.md.
 #ifndef HDR2200_VOTE_H
 #define HDR2200_VOTE_H
 

@@ -142,8 +142,8 @@ the app, then switching between SDR and HDR video:
   band.
 - No wrong color was seen by eye on the strip, at launch or at any of the switches.
 
-`tools/test_pq8bit_vote.c` (removed from the repo, last present at `b53e9b0`) ran the vote on words copied from these captures and on
-generated PQ.
+`tools/test_pq8bit_vote.c` runs the vote on words copied from these captures and on
+generated PQ, see [tools](../development/tools.md).
 
 ## Not verified
 

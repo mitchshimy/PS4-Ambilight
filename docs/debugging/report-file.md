@@ -129,3 +129,4 @@ causes can look the same from outside.
 - It is truncated and rewritten in place, so a crash mid-write can leave it empty or cut off.
 - It says nothing about whether the strip looked right. That is what the tester's own words
   in the issue are for, see `.github/ISSUE_TEMPLATE/title-report.yml`.
+- Host test: `tools/test_report.c`, see [tools](../development/tools.md#test_reportc).
