@@ -17,7 +17,9 @@
 // send it asks ambient_shell_feed_expected() (settings.c) about every 300 ms whether the shell feed's
 // heartbeat file is still changing, then stops, so normal play does no file or ini reads. It also stops
 // after about one minute (SHELL_POLL_CAP_TICKS) if the title never sends, so an unsupported title does not
-// open files and parse the ini for the whole session; g_shellFeedAlive then keeps its last answer. That is
+// open files and parse the ini for the whole session; g_shellFeedAlive then keeps its last answer -- unless
+// relay_signal_enabled is on (the maintainer's own wled-relay), which keeps the check going at 1 Hz so the relay
+// hand-off knows whether the shell feed is up when the game backgrounds. That is
 // a read of a different file, not a write of this one; this file still has no heartbeat.
 //
 // This thread polls the already-maintained g_isBackgrounded flag at 10 Hz and writes
@@ -54,6 +56,7 @@ typedef struct {
 } StateRunState;
 
 #define SHELL_POLL_EVERY_TICKS 3u   // about every 300 ms
+#define SHELL_RELAY_POLL_EVERY_TICKS 10u // about every 1 s, once past the startup window, while relay_signal_enabled is on
 #define SHELL_POLL_CAP_TICKS   600u // about one minute from load; a title that never sends stops being polled
 
 // O_WRONLY|O_CREAT, deliberately WITHOUT O_TRUNC. A fresh fd starts at offset zero.
@@ -102,9 +105,14 @@ static int ambient_state_tick(StateRunState *rs)
 // g_shellFeedAlive keeps its last answer. Separate from the thread so tools/test_state.c can exercise it.
 static void ambient_state_shell_poll(StateRunState *rs)
 {
-    if (rs->firstSendSeen || rs->shellTicks >= SHELL_POLL_CAP_TICKS) return;
-    rs->shellTicks++;
-    if (++rs->shellPollTicks < SHELL_POLL_EVERY_TICKS) return;
+    bool startupWindow = !rs->firstSendSeen && rs->shellTicks < SHELL_POLL_CAP_TICKS;
+    // Relay hand-off (network.c, relay_release_external_source): a game that backgrounds or exits must know
+    // whether the shell feed is running right now, so with relay_signal_enabled on the check carries on after
+    // the startup window, once a second. Off by default, so for everyone else this still stops as before.
+    bool relayWatch = g_config.relaySignalEnabled;
+    if (!startupWindow && !relayWatch) return;
+    if (startupWindow) rs->shellTicks++;
+    if (++rs->shellPollTicks < (startupWindow ? SHELL_POLL_EVERY_TICKS : SHELL_RELAY_POLL_EVERY_TICKS)) return;
     rs->shellPollTicks = 0;
     g_shellFeedAlive = ambient_shell_feed_expected() ? 1 : 0;
 }

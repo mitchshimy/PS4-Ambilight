@@ -70,7 +70,7 @@
 // NOT PORTED, on purpose (these exist for a game's process or a game's pixels, not the shell's):
 //  - auto letterbox (the shell has no black bars; its margins stay 0), HDR/PQ format detection,
 //    the sample-lag buffer choice and read-verify (v21 samples the buffer the compositor just flipped),
-//  - [network] relay, [dev] UDP logging, [compat], the report file,
+//  - [network] relay (the shell feed has its own opt-in relay signal, shell_relay.c), [dev] UDP logging, [compat], the report file,
 //  - writing a default ini: if the file is missing v22 keeps the sister's compiled defaults and says so.
 //  The values in an INI line in the log are therefore the sister's own, with the shell's choice of preset.
 //

@@ -124,10 +124,11 @@ Stage D then replaced its pasted copy of the sister's per-frame smoothing
 each process keeps its own smoothing state, only the arithmetic is shared.
 
 Verification done for this stage, without hardware: `shell-feed/tools/
-run_stagec_core_test.sh` compiles and links the exact span of
-`source/main.c` that now calls into the shared files -- the v17 tiling
-math through `shell_process_frame()` -- against those real, linked sister
-files, and runs it against a real ini fixture. It confirms the real
+run_stagec_core_test.sh` (a local host test, not in the repo) compiles and
+links the shell feed's own modules that call into the shared files (the
+config load, the v17 tiling math, `shell_process_frame()`; first an extracted
+span of `main.c`, since the split the `shell_*.c` files included directly)
+against those real, linked sister files, and runs it against a real ini fixture. It confirms the real
 `TileParams` struct matches the probe's own hardware-verified tiling
 parameters byte for byte, `g_presetOverride` forces `[preset_game]` through
 the real `ambient_load_config()` even with `active=movie` in the ini, the

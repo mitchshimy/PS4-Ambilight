@@ -81,6 +81,8 @@ int live_send(void)
     { char m[100]; snprintf(m, sizeof(m), "LIVE start zones=%u hz=%u buffers=%d session=%u",
                             (unsigned)g_numZones, (unsigned)g_config.updateFrequencyHz, g_nBuf, (unsigned)g_shLiveSessions); sh_dev_send(m); }
 
+    shell_relay_update(1); // wled-relay: this feed now holds the strip (no-op unless relay_signal_enabled and relay_host are set)
+
     static uint8_t pk[10 + 3 * MAX_TOTAL_ZONES];
     static uint8_t rgbTriplets[3 * MAX_TOTAL_ZONES];
     pk[0] = 0x41; pk[1] = 0; pk[2] = 0x0B; pk[3] = 0x01; pk[4] = pk[5] = pk[6] = pk[7] = 0;
@@ -125,11 +127,13 @@ int live_send(void)
         // (see shell_enabled_poll()'s comment) -- was previously "picked up by the live-reload poll above",
         // which meant config_reload_check_seconds=0 silently made this unreachable until the next fresh start.
         shell_enabled_poll(rdtsc17(), g_tscHz, &nextEnabledPollTsc);
+        shell_relay_tick(rdtsc17(), g_tscHz); // wled-relay: repeat "on" while held (no-op unless relay_signal_enabled)
         shell_heartbeat(rdtsc17(), g_tscHz, &nextBeatTsc, ++beatCounter); // runs every tick, writes once a second, including while the game owns the strip
         if (!g_shellEnabled) { printf(TAG " DISABLED: shell disabled in ini ([shell] enabled=false).\n"); sh_dev_send("DISABLED: [shell] enabled=false"); stopReason = 2; break; }
 
         if (shell_cfg_poll(rdtsc17(), g_tscHz)) {
             sh_runtime_gates_note(); // [v24]
+            shell_relay_update(1);   // relay_* keys may have changed in this reload
             hz = g_config.updateFrequencyHz;
             periodTsc = (g_tscHz > 0) ? (g_tscHz / hz) : 0;
             nextTick = rdtsc17() + periodTsc;
@@ -237,6 +241,7 @@ int live_send(void)
     }
 
     close(sock);
+    shell_relay_update(0); // wled-relay: this feed lets go; "off" only if no game holds the strip
     sh_publish(sent, skipped, gameOwned); // [v24]
     g_shStopReason = stopReason;
     {

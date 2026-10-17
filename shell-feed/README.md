@@ -26,9 +26,11 @@ both now call it (see `docs/findings.md` for how that was checked).
 
 **Status.** Builds with the same toolchain and link pattern as `plugin/`
 (see `Makefile`), now with a second source list for the shared files.
-`shell-feed/tools/run_stagec_core_test.sh` compiles and runs the exact
-refactored span against the real linked sister files and a real ini
-fixture (not the PS4 SDK, which isn't available in this environment) --
+`shell-feed/tools/run_stagec_core_test.sh` (a local host test, not in the
+repo) compiles and runs the shell feed's own modules (`shell_config.c`,
+`shell_frame.c`, `shell_probe17.c`, ...) against the real linked sister files
+and a real ini fixture (not the PS4 SDK, which isn't available in this
+environment) --
 see `docs/architecture.md`'s status section for what it checks and what it
 found.
 

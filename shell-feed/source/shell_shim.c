@@ -39,7 +39,8 @@ volatile uint32_t g_reportEnabled = 0;      // the sister's own [compat] report_
 bool g_isBackgrounded = false;              // set by the sister's sample_thread.c/network.c, read inside
                                              // ambient_check_config_reload() (settings.c), which this probe never calls --
                                              // shell_cfg_poll() below is its own, separate poll function
-void relay_send_external_source(bool active) { (void)active; } // [network] relay: not part of this design -- see shell-feed/docs/architecture.md "Decisions in force"
+void relay_send_external_source(bool active) { (void)active; } // settings.c's reload path references these two; this module never calls that path.
+void relay_release_external_source(void) {}                    // The shell feed's own relay signal is shell_relay.c.
 void send_config_reload_debug_packet(uint32_t event, uint32_t statErrno, uint64_t curMtime, uint64_t lastMtime,
                                       uint64_t curSize, uint64_t lastSize, uint32_t checkCount,
                                       const uint8_t *contentPreview, uint32_t curHash, uint32_t lastHash)

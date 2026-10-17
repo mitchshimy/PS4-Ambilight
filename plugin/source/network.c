@@ -246,6 +246,19 @@ void relay_send_external_source(bool active)
     close(sockfd);
 }
 
+// Hand the strip back to wled-relay -- but only if nothing else still holds it. The shell feed drives
+// the strip whenever no game does (Home, Settings, the quick menu), so while it is running, a game that
+// backgrounds or exits must NOT tell the relay "off": the relay would come on over the shell feed's colours.
+// g_shellFeedAlive is state.c's latest read of the shell feed's heartbeat (kept fresh for as long as
+// relay_signal_enabled is on). If the shell feed is not running (switched off, crashed, not installed, or
+// the console has no shell feed at all), this is the plain "off" the plugin always sent.
+// Callers still guard on relaySignalEnabled themselves, as for relay_send_external_source().
+void relay_release_external_source(void)
+{
+    if (g_shellFeedAlive) return;
+    relay_send_external_source(false);
+}
+
 // One timing-window packet, 24 bytes -- deliberately a length that
 // collides with neither detile_verify_probe's 11-byte pixel packets nor
 // its 32-byte registration packets, so decode_verification_dump.py can

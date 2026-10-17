@@ -153,6 +153,7 @@ bool ambient_get_real_config_size_and_hash(int64_t *outSize, uint32_t *outHash);
 extern int g_wledSockfd; // read directly by main.c's plugin_unload to close it
 extern volatile uint32_t g_wledOutputCount; // network.c: increments only after a complete WLED DDP sendto() succeeds
 void relay_send_external_source(bool active);   // called by main.c (plugin_load/unload) and settings.c (live toggle)
+void relay_release_external_source(void);       // "off" to the relay, unless the shell feed is running and still holds the strip
 void send_timing_packet(uint32_t minUs, uint32_t maxUs, uint32_t avgUs,
                          uint32_t sampleCount, uint32_t overBudgetCount,
                          uint32_t windowId, uint32_t minCpu,

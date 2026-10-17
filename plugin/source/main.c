@@ -332,8 +332,10 @@ static __attribute__((noinline, used)) int32_t plugin_unload_impl(int32_t argc, 
     // sent its own "off" at the moment it changed (see
     // ambient_check_config_reload's flip-handler), making a second
     // one here redundant, not missing.
+    // The shell feed, if it is running, takes the strip over from here and keeps the relay stood down:
+    // relay_release_external_source() only sends "off" when it is not.
     if (g_config.relaySignalEnabled) {
-        relay_send_external_source(false);
+        relay_release_external_source();
     }
 
     UNHOOK(sceVideoOutRegisterBuffersPtr);

@@ -9,6 +9,7 @@
 //   shell_config.c    the ini as the shell reads it: load, live reload, the [shell] enabled= poll
 //   shell_frame.c     one frame: sample the zones, colour chain, smoothing
 //   shell_state.c     the game plugin's foreground bit (read) and the shell's heartbeat file (written)
+//   shell_relay.c     the wled-relay on/off signal (personal, opt-in), combining this feed with the game's claim
 //   shell_log.c       log lines, the [dev] UDP mirror, console notifications
 //   shell_report.c    the compile-time gates, the report file and its thread
 //   shell_live.c      live_send(): the send loop
@@ -218,6 +219,10 @@ extern int      g_claimActive;
 extern uint64_t g_liveStartTsc;
 int  claim_poll(uint64_t nowTsc, uint64_t tscHz);
 void shell_heartbeat(uint64_t nowTsc, uint64_t tscHz, uint64_t *nextBeatTsc, uint64_t counter);
+
+// shell_relay.c
+void shell_relay_update(int shellActive);
+void shell_relay_tick(uint64_t nowTsc, uint64_t tscHz);
 
 // shell_log.c
 extern int  g_shDevLog;

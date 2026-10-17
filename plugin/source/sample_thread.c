@@ -224,8 +224,11 @@ void *ambient_sample_thread(void *args)
                         // independent of relaySignalEnabled, so without
                         // this check a user who never opted in would
                         // still get a real send on every suspend/resume.
+                        // Backgrounding releases the relay only when the shell feed is not running
+                        // (the shell feed takes the strip over from a backgrounded game).
                         if (g_config.relaySignalEnabled) {
-                            relay_send_external_source(!nowBackgrounded);
+                            if (nowBackgrounded) relay_release_external_source();
+                            else                 relay_send_external_source(true);
                         }
                     }
                 }

@@ -128,7 +128,8 @@ Stage D has since removed both (see its section above), so there is nothing left
 For everything Stage C actually changed, this merge added its own
 equivalent: `shell-feed/tools/run_stagec_core_test.sh`, which extracts the
 current shared-code span of `source/main.c` by marker (not a frozen
-snapshot) and compiles + links + runs it against the real, linked
+snapshot; since `main.c` was split into modules it includes the `shell_*.c`
+files directly instead) and compiles + links + runs it against the real, linked
 `plugin/source/{tiling,pixel_formats,zones,gamma,color_processing,
 settings,config}.c` and a real ini fixture. Results:
 

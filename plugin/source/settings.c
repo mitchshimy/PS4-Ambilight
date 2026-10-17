@@ -595,7 +595,8 @@ void ambient_check_config_reload(void)
     bool wasRelaySignalEnabled = g_config.relaySignalEnabled;
     ambient_load_config();  // re-reads the file; unset/removed keys keep their CURRENT g_config value, not the compiled default (see note below)
     if (g_config.relaySignalEnabled != wasRelaySignalEnabled && !g_isBackgrounded) {
-        relay_send_external_source(g_config.relaySignalEnabled);
+        if (g_config.relaySignalEnabled) relay_send_external_source(true);
+        else                             relay_release_external_source(); // not while the shell feed holds the strip
     }
     buildZoneGeometry();    // layout settings may have changed -- rebuild g_zoneX/g_zoneY/g_numZones
     g_smoothedRgbValid = false; // avoid smoothing a hard cut between old and new zone counts/positions
