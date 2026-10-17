@@ -6,6 +6,22 @@ companion app) are documented here, newest first.
 ## Plugin
 
 ### Unreleased
+- **`shell-feed/source/main.c` is split into modules.** It was 2,244 lines; it is now the entry point only
+  (about 200 lines) plus `shell_modules.c`, `shell_hooks.c`, `shell_buffers.c`, `shell_config.c`,
+  `shell_frame.c`, `shell_state.c`, `shell_log.c`, `shell_report.c`, `shell_live.c`, `shell_thread.c`,
+  `shell_shim.c` and the legacy `shell_probe17.c`, with what they share in `shell-feed/include/shell_internal.h`
+  (its file map says what each holds). The code was moved by line range, not retyped. Three small functions are
+  new, only because their bodies were inline in `module_start()`: `shell_hooks_install()`,
+  `shell_hooks_control_calls()` (both in `shell_hooks.c`, since a hook function, `HOOK_INIT` and `HOOK32` have to
+  share a file) and `shell_gates_log()`. `live_send()` is still one function. What was `static` and is now shared is
+  hidden, so the module exports exactly the symbols it did before. The Makefile needed no change (it builds every
+  `source/*.c`), but the new files are all named `shell_*.c` because the shared plugin sources go into the same
+  `build/` folder and a same-named file would overwrite their `.o`. **Checked on a PC against stand-in SDK
+  headers, not with the real toolchain, and not on a console:** every file compiles with the same two warnings the
+  old `main.c` had; the module links with the seven shared plugin files with no duplicate symbols and the same
+  unresolved externals; 77 of the 78 functions compile to the same instruction sequence, and the 78th is
+  `module_start()`, whose three carved-out pieces account for the difference; flipping each compile-time gate
+  compiles the same as before. Needs a real build and a console run before release.
 - **Host tests removed from the repo, and CI no longer runs any.** `tools/test_*.c`, `tools/host_stubs/`,
   `tools/data/`, `companion-app/tests/` and `shell-feed/tools/` are gone (last present at commit `b53e9b0`, so
   `git show b53e9b0:<path>` still reads them). CI now only builds the plugin, shell feed and companion app and

@@ -7,8 +7,13 @@
 # ../plugin/source/, not copied -- so SHAREDFILES below. Otherwise this
 # follows plugin/Makefile's pattern exactly: same toolchain vars, same
 # flags, same link step. This module's own include dir and ../plugin's are
-# both on the include path, since shell-feed/source/main.c now includes
-# the sister's own ambient_internal.h/config.h/preset_select.h directly.
+# both on the include path, since shell-feed/include/shell_internal.h (included by every
+# shell-feed/source/*.c) pulls in the sister's own ambient_internal.h/config.h/preset_select.h.
+#
+# NAMING: every file in shell-feed/source/ is shell_*.c (or main.c). The sister files above are
+# compiled into the same $(INTDIR), so a shell-feed source named tiling.c, zones.c, settings.c,
+# config.c, gamma.c, pixel_formats.c or color_processing.c would write the same .o and one would
+# silently replace the other.
 
 DEBUG_FLAGS = -D__FINAL__=1
 LOG_TYPE = -D__USE_PRINTF__
@@ -50,7 +55,7 @@ SISTER_INC    := ../plugin/include
 
 # Stage C: the sister's real colour pipeline, compiled from ../plugin/source, not copied. See the
 # comment above and shell-feed/docs/architecture.md. Their .o files land in this module's own
-# $(INTDIR) (same as shell-feed/source/main.c's), which is why the link step's `$(INTDIR)/*.o` glob
+# $(INTDIR) (same as shell-feed/source/*.c's), which is why the link step's `$(INTDIR)/*.o` glob
 # already picks them up with no other change needed below.
 SHAREDFILES   := tiling.c pixel_formats.c zones.c gamma.c color_processing.c settings.c config.c
 

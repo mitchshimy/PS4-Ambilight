@@ -104,8 +104,8 @@ logic, the claim reader, DDP send) stays local to `shell-feed/source/`.
 ## Status of this code at merge time
 
 As of Stage C, this document's "shared code" section is literally true of
-the build, not just the design: `shell-feed/source/main.c` now
-`#include`s the sister's real `ambient_internal.h`/`config.h`/
+the build, not just the design: `shell-feed/source/*.c` now
+`#include` (through `include/shell_internal.h`) the sister's real `ambient_internal.h`/`config.h`/
 `preset_select.h` and is compiled (via `Makefile`'s second source list)
 against the sister's real `tiling.c`, `pixel_formats.c`, `zones.c`,
 `gamma.c`, `color_processing.c`, `settings.c` and `config.c`, not a pasted

@@ -7,7 +7,7 @@ strip from the PS4 shell compositor instead of from inside a game. See
 been established and how, and `docs/support-matrix.md` for firmware
 coverage.
 
-**Provenance.** `source/main.c` started as a byte-for-byte import from the
+**Provenance.** `source/main.c` (since split, see Source layout below) started as a byte-for-byte import from the
 research repo (`ps4-shell-capture-research`),
 `overlays/shell_probe_v24-overlay/plugin_src/shell_probe/source/main.c`, at
 tag `handoff-v55` (commit `eb7c8be`), sha256
@@ -29,6 +29,30 @@ both now call it (see `docs/findings.md` for how that was checked).
 An earlier host check of the refactored span, `shell-feed/tools/run_stagec_core_test.sh`
 (removed from the repo, last present at `b53e9b0`), is described in
 `docs/architecture.md`'s status section, with what it checked and what it found.
+
+**Source layout.** `source/main.c` is the entry point only (`module_start`, `module_stop`). The rest is
+split by job, the way `plugin/source/` is, and everything the files share is declared in
+`include/shell_internal.h` (which also has the file map):
+
+| File | What it holds |
+|---|---|
+| `shell_modules.c` | which modules are loaded and where their symbols are |
+| `shell_hooks.c` | the RegisterBuffers / SubmitFlip hooks, installing them, the positive-control calls |
+| `shell_buffers.c` | memory-map scan, display-buffer matching, TSC calibration, self-heal |
+| `shell_config.c` | the ini as the shell reads it: load, live reload, the `[shell] enabled=` poll |
+| `shell_frame.c` | one frame: sample the zones, colour chain, smoothing |
+| `shell_state.c` | the game plugin's foreground bit (read) and the shell feed's heartbeat file (written) |
+| `shell_log.c` | log lines, the `[dev]` UDP mirror, console notifications |
+| `shell_report.c` | the compile-time gates, the report file and its thread |
+| `shell_live.c` | `live_send()`, the send loop |
+| `shell_thread.c` | `probe_thread()`: start-up sequence and the standby waits |
+| `shell_shim.c` | the symbols the shared plugin files expect from files this module does not link |
+| `shell_probe17.c` | the probe's original v17 sampler. Legacy: only `build_points()` still runs |
+
+Every source here is named `shell_*.c` on purpose: the Makefile builds the plugin's `config.c`, `zones.c`,
+`settings.c` and others into the same `build/` folder, and a same-named file would overwrite their `.o`.
+The names in the history below (`live_send()`, `map_scan()`, ...) are where those functions are now, not
+where they were.
 
 **Hardware status (merge plan step 14, done 2026-10-09).** Built and run on
 a real 9.00 console with the Stage C code. Cold boot, disable/resume, a game

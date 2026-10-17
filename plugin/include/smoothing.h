@@ -2,7 +2,7 @@
 // Own header, integer maths only, shared by the plugin and shell-feed.
 //
 // Until the Stage D merge step this lived as two copies: inline in
-// sample_thread.c's pass 3, and pasted into shell-feed/source/main.c. Both now
+// sample_thread.c's pass 3, and pasted into the shell feed's main.c (now shell-feed/source/shell_frame.c). Both now
 // call these two functions. The state array (previous frame's output per zone)
 // and the "valid" flag stay in each caller: this header owns the arithmetic
 // only, so each process keeps its own, private smoothing state.

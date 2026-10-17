@@ -13,7 +13,7 @@ The shell-feed loop reads `/data/ps4-ambilight/ps4_ambient_state` and uses the e
 The integrated change updates both sides of the contract:
 
 - `plugin/source/state.c` writes the initial state and subsequent transitions based on `g_isBackgrounded`: `fg=1` while the title is foregrounded, `fg=0` while backgrounded. The one exception is a launch-only latch: `fg=1` is withheld until the process's first complete DDP send (`g_wledOutputCount` first non-zero), so the shell feed keeps the strip through the launch picture. The latch is set once and never cleared; after it nothing uses successful sends, output counters, flip counters or sampler activity to decide ownership. A title that never sends stays `fg=0`. Writes stay on the separate 100 ms state thread, not the sampler hot path; there are no heartbeat writes to this file. (The shell feed's own `ps4_shell_alive` heartbeat is a different file; see the startup hold below.)
-- `shell-feed/source/main.c` reads the explicit bit and applies the gate rules above.
+- `shell-feed/source/shell_state.c` reads the explicit bit and applies the gate rules above.
 - `plugin/include/state_file.h` documents the new meaning of `fg` and the transition-based sequence counter.
 
 A stale readable `fg=1` after a game-plugin crash remains a recovery limitation: this version does not yet add an unload/crash reset path, and the reader deliberately does not use sequence freshness as an ownership signal.
