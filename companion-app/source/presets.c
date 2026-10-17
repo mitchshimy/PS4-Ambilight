@@ -38,24 +38,8 @@ void preset_apply(AmbientConfig *cfg, const PresetValues *in)
         if (is_preset_item(&kMenuItems[i])) settings_set_i32(cfg, &kMenuItems[i], in->v[n++]);
 }
 
-// Shipped values. Anything not listed keeps the plugin default, which is
-// deliberate for: letterbox (on, 7% bar threshold -- already tuned), white
-// level 100%, contrast 0 (its pivot sits on the post-gamma value, so any
-// non-zero setting crushes darks), black threshold 0 (its fixed +10 LED-unit
-// hysteresis blacks out dim scenes once gamma is on), and RGB balance /
-// per-channel gamma 100% (they depend on the individual strip's white point,
-// so they're set by eye).
-//
-//                       Game      Movie
-//   edge depth           2 (5x5)   4 (9x9)   -- Movie has CPU to spare; Game runs inside the game's process
-//   brightness           100%      80%       -- stored 255 / 204
-//   saturation           +35%      +25%      -- Movie lower: skin tones dominate
-//   gamma                2.2       2.4       -- game-mode vs cinema-mode display
-//   black level          0%        1%        -- Movie: stops the strip toggling on grainy dark scenes
-//   smoothing            on, 50ms  on, 200ms
-//
-// Gamma here stacks with WLED's own gamma if that's enabled for realtime
-// data, so WLED's colour gamma should be off.
+// Shipped values. Anything not listed keeps the plugin default, which is deliberate for: letterbox...
+// More: docs/code-comments.md (companion-app/source/presets.c:41)
 typedef struct { const char *key; int32_t value; } PresetDefault;
 
 #define GAMMA_2_2 4   // indexes into kGammaNames
@@ -147,9 +131,8 @@ void presets_init(AmbientConfig *cfg, const char *path)
     s_active = PRESET_GAME;
     s_resetArmed = false;
 
-    // What settings_load left in cfg for the preset-owned fields: the old flat
-    // keys from an ini that predates presets, or the plugin defaults if the
-    // file has none. Only used to migrate an old ini (below).
+    // What settings_load left in cfg for the preset-owned fields: the old flat keys from an ini that...
+    // More: docs/code-comments.md (companion-app/source/presets.c:150)
     PresetValues flat;
     preset_capture(cfg, &flat);
 
@@ -175,9 +158,8 @@ void presets_init(AmbientConfig *cfg, const char *path)
             preset_factory(PRESET_GAME,  &s_slot[PRESET_GAME]);
             preset_factory(PRESET_MOVIE, &s_slot[PRESET_MOVIE]);
         } else {
-            // An existing, tuned setup: it becomes Game exactly as it is, and
-            // Movie starts as a copy of it with Movie's shipped smoothing -- so
-            // nobody loses their colour calibration by updating.
+            // An existing, tuned setup: it becomes Game exactly as it is, and Movie starts as a copy of it with...
+            // More: docs/code-comments.md (companion-app/source/presets.c:178)
             s_slot[PRESET_GAME] = flat;
             PresetValues movieFactory; AmbientConfig movieDefs, movie = *cfg;
             preset_factory(PRESET_MOVIE, &movieFactory);
@@ -188,9 +170,8 @@ void presets_init(AmbientConfig *cfg, const char *path)
             preset_capture(&movie, &s_slot[PRESET_MOVIE]);
         }
     } else {
-        // The ini has presets, and from here on the plugin reads ONLY those for
-        // these values (any flat leftovers are ignored), so this must too. A
-        // preset section that's missing entirely starts from its shipped values.
+        // The ini has presets, and from here on the plugin reads ONLY those for these values (any flat...
+        // More: docs/code-comments.md (companion-app/source/presets.c:191)
         for (int p = 0; p < PRESET_COUNT; p++) {
             preset_factory((PresetId)p, &s_slot[p]);
             if (have[p]) parse_section(t, kPresetSection[p], &s_slot[p]);

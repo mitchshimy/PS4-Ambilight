@@ -1,13 +1,6 @@
 #!/bin/sh
-# Keeps payloads/CHECKSUMS.md in step with payloads/ps4-ambilight.bin, the Ambilight payload.
-#
-#   sh tools/update_payload_checksum.sh           rewrite the hash and size in CHECKSUMS.md from the file
-#   sh tools/update_payload_checksum.sh --check   change nothing; exit 1 if CHECKSUMS.md is stale
-#
-# It rewrites three things and nothing else: the hash in the `sha256sum -c` block, and the size
-# and hash in the table row. The row's last column (the note about which build this is) is yours
-# to edit by hand. Needs only sh, sed, sha256sum (or shasum) and wc, so it runs on a PC, Git Bash
-# and the CI runner. CI runs --check on every push and again before a release is published.
+# Keeps payloads/CHECKSUMS.md in step with payloads/ps4-ambilight.bin, the Ambilight payload. sh...
+# More: docs/code-comments.md (tools/update_payload_checksum.sh:2)
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)

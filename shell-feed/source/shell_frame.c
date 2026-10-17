@@ -2,9 +2,8 @@
 // through the plugin's colour chain and dark threshold, then smoothed, in LED order.
 #include "shell_internal.h"
 
-// ---------------------------------------------------------------------
 // [v22] Glue: this project's own code from here to the end of the block.
-// ---------------------------------------------------------------------
+// More: docs/code-comments.md (shell-feed/source/shell_frame.c:5)
 static uint8_t g_smoothedRgb[MAX_TOTAL_ZONES][3];  // this file's own smoothing STATE (the maths is smoothing.h's) -- private, per the
                                                      // comment above ambient_internal.h's g_smoothedRgbValid extern
 bool g_smoothedRgbValid = false; // ambient_internal.h declares this extern (real definition's normally sample_thread.c's,
@@ -16,10 +15,8 @@ static void unpack_argb(uint32_t px, uint8_t *r, uint8_t *g, uint8_t *b)
     *r = (uint8_t)((px >> 16) & 255); *g = (uint8_t)((px >> 8) & 255); *b = (uint8_t)(px & 255);
 }
 
-// One frame: every zone sampled with scan_depth, run through the sister's colour chain, dark threshold and
-// smoothing, written to rgbTriplets in LED order (zone i IS LED i: buildZoneGeometry() already applied the
-// start corner, direction and offset). Returns the zone count. This is the sister's sample_thread.c pass 3
-// without the game-process-only parts (see the header comment).
+// One frame: every zone sampled with scan_depth, run through the sister's colour chain, dark threshold...
+// More: docs/code-comments.md (shell-feed/source/shell_frame.c:19)
 uint32_t shell_process_frame(uint64_t bufferAddr, uint32_t sampleIntervalUs, uint8_t *rgbTriplets)
 {
     uint32_t smoothingAlpha = smoothing_alpha(sampleIntervalUs, g_config.settlingTimeMs);

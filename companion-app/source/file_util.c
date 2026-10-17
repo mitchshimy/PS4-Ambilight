@@ -1,6 +1,5 @@
-// Small file helpers and checksums over the SDK's sceKernelOpen/Read/Write, split out of main.c.
-// The code is as it ran on hardware (stat() and fopen() are not trusted on this SDK, see the note
-// on http_download() in net_http.c).
+// Small file helpers and checksums over the SDK's sceKernelOpen/Read/Write, split out of main.c. The...
+// More: docs/code-comments.md (companion-app/source/file_util.c:1)
 
 #include <stdio.h>
 #include <stdint.h>
@@ -63,12 +62,8 @@ bool write_file_atomic(const char *path, const char *data, size_t len)
     return true;
 }
 
-// Hashes an on-disk file with the same buffered-read pattern used
-// throughout this file (sceKernelOpen/Read/Close, not fopen -- see
-// the note on http_download() in net_http.c for why). check_for_plugin_update()'s
-// primary source of "what's actually installed" -- see
-// PLUGIN_INSTALLED_CHECKSUM_PATH's comment for why the sidecar below
-// is only a fallback, not the other way around.
+// Hashes an on-disk file with the same buffered-read pattern used throughout this file...
+// More: docs/code-comments.md (companion-app/source/file_util.c:66)
 bool sha256_hex_of_file(const char *path, char *outHex, size_t outHexSize)
 {
     if (outHexSize < SHA256_HEX_SIZE) return false;
@@ -94,12 +89,8 @@ bool sha256_hex_of_file(const char *path, char *outHex, size_t outHexSize)
     return true;
 }
 
-// Reads the plain 64-hex-char PLUGIN_INSTALLED_CHECKSUM_PATH sidecar
-// (no sha256sum-style " filename" suffix -- write_installed_checksum()
-// below never writes one) into outHex. check_for_plugin_update()'s
-// fallback, used only when sha256_hex_of_file() can't read the real
-// .prx -- see PLUGIN_INSTALLED_CHECKSUM_PATH's comment for why this
-// sidecar can't be trusted as the primary answer to "what's installed."
+// Reads the plain 64-hex-char PLUGIN_INSTALLED_CHECKSUM_PATH sidecar (no sha256sum-style " filename"...
+// More: docs/code-comments.md (companion-app/source/file_util.c:97)
 bool read_installed_checksum(char *outHex, size_t outHexSize)
 {
     if (outHexSize < SHA256_HEX_SIZE) return false;
@@ -112,12 +103,8 @@ bool read_installed_checksum(char *outHex, size_t outHexSize)
     return true;
 }
 
-// Writes actualHex -- the plain, already-verified digest computed in
-// do_plugin_update() -- to PLUGIN_INSTALLED_CHECKSUM_PATH. Best-
-// effort: a failed write just means the next update check falls back
-// to sha256_hex_of_file() on the .prx itself, so this doesn't affect
-// the install's own success/failure and callers don't check its
-// return value.
+// Writes actualHex -- the plain, already-verified digest computed in do_plugin_update() -- to...
+// More: docs/code-comments.md (companion-app/source/file_util.c:115)
 void write_installed_checksum(const char *actualHex)
 {
     int32_t fd = sceKernelOpen(PLUGIN_INSTALLED_CHECKSUM_PATH, ORBIS_O_CREAT_TRUNC_WRONLY /* see plugin_common.h's BUG FIX comment */, 0777);

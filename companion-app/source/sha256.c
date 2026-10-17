@@ -1,8 +1,5 @@
-// sha256.c -- see sha256.h. Public-domain streaming SHA-256, adapted
-// from Brad Conte's crypto-algorithms (public domain). Verified
-// against known test vectors below (sha256("") and sha256("abc")) in
-// tests/test_sha256.c -- this file has no PS4-specific dependencies,
-// so those tests run on desktop like the rest of tests/.
+// sha256.c -- see sha256.h. Public-domain streaming SHA-256, adapted from Brad Conte's...
+// More: docs/code-comments.md (companion-app/source/sha256.c:1)
 
 #include <string.h>
 #include <stdbool.h>

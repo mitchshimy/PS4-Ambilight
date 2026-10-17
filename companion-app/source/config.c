@@ -102,15 +102,8 @@ int eof_hack(int c) {
     return EOF;
 }
 
-// v2.2: reads via sceKernelOpen/sceKernelRead/sceKernelClose into a
-// memory buffer instead of fopen()/fgetc(). This function is reachable
-// from ambient_check_config_reload() on ambient_sample_thread (a worker
-// thread spawned separately from plugin load), and libc stdio (FILE*,
-// buffering, locks) isn't safe to touch off the main plugin-load thread
-// on this toolchain -- that's what was crashing. Same raw-syscall
-// approach game_patch/utils.cpp already uses successfully elsewhere in
-// this repo. The parsing state machine below is unchanged; only the
-// byte source changed, from fgetc(f) to indexing into filebuf.
+// Raw sceKernel* file calls only: libc stdio (fopen, FILE*) is not safe off the plugin-load thread and crashed.
+// Keep every read and write here on raw syscalls. [docs/code-comments.md]
 bool ini_table_read_from_file(ini_table_s* table, const char* file)
 {
     int32_t fd = sceKernelOpen(file, 0 /* O_RDONLY */, 0777);
@@ -123,9 +116,8 @@ bool ini_table_read_from_file(ini_table_s* table, const char* file)
     }
     sceKernelLseek(fd, 0, SEEK_SET);
 
-    // malloc(0) is legal-but-implementation-defined (may return NULL even
-    // on success), so a genuinely empty file gets a 1-byte buffer that
-    // nothing ever reads into rather than being misread as a malloc failure.
+    // malloc(0) is legal-but-implementation-defined (may return NULL even on success), so a genuinely...
+    // More: docs/code-comments.md (companion-app/source/config.c:126)
     char *filebuf = (char *)malloc((size_t)(filesize > 0 ? filesize : 1));
     if (filebuf == NULL) {
         sceKernelClose(fd);
@@ -244,23 +236,8 @@ bool ini_table_read_from_file(ini_table_s* table, const char* file)
     return true;
 }
 
-// NOT fopen/fprintf/fclose -- ini_table_read_from_file() above was
-// already rewritten off fopen for a documented reason (fopen from an
-// unusual thread context isn't reliably safe in this environment,
-// per that function's own comment). This write path never got the
-// same fix, silently reintroducing that exact crash risk for every
-// caller (settings_save(), register_plugin_in_goldhen()). Also fixes
-// a second, separate bug: the old version always returned true once
-// fopen succeeded, even if fprintf/fflush/fsync failed -- a disk-full
-// write would report success while leaving a truncated/corrupt file,
-// and the "Save FAILED" UI path built around this return value could
-// never actually fire for that case.
-//
-// Builds the full output in memory first, then writes it in one
-// sceKernelWrite call -- same O_TRUNC|O_CREAT flags and success check
-// (return value compared against the full requested length) already
-// used by http_download()/do_plugin_update() in main.c, so a failed
-// write is reported as failure, not silently accepted.
+// Write path stays on raw sceKernel* calls (fopen crashed off the load thread): build in memory, one write,
+// and return false unless the full length was written, so a failed save is reported. [docs/code-comments.md]
 bool ini_table_write_to_file(ini_table_s *table, const char *file) {
     size_t cap = 4096, len = 0;
     char *out = (char *)malloc(cap);

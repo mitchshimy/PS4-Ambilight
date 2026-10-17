@@ -1,7 +1,5 @@
-// The shell feed's file work, split out of main.c: install and repair of ps4_shell_feed.prx and the
-// Ambilight payload, sending the payload to GoldHEN's BinLoader, the autoload entry in GoldHEN's
-// payload list, and the claim that keeps the shell feed off the strip while this app drives it.
-// The code is as it ran on hardware.
+// The shell feed's file work, split out of main.c: install and repair of ps4_shell_feed.prx and the...
+// More: docs/code-comments.md (companion-app/source/shell_feed.c:1)
 
 #include <stdio.h>
 #include <stdint.h>
@@ -29,12 +27,8 @@
 #include "ui_screens.h"
 #include "shell_feed.h"
 
-// ---------------- shell feed: install, repair, autoload, claim ----------------
-//
-// Everything below runs only while "Shell feed" is on in Set up (g_cfg.shellEnabled); with it off
-// the only code here that executes is the cheap bookkeeping that keeps g_state.shell at SHELL_OFF.
-// The decisions (what to show, what the button does, whether Test strip is offered) live in
-// install_plan.h and are tested on a PC; this section only does the file and network work.
+// shell feed: install, repair, autoload, claim Everything below runs only while "Shell feed" is on in...
+// More: docs/code-comments.md (companion-app/source/shell_feed.c:32)
 
 // Re-reads which of the two shell files are on disk. A zero-byte file counts as missing: a
 // download cut off before its first byte must not look like an install.
@@ -46,9 +40,8 @@ void rescan_shell_files(void)
     if (!g_assetPresent[ASSET_PAYLOAD])   g_assetUpdate[ASSET_PAYLOAD]   = false;
 }
 
-// Recomputes the shell feed's summary for Home from the facts above. Cheap (no I/O), called every
-// frame, so the banner and button follow the files, the update check and the switch without anyone
-// having to remember to refresh them.
+// Recomputes the shell feed's summary for Home from the facts above.
+// More: docs/code-comments.md (companion-app/source/shell_feed.c:49)
 void sync_shell_summary(void)
 {
     AssetStatus prx = !g_assetPresent[ASSET_SHELL_PRX] ? ASSET_MISSING
@@ -67,13 +60,8 @@ static uint32_t g_payloadSentMs = 0;
 static bool     g_payloadSentOnce = false;
 static bool     g_payloadSentPending = false;
 
-// ---- is the payload already running? ----
-//
-// The running shell feed rewrites /data/ps4-ambilight/ps4_shell_alive (a changing counter) about once a
-// second; that is the same proof of life the game plugin uses (plugin/source/settings.c). A value that
-// stops changing for SHELL_ALIVE_STALE_MS means it is off, stopped, waiting for a WLED address, or was
-// never loaded. The first read after this app starts is only a baseline, so "running" shows up about
-// one heartbeat (1-2 s) after the app opens.
+// is the payload already running?
+// More: docs/code-comments.md (companion-app/source/shell_feed.c:70)
 #define SHELL_ALIVE_FILE        APP_DATA_DIR "/ps4_shell_alive"
 #define SHELL_ALIVE_POLL_MS     500u
 #define SHELL_ALIVE_STALE_MS    3500u
@@ -117,10 +105,8 @@ void shell_alive_poll(uint32_t nowMs)
     }
 }
 
-// Downloads one file from the update source into its own staging path, checks it against the
-// published sha256, and only then renames it over the live file -- the same sequence do_plugin_update()
-// uses, so a failure at any point leaves whatever was installed before exactly as it was.
-// On failure writes a short reason into `err`.
+// Downloads one file from the update source into its own staging path, checks it against the published...
+// More: docs/code-comments.md (companion-app/source/shell_feed.c:120)
 static bool install_shell_asset(const char *assetName, const char *dstPath, const char *stagingPath,
                                 char *err, size_t errSize)
 {
@@ -180,22 +166,8 @@ static bool install_shell_asset(const char *assetName, const char *dstPath, cons
     return true;
 }
 
-// Sends the Ambilight payload (.bin) to GoldHEN's BinLoader on port 9090 -- the same protocol
-// every independent payload-sender tool uses: open a plain TCP connection, write the raw bytes,
-// close. No handshake, no header -- confirmed against multiple independent client implementations
-// (an Android payload sender and a Node.js tool), all doing exactly this against the same port.
-//
-// Called automatically as the last step of do_shell_repair() after a successful install or update,
-// so "Install shell feed" also means "running within seconds, not at next boot". Also wired to the
-// "Launch Ambilight payload" button in Set up, so the person can restart the payload at any time without
-// rebooting or going into GoldHEN's menu.
-//
-// Sending the same payload more than once while it is already running is confirmed safe: tested
-// manually via GoldHEN's Launchpad (which drives the same BinLoader), no crash or ill effect.
-// One known quirk on some GoldHEN versions: BinLoader may need to be disabled and re-enabled in
-// GoldHEN's menu before it will accept a second network send. That only affects repeated *network*
-// sends; the manual-Launchpad test above is unaffected and not a concern for this button's
-// primary use case (first run after install / starting a stopped payload).
+// Sends the Ambilight payload (.bin) to GoldHEN's BinLoader on port 9090 -- the same protocol every...
+// More: docs/code-comments.md (companion-app/source/shell_feed.c:183)
 bool launch_payload_now(void)
 {
     int32_t fd = sceKernelOpen(PAYLOAD_PATH, 0 /* O_RDONLY */, 0777);
@@ -280,9 +252,8 @@ bool launch_payload_now(void)
     return true;
 }
 
-// The Home button's shell feed half: creates the folders if they aren't there, then fetches
-// whatever is missing or out of date. The .prx goes first so the Ambilight payload is never on disk
-// without the thing it loads.
+// The Home button's shell feed half: creates the folders if they aren't there, then fetches whatever...
+// More: docs/code-comments.md (companion-app/source/shell_feed.c:283)
 void do_shell_repair(void)
 {
     // Both folders may not exist yet (first install) -- or may exist and be empty. Either way, make
@@ -321,10 +292,8 @@ void do_shell_repair(void)
     rescan_shell_files();
 
     if (installed > 0) {
-        // Install succeeded: run the launcher immediately via BinLoader so the shell feed
-        // is live right now, not just "next boot". The launch_payload_now() status line
-        // replaces this one, so only set it as a fallback if the send fails (in which case
-        // launch_payload_now() already wrote an error). If Autoload is on, mention that too.
+        // Install succeeded: run the launcher immediately via BinLoader so the shell feed is live right now...
+        // More: docs/code-comments.md (companion-app/source/shell_feed.c:324)
         bool launched = launch_payload_now();
         if (!launched) {
             set_status(g_cfg.shellAutoload
@@ -334,9 +303,8 @@ void do_shell_repair(void)
             set_status("Ambilight payload sent to GoldHEN -- shell feed active. Autoload at boot is also on.", false);
         }
     } else if (updated > 0) {
-        // Update: the Ambilight payload is already running (or was); just note that a restart is needed
-        // for the updated build. We could try to re-launch here, but sending a payload update
-        // while the previous build is still resident is less predictable than a clean boot.
+        // (commented-out code removed)
+        // More: docs/code-comments.md (companion-app/source/shell_feed.c:337)
         set_status("Shell feed updated. Restart the console (or re-launch the Ambilight payload in Set up) to apply it.", false);
     }
 }

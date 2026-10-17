@@ -1,7 +1,5 @@
-// shell_config.c -- the ini as the shell feed reads it. The plugin's own ambient_load_config() (settings.c)
-// does the real parsing; this file forces the game preset on top of it, reads the three keys the plugin's
-// struct has no field for ([compat] report_file, [dev] dev_ip / dev_logging, [shell] enabled), and follows
-// edits live.
+// shell_config.c -- the ini as the shell feed reads it.
+// More: docs/code-comments.md (shell-feed/source/shell_config.c:1)
 #include "shell_internal.h"
 
 static const char *g_cfgPreset = "defaults"; // which ini section supplied the preset-owned settings, for the log
@@ -29,26 +27,16 @@ void sh_parse_aux(ini_table_s *table)
     if (ini_table_get_entry_as_bool(table, "dev", "dev_logging", &bv)) g_shDevLog = bv ? 1 : 0;
 }
 
-// Reads the ini into g_config. Stage C of the PS4-Ambilight/ps4-shell-capture-research merge: this now
-// calls the sister's real ambient_load_config() (plugin/source/settings.c, linked, not pasted) for
-// everything [compat] gpu_only_remap/report_file included, instead of re-walking the ini key by key
-// by hand. The one deliberate difference from a game's own load -- [preset_game] whatever [presets]
-// active= says, no media title can turn it into "movie" (the shell is not a title) -- is now expressed
-// through g_presetOverride (ambient_internal.h/settings.c, added alongside this refactor) rather than
-// by duplicating preset_section_pick()'s own call here.
-// Returns 1 if the file was read and parsed; on 0 g_config is untouched and the caller keeps running on
-// it. Like the sister: a key that is missing or out of range keeps the value g_config already has.
+// Reads the ini into g_config.
+// More: docs/code-comments.md (shell-feed/source/shell_config.c:32)
 int shell_cfg_load(void)
 {
     g_presetOverride = PRESET_SECTION_GAME; // wins over active=/media title inside ambient_load_config(); see its comment
     ambient_load_config();
     g_cfgPreset = PRESET_SECTION_GAME; // ambient_load_config() doesn't report back which section it used; this is what we forced
 
-    // [compat] report_file and [dev] dev_ip/dev_logging: shell-only copies (g_shReportOn/g_shDevIp/g_shDevLog),
-    // separate from the fields ambient_load_config() just set on g_config itself. [shell] enabled= is a
-    // probe-only key the sister's struct has no field for at all. None of these three are in the sister's
-    // ambient_load_config(), so they still need their own, separate ini read -- the same pattern
-    // shell_enabled_poll() below already uses on its own cadence.
+    // [compat] report_file and [dev] dev_ip/dev_logging: shell-only copies...
+    // More: docs/code-comments.md (shell-feed/source/shell_config.c:47)
     ini_table_s *table = ini_table_create();
     if (table == NULL || !ini_table_read_from_file(table, AMBIENT_CONFIG_PATH)) return 0; // config read via ambient_load_config() above still stands; only these three fall back
     sh_parse_aux(table); // [v24]
@@ -75,9 +63,8 @@ void shell_cfg_log(const char *why, int64_t bytes, uint32_t hash)
            (unsigned)g_config.gammaR, (unsigned)g_config.gammaG, (unsigned)g_config.gammaB);
 }
 
-// Live reload, the sister's rule: every configReloadCheckSeconds, read the file through the raw syscalls,
-// and reload when its size OR its content hash changed. The first check only records a baseline.
-// Returns 1 when settings were reloaded (the caller then recomputes its pace and destination).
+// Live reload, the sister's rule: every configReloadCheckSeconds, read the file through the raw...
+// More: docs/code-comments.md (shell-feed/source/shell_config.c:78)
 int shell_cfg_poll(uint64_t nowTsc, uint64_t tscHz)
 {
     if (g_config.configReloadCheckSeconds == 0 || tscHz == 0) return 0;
@@ -108,16 +95,8 @@ int shell_cfg_poll(uint64_t nowTsc, uint64_t tscHz)
     return 1;
 }
 
-// [v46] Found in capture v23-C (2026-10-07, person-reported): with config_reload_check_seconds=0,
-// shell_cfg_poll() above never runs while live_send() is sending, so [shell] enabled= could only be
-// noticed at the very start of a live_send() session -- a real gap, not fixed by v45 (which only
-// covers standby, where nothing is being sent and a full reload is free). The person asked for the
-// kill switch to work the same way the disable file already does: checked on its own cadence,
-// independent of config_reload_check_seconds, while everything else in the ini (brightness, zones,
-// host, ...) keeps following config_reload_check_seconds exactly as before -- this deliberately does
-// NOT call shell_cfg_load() (which would reload everything) or touch g_config, buildZoneGeometry(),
-// or the gamma LUTs. Logged separately from "INI RELOAD" and does not increment g_cfgReloads, since
-// nothing but the one key changed.
+// [shell] enabled= is polled on its own 1 s cadence, independent of config_reload_check_seconds (0 disabled it);
+// it deliberately does not reload the rest of the ini. [docs/code-comments.md]
 #define ENABLED_POLL_MS 1000u
 
 void shell_enabled_poll(uint64_t nowTsc, uint64_t tscHz, uint64_t *nextPollTsc)

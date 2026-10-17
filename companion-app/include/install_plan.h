@@ -1,20 +1,5 @@
-// install_plan.h -- what Home shows, and what its one button does, once the shell feed is
-// part of the picture. Pure decision logic with no console calls, so
-// tests/test_install_plan.c can check every combination on a PC.
-//
-// Three files can be pending: the plugin, the shell feed's .prx and the Ambilight payload.
-// The plugin keeps the states it always had (UiInstallState). The other two are folded
-// into one "Shell feed" unit, because nobody using the app cares which of the two a
-// problem is in -- they get one banner and one state.
-//
-// Shell feed OFF is the default and means "behave exactly as before": shell_summarize()
-// returns SHELL_OFF, home_plan() ignores it, and the Test strip rule is the old one.
-//
-// GoldHEN's own "Enable Plugins Loader" switch outranks everything: with it off GoldHEN loads
-// no plugin at all, so installing, updating or testing the plugin would only look like it worked.
-// It is read from GoldHEN's config (goldhen_config.h). Only a definite OFF changes anything. The app
-// can't turn it on (GoldHEN keeps the live value in memory and won't change it while an app runs),
-// so the button for it just closes the app so the person can.
+// install_plan.h -- what Home shows, and what its one button does, once the shell feed is part of the...
+// More: docs/code-comments.md (companion-app/include/install_plan.h:1)
 #ifndef INSTALL_PLAN_H
 #define INSTALL_PLAN_H
 

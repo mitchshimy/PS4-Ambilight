@@ -1,32 +1,5 @@
-// buffer_guard.c -- part of ps4_ambient_light (v3.9).
-//
-// Why this exists: Mortal Kombat 11 (CUSA11395) crashed the game with a SIGSEGV in
-// ambient_sample_thread ("page fault, user read data, page not present", fault address
-// 0x49ff38b6d0, plugin offset +0x719c) on the first real sampling pass. The sampler trusted
-// g_bufferAddrs[] blindly: sampleZoneAverage() bounds-checked the OFFSET against
-// BASE_PADDED_BUFFER_BYTES but never asked whether the ADDRESS was mapped or CPU-readable.
-//
-// What a capture then showed (docs/debugging/gpu-only-buffers.md has all of it): the address
-// was valid and inside the buffer. MK11 maps each display buffer as one direct-memory region
-// with protection 0x30 (GPU read/write, no CPU bits) and memory type 3 (write-combined), so
-// a CPU load faults. The registered format (0x88740000) was recognized and decoded fine; format
-// recognition says nothing about whether the CPU may read the memory.
-//
-// Three layers, each one a fix for something the layer before it did not cover:
-//
-//   1. ambient_readable_bytes()/ambient_buffer_readable(): ask the kernel
-//      (sceKernelVirtualQuery) how many bytes from the buffer base the CPU may read, keep
-//      that in g_readableLimit, and refuse to sample when it is 0. Worst case is the existing
-//      keepalive path (liveBufferAddr = 0): the strip holds its color instead of the game
-//      dying. Every pixel read elsewhere is bounds-checked against g_readableLimit.
-//   2. ambient_remap_cpu_view(): for a buffer layer 1 rejected as "mapped but not
-//      CPU-readable" and that is direct memory, make it CPU-readable (see the block below).
-//   3. ambient_resolve_readable(): the one entry point the sampler and the debug probe call.
-//
-// sceKernelVirtualQuery and friends are resolved by name in main.c (same pattern as
-// sceSystemServiceGetStatus). If sceKernelVirtualQuery cannot be resolved the guard fails
-// OPEN (the behavior before this file existed) so other firmware/titles are not regressed; g_guardAvailable says
-// which happened.
+// Never read a display buffer without asking the kernel it is mapped and CPU-readable: Mortal Kombat 11's
+// GPU-only buffers (prot 0x30) faulted the sampler. See docs/debugging/gpu-only-buffers.md. [docs/code-comments.md]
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -34,9 +7,8 @@
 #include "plugin_common.h"
 #include "ambient_internal.h"
 
-// Layout of OrbisKernelVirtualQueryInfo (OpenOrbis kernel.h). Declared locally
-// and padded generously so a slightly different real struct size cannot make
-// the kernel write past our buffer.
+// Layout of OrbisKernelVirtualQueryInfo (OpenOrbis kernel.h).
+// More: docs/code-comments.md (plugin/source/buffer_guard.c:37)
 typedef struct {
     void    *start;
     void    *end;
@@ -64,10 +36,8 @@ volatile uint32_t g_guardInfoFlags = 0;
 
 volatile uint64_t g_readableLimit = 0; // bytes from the buffer base that are contiguously CPU-readable (see header)
 
-// Walks contiguous mapped regions from addr, up to len bytes, and returns how many bytes are
-// CPU-readable from addr (0 = the very first page is not). Reason codes in g_guardLastRet:
-// 0 ok, <0 syscall error, 1 unmapped gap, 2 not CPU-readable. Fails open (returns len) when
-// sceKernelVirtualQuery is unavailable.
+// Walks contiguous mapped regions from addr, up to len bytes, and returns how many bytes are...
+// More: docs/code-comments.md (plugin/source/buffer_guard.c:67)
 uint64_t ambient_readable_bytes(uint64_t addr, uint64_t len)
 {
     if (sceKernelVirtualQueryPtr == NULL) return len;
@@ -93,10 +63,8 @@ uint64_t ambient_readable_bytes(uint64_t addr, uint64_t len)
     return (cur >= endAddr ? endAddr : cur) - addr;
 }
 
-// Sampler-facing wrapper. Sets g_readableLimit for the pixel-read bounds checks and returns
-// false only when NOTHING is readable (first page unmapped or GPU-only, e.g. MK11 with
-// protection 0x30). A buffer that is readable but shorter than the padded ceiling is still
-// used; its unreadable tail is skipped pixel by pixel.
+// Sampler-facing wrapper. Sets g_readableLimit for the pixel-read bounds checks and returns false only...
+// More: docs/code-comments.md (plugin/source/buffer_guard.c:96)
 bool ambient_buffer_readable(uint64_t bufferAddr)
 {
     uint64_t n = ambient_readable_bytes(bufferAddr, BASE_PADDED_BUFFER_BYTES);
@@ -105,43 +73,8 @@ bool ambient_buffer_readable(uint64_t bufferAddr)
     return true;
 }
 
-// ---------------------------------------------------------------------------------------------
-// Making a GPU-only display buffer CPU-readable (Mortal Kombat 11 and any title like it).
-//
-// Three methods, tried in this order, selected by the optional ini key [compat] gpu_only_remap
-// (0 off, 1 = method 1 only, 2 = methods 1+2, 3 = all three, the default):
-//
-//   1. A second, CPU_READ-only view of the same direct-memory offset via sceKernelMapDirectMemory2,
-//      created with the SAME memory type the original mapping reports. The type matters: a
-//      write-back (type 0) view of write-combined memory would let the CPU cache lines that the
-//      GPU, which does not snoop the CPU cache, later overwrites, and the view would freeze on
-//      old pixels.
-//   2. The same with the plain sceKernelMapDirectMemory (kernel picks the type). That has the
-//      stale-pixel risk above, so it is only reached with gpu_only_remap=2 or more.
-//   3. sceKernelMprotect on the GAME'S OWN mapping, adding CPU_READ to the bits it already has
-//      (0x30 -> 0x31). Memory type is untouched, so it stays write-combined: reads are uncached
-//      (about 2.5 ms per sampling pass on MK11) and always see what the GPU wrote.
-//
-// MEASURED ON HARDWARE (MK11, CUSA11395): methods 1 and 2 are refused, method 3 works.
-//   - Method 1 was captured: sceKernelMapDirectMemory2 answered 0x80020010, SCE errno 16 (EBUSY),
-//     435 times in a run with gpu_only_remap=1. The range is already mapped, so a second mapping
-//     of it is not allowed.
-//   - Method 2 was refused too, but that is inferred, not captured: with the default 3 the packet
-//     ended on method 3, and method 3 only runs after both mapping methods failed. Its own return
-//     code was overwritten by method 3's and is not in any capture.
-//   - Method 3 was accepted (return 0, protection verified afterwards) and is what makes MK11
-//     work: created 3, failed 0 across 53 s of gameplay.
-// Methods 1 and 2 are expected to fail for any buffer the game maps itself. They stay because
-// they were part of the tested build and removing them is a second change to verify; they are
-// the first thing to delete if nothing ever needs them. See docs/debugging/gpu-only-buffers.md.
-//
-// This only ever runs on a buffer layer 1 already rejected, so a title whose buffers are
-// CPU-readable never reaches it. Every failure leaves the strip holding its last color with the
-// game untouched, and is reported in the RMAP debug packet. A region the kernel refused is
-// remembered and not retried until its start, size or direct-memory offset changes: a refusal is
-// deterministic and each refused call cost about 6 ms of the sampler thread (435 refusals in a
-// capture of about 23 s before this was added, pass time 6.2 ms instead of tens of microseconds).
-// ---------------------------------------------------------------------------------------------
+// GPU-only buffers are made CPU-readable by three methods in order (gpu_only_remap, default 3). Keep the second view's
+// memory type equal to the original's: a write-back view of write-combined memory goes stale. [docs/code-comments.md]
 
 #define REMAP_MAX_ALIASES   6
 #define REMAP_PROT_CPU_READ 0x1
@@ -169,9 +102,8 @@ typedef struct {
 } RemapEntry;
 static RemapEntry s_remap[REMAP_MAX_ALIASES];
 
-// Regions every enabled method already failed on, so they are not retried (see the block above
-// for the numbers). Keyed on start, size and direct-memory offset: a re-created buffer at the
-// same address has a different offset or size and gets a fresh attempt.
+// Regions every enabled method already failed on, so they are not retried (see the block above for the...
+// More: docs/code-comments.md (plugin/source/buffer_guard.c:172)
 #define REMAP_MAX_DENIED 8
 static RemapEntry s_denied[REMAP_MAX_DENIED];
 static uint32_t s_deniedNext = 0;
@@ -197,8 +129,7 @@ static void remap_drop(RemapEntry *e)
 }
 
 // Drops aliases whose original mapping is gone, moved, or became CPU-readable on its own.
-// Called every ~30 lookups (about once a second at the sampler rate). Only aliases (methods 1 and 2)
-// need this; a method 3 mprotect leaves nothing to clean up.
+// More: docs/code-comments.md (plugin/source/buffer_guard.c:199)
 static void remap_sweep(void)
 {
     for (int i = 0; i < REMAP_MAX_ALIASES; i++) {
@@ -264,9 +195,8 @@ uint64_t ambient_remap_cpu_view(uint64_t bufferAddr)
         ret = sceKernelMapDirectMemoryPtr(&view, len, REMAP_PROT_CPU_READ, 0, info.offset, REMAP_ALIGN);
     }
     if ((ret != 0 || view == NULL) && canProtect) {
-        // Second mapping refused (EBUSY on MK11), or not possible. Method 3 (gpu_only_remap=3, the
-        // default): add CPU_READ to the game's OWN mapping, keeping its GPU bits and memory type. The
-        // kernel may still refuse; the result is verified with a fresh query before it is trusted.
+        // Second mapping refused (EBUSY on MK11), or not possible.
+        // More: docs/code-comments.md (plugin/source/buffer_guard.c:267)
         method = 3;
         int32_t pr = sceKernelMprotectPtr((const void *)start, len, info.protection | REMAP_PROT_CPU_READ);
         g_remapLastRet = pr; g_remapLastMethod = method;
@@ -290,9 +220,8 @@ uint64_t ambient_remap_cpu_view(uint64_t bufferAddr)
     return free_slot->alias + (bufferAddr - start);
 }
 
-// Single entry point for the sampler and the debug probe: returns an address the CPU may read
-// (bufferAddr itself, or an alias of it) with g_readableLimit set for it, or 0 when the buffer
-// cannot be read at all.
+// Single entry point for the sampler and the debug probe: returns an address the CPU may read...
+// More: docs/code-comments.md (plugin/source/buffer_guard.c:293)
 uint64_t ambient_resolve_readable(uint64_t bufferAddr)
 {
     if (bufferAddr == 0) return 0;

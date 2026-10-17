@@ -1,6 +1,5 @@
-// Small file helpers and checksums over the SDK's sceKernelOpen/Read/Write, split out of main.c.
-// The code is as it ran on hardware (stat() and fopen() are not trusted on this SDK, see the note
-// on http_download() in net_http.c).
+// Small file helpers and checksums over the SDK's sceKernelOpen/Read/Write, split out of main.c. The...
+// More: docs/code-comments.md (companion-app/include/file_util.h:1)
 
 #ifndef FILE_UTIL_H
 #define FILE_UTIL_H

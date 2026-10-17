@@ -1,6 +1,5 @@
-// The background update check, split out of main.c: the worker thread that asks the update source
-// whether the plugin or a shell feed file has a newer build, the flags it publishes through, and
-// the once-a-frame poll that turns the answer into Home's state. The code is as it ran on hardware.
+// The background update check, split out of main.c: the worker thread that asks the update source...
+// More: docs/code-comments.md (companion-app/include/update_check.h:1)
 
 #ifndef UPDATE_CHECK_H
 #define UPDATE_CHECK_H

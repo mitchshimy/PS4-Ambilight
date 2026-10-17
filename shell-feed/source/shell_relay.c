@@ -1,23 +1,5 @@
-// shell_relay.c -- the shell feed's half of the wled-relay hand-off. Personal, opt-in: it does nothing unless the
-// ini has relay_signal_enabled=true AND a relay_host (both default to off/blank, so nobody else's console ever
-// sends a relay packet from here).
-//
-// Who holds the strip, as the relay should see it. The relay is told "on" (something else is driving the strip,
-// stand down) or "off" (nobody is, take over). Two things can drive it:
-//   - the shell feed, from the moment its send loop starts until that loop stops (the heartbeat file proves this
-//     to the game plugin: it is written from the same loop), and
-//   - a game (or the companion app), whose fg=1 claim in ps4_ambient_state this feed already reads.
-// The relay stands down while EITHER holds, so "off" goes out only when the last holder lets go:
-//   - this feed starts or resumes sending                    -> "on"
-//   - this feed stops cleanly (disable file, [shell] enabled=false) -> "off", unless a game claims fg=1; the
-//     game then holds it, and the plugin sends the "off" itself when it backgrounds or exits, because by then it
-//     sees this feed's heartbeat is gone (plugin/source/network.c, relay_release_external_source()).
-//   - a game backgrounding while this feed is running            -> nothing here: the plugin sends no "off"
-//     while it sees the heartbeat, so the relay stays down.
-// While held, "on" is repeated every RELAY_RESEND_SEC: the relay clears its flag itself when HA turns gaming
-// mode off (tv_gate.py's backstop), and a one-shot "on" would never be asserted again. The relay treats a
-// repeat as a no-op.
-// A crash or a power-off cannot send anything; the relay's own gaming_mode backstop has to cover that.
+// wled-relay hand-off, personal and opt-in (relay_signal_enabled + relay_host): "on" while the loop runs, repeated every 5 s;
+// "off" on a clean stop unless a game holds fg=1, in which case the plugin sends it later. [docs/code-comments.md]
 #include "shell_internal.h"
 
 static int      g_relayHeld = 0;   // we have sent "on" and not yet "off"
@@ -39,9 +21,8 @@ static void relay_send(const char *host, uint16_t port, int on)
     close(sock);
 }
 
-// Call with shellActive=1 when the send loop starts and after every ini reload, 0 when it stops. Sends only on
-// a change, so calling it often is fine. Reads relay_signal_enabled / relay_host / relay_port live, so editing
-// them while running does the right thing (off to the old address, on to the new one).
+// Call with shellActive=1 when the send loop starts and after every ini reload, 0 when it stops.
+// More: docs/code-comments.md (shell-feed/source/shell_relay.c:42)
 void shell_relay_update(int shellActive)
 {
     int want = shellActive && g_config.relaySignalEnabled && g_config.relayHost[0] != '\0';

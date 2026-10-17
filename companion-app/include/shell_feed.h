@@ -1,7 +1,5 @@
-// The shell feed's file work, split out of main.c: install and repair of ps4_shell_feed.prx and the
-// Ambilight payload, sending the payload to GoldHEN's BinLoader, the autoload entry in GoldHEN's
-// payload list, and the claim that keeps the shell feed off the strip while this app drives it.
-// The code is as it ran on hardware.
+// The shell feed's file work, split out of main.c: install and repair of ps4_shell_feed.prx and the...
+// More: docs/code-comments.md (companion-app/include/shell_feed.h:1)
 
 #ifndef SHELL_FEED_H
 #define SHELL_FEED_H

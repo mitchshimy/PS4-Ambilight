@@ -1,6 +1,5 @@
-// shell_report.c -- the compile-time gate table, and the report file (/data/ps4-ambilight/
-// ps4_ambient_report_SHELL.txt): its text, when it is due, and the thread that writes it. live_send()
-// publishes its counters here; the report thread only reads them, so a file write never lands inside a tick.
+// shell_report.c -- the compile-time gate table, and the report file (/data/ps4-ambilight/...
+// More: docs/code-comments.md (shell-feed/source/shell_report.c:1)
 #include "shell_internal.h"
 
 // --- gates: one table, one log line each (the v18 lesson). A gate macro that is not defined is a
@@ -149,11 +148,8 @@ static size_t sh_report_format(char *out, size_t cap, const ShReport *s)
     return n;
 }
 
-// ---------------------------------------------------------------------
-// [v24] Report-file side: live_send() publishes its counters into these globals at each 5 s row and at
-// every state change; the report thread (its own thread, like the sister's report.c, so a file write
-// never lands inside a 33 ms tick) only ever reads them.
-// ---------------------------------------------------------------------
+// [v24] Report-file side: live_send() publishes its counters into these globals at each 5 s row and at...
+// More: docs/code-comments.md (shell-feed/source/shell_report.c:152)
 
 volatile int      g_shState = SH_STARTING;
 volatile int      g_shStopReason = 0;

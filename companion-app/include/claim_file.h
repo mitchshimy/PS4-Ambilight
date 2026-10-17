@@ -1,25 +1,5 @@
 // claim_file.h -- the companion app's half of /data/ps4-ambilight/ps4_ambient_state.
-//
-// The shell feed (shell-feed/) samples the console's own screens and sends them to the strip
-// whenever no game is driving it. It learns about a game from this file. The companion app is
-// not a game, but it drives the same strip (the live preview on Set up and Customization, and
-// Test strip), and used to fight the shell feed for it: WLED alternated between the two
-// senders and the LEDs flickered. So while the app is sending, it claims the strip the same
-// way a game's plugin does, and the shell feed stays out of the way.
-//
-// Same record, same rules as plugin/include/state_file.h (v1, 35 bytes, written at offset 0
-// without truncating so a reader never sees a torn write); only the title differs. That file
-// is deliberately not included from here -- this app's build has no ../plugin on its include
-// path -- so the format is repeated below, and tests/test_claim_file.c checks it byte for
-// byte against the plugin's real state_format().
-//
-// Reader rules this has to satisfy (docs/development/shell-feed-coordination.md):
-//  * a claim is fresh while fg=1 and seq keeps CHANGING (staleness window 2.5 s),
-//  * the first record a reader ever sees cannot arm a claim by itself, only a change can,
-//  * fg=0 releases at once, and a crash just stops the heartbeat and expires on its own.
-// So: seq continues from whatever is on disk (the next record always differs from the last
-// one a reader saw), fg=1 is written the moment the app starts sending, then once a second,
-// and fg=0 exactly once when it stops.
+// More: docs/code-comments.md (companion-app/include/claim_file.h:1)
 #ifndef CLAIM_FILE_H
 #define CLAIM_FILE_H
 

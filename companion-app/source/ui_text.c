@@ -1,12 +1,5 @@
-// ui_text.c -- see ui_text.h.
-//
-// FreeType usage is deliberately kept to the same tiny API surface the
-// previous text_render.c proved linkable against this SDK's
-// libSceFreeType (FT_Init_FreeType / FT_New_Memory_Face /
-// FT_Set_Pixel_Sizes / FT_Load_Char / FT_Done_Face /
-// FT_Done_FreeType), plus FT_Get_Char_Index, which is needed to tell
-// "this face has no glyph for U+25CB" from "this face rendered a
-// blank" so the fallback chain can work at all.
+// ui_text.c -- see ui_text.h. FreeType usage is deliberately kept to the same tiny API surface the...
+// More: docs/code-comments.md (companion-app/source/ui_text.c:1)
 
 #include "ui_text.h"
 
@@ -19,51 +12,20 @@
 #include <math.h>
 
 #ifndef UI_TEXT_DESKTOP_HARNESS
-// This must be unconditional in the real build. An earlier pass gated
-// it behind `#ifdef __ORBIS__` to let the desktop verification harness
-// (which has no orbis/* headers) compile -- but __ORBIS__ is not a
-// macro this toolchain defines anywhere (grep the whole codebase and
-// build.bat: it appears nowhere else), so on the real OpenOrbis clang
-// invocation that guard was always false. That silently compiled out
-// both this include and the sceSysmoduleLoadModule() call below on
-// every real build, while main.c's own unconditional orbis/* includes
-// were unaffected -- which is exactly why this went undetected until a
-// real crash log: the file still compiled and linked cleanly with the
-// FreeType sysmodule never actually loaded, so the first real
-// FT_Init_FreeType call (confirmed by reversing its PS4 NID against
-// the crash log's "Required Function NID") faulted as
-// PRX_NOT_RESOLVED_FUNCTION -- the same failure mode, for the same
-// reason, as the ImeDialog bug this project already solved once.
-// UI_TEXT_DESKTOP_HARNESS is instead defined explicitly, only by the
-// desktop harness's own build command, so the default here -- what a
-// plain build.bat invocation sees -- is the real, production include.
+// The FreeType sysmodule load must be unconditional: __ORBIS__ is never defined by this toolchain, so gating on it
+// compiled the load out and crashed (PRX_NOT_RESOLVED_FUNCTION). The desktop harness defines UI_TEXT_DESKTOP_HARNESS.
 #include <orbis/Sysmodule.h>
 #endif
 
-// Desktop-harness stand-in for the one orbis call this file makes, so
-// harness builds (which link no orbis libraries at all) still resolve
-// the symbol; real builds never see this, since UI_TEXT_DESKTOP_HARNESS
-// is never defined by build.bat.
+// Desktop-harness stand-in for the one orbis call this file makes, so harness builds (which link no...
+// More: docs/code-comments.md (companion-app/source/ui_text.c:43)
 #ifdef UI_TEXT_DESKTOP_HARNESS
 static int sceSysmoduleLoadModule(unsigned int id) { (void)id; return 0; }
 #define ORBIS_SYSMODULE_FREETYPE_OL 0
 #endif
 
-// --- Workaround for this SDK snapshot's freetype2 headers ---
-// Carried over verbatim in spirit from the old text_render.c: the
-// headers expose the types and constants but leave these base-API
-// functions undeclared, even though libSceFreeType exports them under
-// exactly these names. Redeclaring with FreeType's stable public
-// signatures is harmless on a desktop build too (a duplicate extern
-// declaration is not an error in C).
-//
-// FT_Get_Name_Index is deliberately NOT in this list. A real
-// OpenOrbis build (clang, not this file's desktop gcc build) failed
-// with "conflicting types for 'FT_Get_Name_Index'" -- this SDK's
-// freetype.h, unlike the functions below, already declares it via
-// FT_EXPORT(), whose visibility attribute a plain extern redeclaration
-// doesn't match. Call it through the real declaration that
-// FT_FREETYPE_H already brings in instead of redeclaring it here.
+// --- Workaround for this SDK snapshot's freetype2 headers --- Carried over verbatim in spirit from...
+// More: docs/code-comments.md (companion-app/source/ui_text.c:52)
 FT_Error FT_Init_FreeType(FT_Library *alibrary);
 FT_Error FT_Done_FreeType(FT_Library library);
 FT_Error FT_New_Memory_Face(FT_Library library, const FT_Byte *file_base, FT_Long file_size, FT_Long face_index, FT_Face *aface);
@@ -73,12 +35,8 @@ FT_UInt  FT_Get_Char_Index(FT_Face face, FT_ULong charcode);
 FT_Error FT_Load_Glyph(FT_Face face, FT_UInt glyph_index, FT_Int32 load_flags);
 FT_Error FT_Get_Kerning(FT_Face face, FT_UInt left, FT_UInt right, FT_UInt kern_mode, FT_Vector *akerning);
 
-// Standard Latin f-ligatures. Chrome applies the `liga` feature by
-// default, so "offset" is drawn with a single f_f glyph that is ~3px
-// narrower at 16px than two f's. Without this, every word after an
-// "ff" on a line sits a few pixels right of where the blueprint puts
-// it. Only these five are needed for the design's copy; anything not
-// present in the face falls back to the plain glyph sequence.
+// Standard Latin f-ligatures. Chrome applies the `liga` feature by default, so "offset" is drawn with...
+// More: docs/code-comments.md (companion-app/source/ui_text.c:76)
 typedef struct { const char *seq; const char *glyphName; } Ligature;
 static const Ligature kLigatures[] = {
     { "ffi", "f_f_i" },
@@ -144,24 +102,8 @@ static uint8_t *read_whole_file(const char *path, long *outSize)
 
 UiFont *ui_font_load(const char *path, int pixelSize)
 {
-    // FreeType is a separate runtime sysmodule on PS4 -- linking
-    // -lSceFreeType is not enough. Confirmed against OpenOrbis's own
-    // samples/_common/graphics.cpp, which loads this before its first
-    // FT_Init_FreeType call. Loading twice (once per ui_font_load
-    // call, one per bundled font) is harmless -- it's the documented
-    // idempotent pattern for this API.
-    //
-    // This call, and the check on its result, must never be skipped:
-    // a version of this file that compiled it out on the real target
-    // (via an unverified __ORBIS__ guard meant only for the desktop
-    // harness) shipped once already and crashed on console with
-    // PRX_NOT_RESOLVED_FUNCTION on the very first FT_Init_FreeType
-    // call below, because that call's import was never resolved
-    // against a loaded module. If this load ever genuinely fails,
-    // bail out here rather than let that happen again -- draw calls
-    // against a NULL UiFont* are already safe no-ops everywhere else
-    // in this file, so returning NULL degrades to "no text", not a
-    // crash.
+    // Load the FreeType sysmodule before FT_Init_FreeType (linking is not enough) and bail out if it fails;
+    // skipping this crashed on console. A NULL font just draws no text. [docs/code-comments.md]
     int sysmoduleRet = sceSysmoduleLoadModule(ORBIS_SYSMODULE_FREETYPE_OL);
     if (sysmoduleRet < 0) {
         printf("[text] sceSysmoduleLoadModule(FREETYPE_OL) failed: 0x%08x\n", sysmoduleRet);
@@ -190,11 +132,8 @@ UiFont *ui_font_load(const char *path, int pixelSize)
     f->fileData = data;
     f->pixelSize = pixelSize;
 
-    // Metrics are computed from the face's design values rather than
-    // face->size->metrics, which FreeType rounds to whole pixels. That
-    // rounding is enough to move a baseline by a pixel at these sizes,
-    // and every vertical position in the screens is derived from these
-    // numbers.
+    // Metrics are computed from the face's design values rather than face->size->metrics, which FreeType...
+    // More: docs/code-comments.md (companion-app/source/ui_text.c:193)
     float upem = (float)f->face->units_per_EM;
     if (upem <= 0.0f) upem = 1000.0f;
     float scale = (float)pixelSize / upem;
@@ -258,12 +197,8 @@ static void rasterise_into(UiFont *f, UiGlyph *g, uint32_t cp)
     g->present = (g->index != 0);
     if (!g->present) return;
 
-    // FT_LOAD_NO_HINTING matters here. With hinting on, FreeType
-    // snaps stems to the pixel grid and rounds each advance, which
-    // makes a long line of text drift several pixels away from where
-    // the browser puts it by the end of the line. Chrome lays this
-    // design out with unhinted, linearly-scaled advances; matching
-    // that keeps wrap points and line widths identical.
+    // FT_LOAD_NO_HINTING matters here.
+    // More: docs/code-comments.md (companion-app/source/ui_text.c:261)
     if (FT_Load_Char(f->face, (FT_ULong)cp, FT_LOAD_RENDER | FT_LOAD_NO_HINTING) != 0) { g->present = false; return; }
 
 copy_bitmap:;
@@ -330,15 +265,8 @@ static uint32_t utf8_next(const char **p)
     return cp;
 }
 
-// Consumes a ligature at *p if one applies, returning its synthetic
-// codepoint, or 0 if the next character should be handled normally.
-// Kerning. The bundled Space Grotesk faces carry a `kern` table
-// generated from their own GPOS pair positioning, restricted to the
-// glyphs this UI can draw, because FreeType only reads the legacy
-// table and the upstream font ships kerning in GPOS only. It is not
-// cosmetic: unkerned, the Screen sampling description measures
-// 1301.6px against a 1300px max-width and wraps a word earlier than
-// the blueprint does.
+// Consumes a ligature at *p if one applies, returning its synthetic codepoint, or 0 if the next...
+// More: docs/code-comments.md (companion-app/source/ui_text.c:333)
 static float kern_between(UiFont *f, FT_UInt prev, FT_UInt cur)
 {
     if (!prev || !cur) return 0.0f;

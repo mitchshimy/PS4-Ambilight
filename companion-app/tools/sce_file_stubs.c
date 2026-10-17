@@ -1,9 +1,5 @@
-// Desktop stand-ins for sceKernel* file I/O, so config.c (which calls
-// these directly, matching the real plugin's fopen-crash fix) can be
-// compiled on a PC by tools/ui_preview.sh. NOT part of the shipped
-// app -- the real PS4 build gets these from orbis/libkernel.h via the
-// actual toolchain, same as every other sceKernel* call in this
-// entire project.
+// Desktop stand-ins for sceKernel* file I/O, so config.c (which calls these directly, matching the...
+// More: docs/code-comments.md (companion-app/tools/sce_file_stubs.c:1)
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdint.h>

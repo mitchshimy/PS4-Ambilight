@@ -1,6 +1,5 @@
-// The scan that finds one asset's API URL in GitHub's "latest release" JSON, split out of main.c so
-// a PC test can run it (tests/test_github_release_json.c). Used by net_http.c. The code is as it
-// ran on hardware; only "static" became "static inline".
+// The scan that finds one asset's API URL in GitHub's "latest release" JSON, split out of main.c so a...
+// More: docs/code-comments.md (companion-app/include/github_release_json.h:1)
 #ifndef GITHUB_RELEASE_JSON_H
 #define GITHUB_RELEASE_JSON_H
 
@@ -9,21 +8,8 @@
 #include <stdio.h>
 #include <string.h>
 
-// Hand-rolled scan for one field, NOT a general JSON parser -- there's
-// no JSON library linked into this app, and GitHub's release-asset
-// response shape (each asset object listing "url" as its first field,
-// well before "name") is stable enough that this is a reasonable,
-// low-risk way to pull one string out of it rather than pulling in a
-// dependency for one lookup. It only has to survive being handed
-// GitHub's own JSON, not arbitrary/hostile input.
-//
-// Finds the asset object in releaseJson whose "name" field equals
-// assetName exactly (not e.g. a prefix match against
-// "ps4_ambient_light.prx.sha256" when looking for
-// "ps4_ambient_light.prx"), and copies that object's "url" field
-// (the asset's own small api.github.com URL -- NOT
-// "browser_download_url", which just redirects through github.com's
-// web app again, the exact thing this whole fix avoids) into outUrl.
+// Hand-rolled scan for one field, NOT a general JSON parser -- there's no JSON library linked into...
+// More: docs/code-comments.md (companion-app/include/github_release_json.h:12)
 static inline bool github_json_find_asset_url(const char *releaseJson, const char *assetName,
                                         char *outUrl, size_t outUrlSize)
 {
@@ -37,21 +23,15 @@ static inline bool github_json_find_asset_url(const char *releaseJson, const cha
     char needleSpaced[160];
     snprintf(needleSpaced, sizeof(needleSpaced), "\"name\": \"%s\"", assetName);
 
-    // needle/needleSpaced both end in the closing '"' right after
-    // assetName, so a match against either already rules out matching
-    // "ps4_ambient_light.prx" as a prefix inside
-    // "ps4_ambient_light.prx.sha256" -- no separate boundary check
-    // needed.
+    // needle/needleSpaced both end in the closing '"' right after assetName, so a match against either...
+    // More: docs/code-comments.md (companion-app/include/github_release_json.h:40)
     const char *m1 = strstr(releaseJson, needle);
     const char *m2 = strstr(releaseJson, needleSpaced);
     namePos = m1 && (!m2 || m1 < m2) ? m1 : m2;
     if (!namePos) return false;
 
-    // The asset object's "url" field comes before "name" in GitHub's
-    // schema, so walk backward from namePos to this asset's opening
-    // '{' (the nearest unmatched '{' scanning left), then search
-    // forward from there (not from the start of the whole response)
-    // so we can't accidentally grab a different asset's "url".
+    // The asset object's "url" field comes before "name" in GitHub's schema, so walk backward from namePos...
+    // More: docs/code-comments.md (companion-app/include/github_release_json.h:50)
     const char *objStart = namePos;
     int depth = 0;
     while (objStart > releaseJson) {

@@ -1,9 +1,5 @@
 // default_ini.h -- the ini the plugin writes on first run when none exists.
-// Kept identical to plugin/config/ps4_ambient_light.ini (the copy people
-// download) -- companion-app/tests/test_presets.c compares the two, and
-// compares the two preset sections against the app's shipped presets, so a
-// change to either side that forgets the other fails a test instead of
-// shipping. Own header, plain C string, so a PC can build it.
+// More: docs/code-comments.md (plugin/include/default_ini.h:1)
 #ifndef DEFAULT_INI_H
 #define DEFAULT_INI_H
 

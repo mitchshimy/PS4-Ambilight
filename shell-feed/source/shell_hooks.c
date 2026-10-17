@@ -15,10 +15,8 @@ static void print8(const char *label, const uint8_t b[8])
            b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]);
 }
 
-// ---------------------------------------------------------------------
-// Shared state, written by hooks, read by the reporter thread. Plain
-// volatile counters: diagnostics only, torn reads are acceptable.
-// ---------------------------------------------------------------------
+// Shared state, written by hooks, read by the reporter thread.
+// More: docs/code-comments.md (shell-feed/source/shell_hooks.c:18)
 
 volatile uint32_t g_regCount  = 0;
 volatile uint32_t g_flipCount = 0;
@@ -101,10 +99,8 @@ static int report_patch(const char *what, void *target, void *hookfn,
     return changed;
 }
 
-// [v10] HOOK32 patches a 32-bit relative jump, which cannot reach a hook function
-// more than 2 GB from its target. v3-v8 only LOGGED that condition (it never occurred
-// in the shell). In the compositor an unreachable hook would crash it on the first
-// call, so v10 refuses to patch instead. Returns 1 if the hook is reachable.
+// HOOK32 patches a 32-bit relative jump: refuse to patch when the hook is over 2 GB from its target,
+// an unreachable hook would crash the compositor on its first call. [docs/code-comments.md]
 static int hook_reachable(const char *what, void *target, void *hookfn)
 {
     int64_t delta = (int64_t)((uintptr_t)hookfn - (uintptr_t)target);
@@ -116,10 +112,8 @@ static int hook_reachable(const char *what, void *target, void *hookfn)
     return 1;
 }
 
-// Installs both hooks, each with a before/after byte check, and says how many took. A target that is a
-// forwarding stub (first byte 0xE9) or farther than 2 GB from its hook is left alone. The patched counts go
-// back to module_start(), which stops if neither hook went in.
-// (Moved out of module_start() unchanged; the hook functions, HOOK_INIT and HOOK32 have to share a file.)
+// Installs both hooks, each with a before/after byte check, and says how many took.
+// More: docs/code-comments.md (shell-feed/source/shell_hooks.c:119)
 void shell_hooks_install(void *pReg, void *pFlip, int *outPatchedReg, int *outPatchedFlip)
 {
 
@@ -155,9 +149,8 @@ void shell_hooks_install(void *pReg, void *pFlip, int *outPatchedReg, int *outPa
 void shell_hooks_control_calls(void *pReg, void *pFlip, int patchedReg, int patchedFlip)
 {
 
-    // 5. Positive control: call the PATCHED entry points (raw resolved addresses,
-    // not the trampoline pointers) with an invalid handle (-1). Assumed, not
-    // verified in the compositor: rejected at argument validation, as in the shell.
+    // 5. Positive control: call the PATCHED entry points (raw resolved addresses, not the trampoline...
+    // More: docs/code-comments.md (shell-feed/source/shell_hooks.c:158)
     if (patchedFlip && pFlip != NULL) {
         uint32_t c0 = g_flipCount;
         printf(TAG " control: about to call SubmitFlip(handle=-1) via %p\n", pFlip);

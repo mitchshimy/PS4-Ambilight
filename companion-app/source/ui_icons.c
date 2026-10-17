@@ -1,11 +1,5 @@
 // ui_icons.c -- SVG path parsing + the blueprint's icon set.
-//
-// The parser handles the subset the blueprint actually uses: M, L, H,
-// V, C, S, A and Z, in both absolute and relative form, with SVG's
-// usual number syntax (comma or whitespace separated, signs acting as
-// separators, decimals without a leading zero). Curves and arcs are
-// flattened to polylines at a resolution tied to the drawn size, so a
-// 17px field-label icon and a 30px card-title icon both stay smooth.
+// More: docs/code-comments.md (companion-app/source/ui_icons.c:1)
 
 #include "ui_icons.h"
 
@@ -21,9 +15,8 @@
 
 #define MAX_SUBPATH_PTS 512
 
-// ---------------------------------------------------------------
 // Shape description
-// ---------------------------------------------------------------
+// More: docs/code-comments.md (companion-app/source/ui_icons.c:24)
 
 typedef enum {
     SH_PATH,       // d string
@@ -51,24 +44,15 @@ typedef struct {
     bool roundCap;        // stroke-linecap="round"
 } IconDef;
 
-// CUR ("currentColor") and CHAN_* are compound-literal macros, not
-// static const objects: a static const UiColor CUR = {...} object
-// compiles under GCC's default GNU-extension leniency, but Clang
-// (which this project's toolchain uses, and which does not extend
-// that particular allowance) hard-errors on it with "initializer
-// element is not a compile-time constant" the moment CUR's *value* is
-// read into another static Shape[] initializer below -- reading a
-// named object's value isn't a constant expression in standard C. A
-// compound literal built entirely from constant scalars doesn't have
-// that problem, since there's no named object being read.
+// CUR ("currentColor") and CHAN_* are compound-literal macros, not static const objects: a static...
+// More: docs/code-comments.md (companion-app/source/ui_icons.c:54)
 #define CUR ((UiColor){ 0, 0, 0, 0 })
 #define CHAN_RED   ((UiColor){ 0xff, 0x6b, 0x5b, 255 })
 #define CHAN_GREEN ((UiColor){ 0x5f, 0xdc, 0x94, 255 })
 #define CHAN_BLUE  ((UiColor){ 0x5b, 0x9d, 0xff, 255 })
 
-// ---------------------------------------------------------------
 // Number / command scanning
-// ---------------------------------------------------------------
+// More: docs/code-comments.md (companion-app/source/ui_icons.c:69)
 
 static void skip_sep(const char **p)
 {
@@ -104,9 +88,8 @@ static bool is_cmd(char ch)
     return strchr("MmLlHhVvCcSsAaZzQqTt", ch) != NULL;
 }
 
-// ---------------------------------------------------------------
 // Flattening
-// ---------------------------------------------------------------
+// More: docs/code-comments.md (companion-app/source/ui_icons.c:107)
 
 typedef struct {
     float pts[MAX_SUBPATH_PTS * 2];
@@ -145,11 +128,8 @@ static void flatten_cubic(SubPath *sp, float x0, float y0, float x1, float y1,
     }
 }
 
-// SVG endpoint-parameterised elliptical arc -> centre parameterisation,
-// then flattened. Straight out of the SVG 1.1 implementation notes
-// (F.6.5); several blueprint icons (the wifi arcs, the refresh ring,
-// the moon, the droplet) are built from these and look wrong if
-// approximated as circles.
+// SVG endpoint-parameterised elliptical arc -> centre parameterisation, then flattened.
+// More: docs/code-comments.md (companion-app/source/ui_icons.c:148)
 static void flatten_arc(SubPath *sp, float x0, float y0, float rx, float ry,
                          float phiDeg, bool largeArc, bool sweep,
                          float x1, float y1, float scale)
@@ -208,10 +188,8 @@ static void flatten_arc(SubPath *sp, float x0, float y0, float rx, float ry,
     }
 }
 
-// Parses `d` (already in viewBox units) and emits flattened subpaths
-// through `sink`. `scale` is the viewBox-to-pixel factor, used only to
-// pick a flattening resolution; coordinates stay in viewBox units and
-// are transformed by the caller.
+// Parses `d` (already in viewBox units) and emits flattened subpaths through `sink`.
+// More: docs/code-comments.md (companion-app/source/ui_icons.c:211)
 static void parse_path(const char *d, float scale, SubPathSink sink, void *user)
 {
     SubPath sp;
@@ -326,9 +304,8 @@ static void parse_path(const char *d, float scale, SubPathSink sink, void *user)
     if (sp.n > 0) sink(user, &sp);
 }
 
-// ---------------------------------------------------------------
 // Icon data -- transcribed from the blueprint's SVG markup
-// ---------------------------------------------------------------
+// More: docs/code-comments.md (companion-app/source/ui_icons.c:329)
 
 static const Shape SH_WIFI[] = {
     { SH_PATH, "M4.5 9.2a11 11 0 0 1 15 0", {0}, false, 0, CUR },
@@ -522,9 +499,8 @@ static const IconDef kIcons[ICON_COUNT] = {
     [ICON_CHECK]       = DEF(SH_CHECK, 2.2f, true),
 };
 
-// ---------------------------------------------------------------
 // Drawing
-// ---------------------------------------------------------------
+// More: docs/code-comments.md (companion-app/source/ui_icons.c:525)
 
 typedef struct {
     UiShape *shape;
@@ -574,9 +550,8 @@ void ui_icon_draw(UiCanvas *c, UiIconId id, float x, float y, float size, UiColo
     for (int i = 0; i < def->count; i++) {
         const Shape *sh = &def->shapes[i];
         UiColor col = (sh->color.a == 0) ? color : sh->color;
-        // .icon inherits its parent's alpha; the one place the
-        // blueprint sets opacity on a sub-shape is the contrast icon's
-        // centre rule.
+        // .icon inherits its parent's alpha; the one place the blueprint sets opacity on a sub-shape is the...
+        // More: docs/code-comments.md (companion-app/source/ui_icons.c:577)
         if (id == ICON_SPLIT && i == 1) col = ui_fade(col, 0.5f);
 
         float sw = (sh->strokeWidth > 0 ? sh->strokeWidth : def->strokeWidth) * scale;
@@ -610,10 +585,8 @@ void ui_icon_draw(UiCanvas *c, UiIconId id, float x, float y, float size, UiColo
 
             case SH_LINE: {
                 float pts[4] = { sh->p[0], sh->p[1], sh->p[2], sh->p[3] };
-                // A zero-length "line" is how the blueprint draws a dot
-                // (e.g. the wifi icon's base). With round caps that is a
-                // disc of the stroke width; with butt caps it would
-                // vanish, so force a cap here.
+                // A zero-length "line" is how the blueprint draws a dot (e.g. the wifi icon's base).
+                // More: docs/code-comments.md (companion-app/source/ui_icons.c:613)
                 bool degenerate = (fabsf(pts[0] - pts[2]) < 0.05f && fabsf(pts[1] - pts[3]) < 0.05f);
                 bool saveCap = ctx.roundCap;
                 if (degenerate) ctx.roundCap = true;

@@ -1,24 +1,5 @@
 // color_pipeline.c -- the companion app's live-preview color math.
-//
-// This is NOT a reimplementation. Every function below (the gamma
-// LUTs, the fast log2/exp2 approximation, the per-channel gamma LUT
-// builder, and applyBrightness/ChannelBrightnessPct/Contrast/
-// Saturation/Levels/writeColorOrdered/applyColorProcessing) is copied
-// verbatim from ps4_ambient_light v2.2's own main.c, specifically so
-// the preview this app shows is numerically identical to what the
-// plugin actually produces -- not an approximation that could quietly
-// drift from the real pipeline as it evolves.
-//
-// If ps4_ambient_light's color pipeline changes again, re-sync this
-// file from the plugin's main.c -- don't hand-edit it independently.
-//
-// One deliberate adaptation for the preview use case: the real plugin
-// applies per-channel gamma (gamma_r/g/b) PER SAMPLE PIXEL, before
-// zone-averaging several samples together. There's no buffer of
-// samples here, just one preview swatch color -- treating that single
-// color as the one sampled pixel and applying per-channel gamma to it
-// directly is the mathematically correct equivalent, not a
-// simplification (averaging a single value is a no-op).
+// More: docs/code-comments.md (companion-app/source/color_pipeline.c:1)
 
 #include "color_pipeline.h"
 #include <string.h>
@@ -172,9 +153,8 @@ static const uint8_t kGammaLuts[NUM_GAMMA_LUTS][256] = {
 };
 
 
-// ---- verbatim from ps4_ambient_light v2.2 main.c (fast log2/exp2 for
-// the arbitrary-percentage per-channel gamma controls -- no libm
-// linked in either project, see each file's own Makefile) ----
+// verbatim from ps4_ambient_light v2.2 main.c (fast log2/exp2 for the arbitrary-percentage per-channel...
+// More: docs/code-comments.md (companion-app/source/color_pipeline.c:175)
 
 static float ambient_fast_log2(float x)
 {
@@ -225,12 +205,8 @@ void colorpipeline_rebuild_perchannel_gamma_luts(const AmbientConfig *cfg)
     ambient_build_one_gamma_lut(cfg->gammaB, g_gammaLutB);
 }
 
-// ---- verbatim from ps4_ambient_light v2.2 main.c (the rest of the
-// pipeline -- unclamped int32_t between every stage, one clamp+round
-// at the very end in applyLevels, matching Android's real float
-// pipeline exactly rather than the v2.0/v2.1 byte-clamped version --
-// see the plugin's own extensive comments on why, reproduced there,
-// not duplicated here) ----
+// verbatim from ps4_ambient_light v2.2 main.c (the rest of the pipeline -- unclamped int32_t between...
+// More: docs/code-comments.md (companion-app/source/color_pipeline.c:228)
 
 static int32_t applyBrightness(int32_t c, uint32_t brightness)
 {
@@ -295,11 +271,8 @@ static void applyLevels(int32_t r, int32_t g, int32_t b, uint32_t blackLevel, ui
     #undef CLAMP255
 }
 
-// Preview entry point. Applies per-channel gamma first (see the file
-// header note on why that's correct for a single swatch color), then
-// hands off to the exact same chain the real plugin runs per zone:
-// gamma(legacy global LUT) -> brightness(global+per-channel) ->
-// contrast -> saturation -> levels -> wire order.
+// Preview entry point. Applies per-channel gamma first (see the file header note on why that's correct...
+// More: docs/code-comments.md (companion-app/source/color_pipeline.c:298)
 void colorpipeline_process(const AmbientConfig *cfg, uint8_t r8, uint8_t g8, uint8_t b8, uint8_t *out3)
 {
     // per-channel gamma (per-sample, pre-averaging in the real

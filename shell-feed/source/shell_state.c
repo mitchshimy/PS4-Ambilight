@@ -1,12 +1,9 @@
-// shell_state.c -- the foreground handshake with the game plugin. Reads the plugin's state file
-// (plugin/source/state.c writes it; docs/development/shell-feed-coordination.md) and writes the shell
-// feed's own heartbeat file, which the plugin reads to tell a running shell feed from a missing one.
+// shell_state.c -- the foreground handshake with the game plugin.
+// More: docs/code-comments.md (shell-feed/source/shell_state.c:1)
 #include "shell_internal.h"
 
-// Heartbeat for the game plugin: a fixed-width, ever-changing counter rewritten about once a second, so the plugin can
-// tell a shell feed that is really running from one that is switched off, crashed, or not installed (it sees the value
-// stop changing). Deliberately the same tiny open/write/close the state file uses, without O_TRUNC, and on the same
-// 1 s cadence as the ini poll next to it, so it adds nothing the loop was not already doing every second.
+// Heartbeat for the game plugin: a fixed-width, ever-changing counter rewritten about once a second...
+// More: docs/code-comments.md (shell-feed/source/shell_state.c:6)
 #define SHELL_ALIVE_PATH AMBILIGHT_DATA_DIR "/ps4_shell_alive"
 void shell_heartbeat(uint64_t nowTsc, uint64_t tscHz, uint64_t *nextBeatTsc, uint64_t counter)
 {
@@ -21,12 +18,8 @@ void shell_heartbeat(uint64_t nowTsc, uint64_t tscHz, uint64_t *nextBeatTsc, uin
     sceKernelClose(fd);
 }
 
-// ---------------------------------------------------------------------
-// ---------------------------------------------------------------------
-// [v25] Simple foreground-bit gate. The shell reader does not infer ownership from seq
-// changes, heartbeat freshness, or WLED send activity. A readable fg=1 backs shell feed off;
-// a readable fg=0 releases it. Before any valid record, allow shell feed. After a valid record,
-// retain the last foreground bit on read errors rather than failing open.
+// [v25] Simple foreground-bit gate.
+// More: docs/code-comments.md (shell-feed/source/shell_state.c:24)
 
 static int state_read_foreground(int *fgOut)
 {

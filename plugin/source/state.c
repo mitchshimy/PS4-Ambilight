@@ -1,35 +1,5 @@
-// state.c -- direct foreground/background state writer for the shell-feed gate.
-//
-// The shell feed must not infer game ownership from successful WLED transmissions,
-// output counters, flip counters, sequence freshness, or sampler progress. The rule is
-// deliberately simple: while this game plugin reports the title in the foreground,
-// publish fg=1; when the title is backgrounded, publish fg=0.
-//
-// ONE exception, a launch-only latch (docs/debugging/launch-gap-test.md): fg=1 is not published
-// until this process has completed its first DDP send. Before that the game is "foreground" but
-// cannot drive the strip yet (launch captures: first flip hook ~3.1 s after load), and publishing
-// fg=1 early made the shell feed back off into a ~3.2 s silence. The latch is read once, becomes
-// true once, and is never cleared; after it, ownership follows g_isBackgrounded exactly as before
-// (no per-frame or per-send inference, no heartbeat). A title that never sends (unsupported,
-// unreadable buffers) stays fg=0, so the shell feed keeps the strip instead of leaving it dark.
-//
-// The same thread also keeps g_shellFeedAlive for network.c's startup hold: from load until the first
-// send it asks ambient_shell_feed_expected() (settings.c) about every 300 ms whether the shell feed's
-// heartbeat file is still changing, then stops, so normal play does no file or ini reads. It also stops
-// after about one minute (SHELL_POLL_CAP_TICKS) if the title never sends, so an unsupported title does not
-// open files and parse the ini for the whole session; g_shellFeedAlive then keeps its last answer -- unless
-// relay_signal_enabled is on (the maintainer's own wled-relay), which keeps the check going at 1 Hz so the relay
-// hand-off knows whether the shell feed is up when the game backgrounds. That is
-// a read of a different file, not a write of this one; this file still has no heartbeat.
-//
-// This thread polls the already-maintained g_isBackgrounded flag at 10 Hz and writes
-// only the initial state and actual state transitions. File I/O stays off the sampler's
-// hot path. Records remain fixed-width and are written at offset zero without O_TRUNC.
-//
-// Limitation: if the plugin/process exits or crashes without publishing fg=0, the last
-// state may remain on disk. The current reader intentionally does not use seq freshness
-// as an ownership signal, so stale-state recovery must be handled separately rather than
-// silently reintroducing output/heartbeat inference. This prototype does not yet hook unload.
+// The state file reports only the foreground bit (fg=1 after the first successful send, then follows g_isBackgrounded);
+// never infer ownership from output, flips or seq. Fixed-width writes at offset 0, no O_TRUNC. [docs/code-comments.md]
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -98,17 +68,13 @@ static int ambient_state_tick(StateRunState *rs)
     return 0; // unchanged foreground state: no transmission checks, no heartbeat, no write
 }
 
-// Is the shell feed really running? Judged from plugin load until the first send, so the answer is already
-// there when the game feed's first frame arrives (network.c's startup hold reads it). About every 300 ms.
-// Stops for good once the first send has gone out, and after about one minute if none ever does (an
-// unsupported title), so neither normal play nor a title that never sends keeps reading files or the ini;
-// g_shellFeedAlive keeps its last answer. Separate from the thread so tools/test_state.c can exercise it.
+// Is the shell feed really running?
+// More: docs/code-comments.md (plugin/source/state.c:101)
 static void ambient_state_shell_poll(StateRunState *rs)
 {
     bool startupWindow = !rs->firstSendSeen && rs->shellTicks < SHELL_POLL_CAP_TICKS;
-    // Relay hand-off (network.c, relay_release_external_source): a game that backgrounds or exits must know
-    // whether the shell feed is running right now, so with relay_signal_enabled on the check carries on after
-    // the startup window, once a second. Off by default, so for everyone else this still stops as before.
+    // Relay hand-off (network.c, relay_release_external_source): a game that backgrounds or exits must...
+    // More: docs/code-comments.md (plugin/source/state.c:109)
     bool relayWatch = g_config.relaySignalEnabled;
     if (!startupWindow && !relayWatch) return;
     if (startupWindow) rs->shellTicks++;

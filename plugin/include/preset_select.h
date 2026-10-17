@@ -1,15 +1,5 @@
 // preset_select.h -- which ini section supplies the preset-owned settings.
-// Own header, string logic only.
-//
-// The ini holds two complete presets, [preset_game] and [preset_movie], and
-// [presets] active= says which one runs. A title in media_titles.h runs movie
-// whatever active says, because that is the whole point of having a preset
-// per kind of content: Netflix gets its own smoothing without anyone opening
-// the app.
-//
-// If the wanted preset has no section the other one is used, and if neither
-// exists the answer is NULL, meaning "an ini from before v3.8, read the old
-// flat [layout]/[color]/[timing] keys". So old inis keep working untouched.
+// More: docs/code-comments.md (plugin/include/preset_select.h:1)
 #ifndef PRESET_SELECT_H
 #define PRESET_SELECT_H
 

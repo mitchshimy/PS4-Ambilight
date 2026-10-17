@@ -1,10 +1,5 @@
 // ui_theme.h -- style.css :root, transcribed.
-//
-// Every colour below is the literal token from the blueprint's
-// stylesheet, including the ones written as rgba() -- those stay
-// translucent here rather than being flattened to a "solid
-// approximation", because a 9%-white hairline over a #15171b panel
-// and a #2b2e34 opaque line are visibly different at 1px.
+// More: docs/code-comments.md (companion-app/source/ui_theme.h:1)
 
 #ifndef UI_THEME_H
 #define UI_THEME_H
@@ -32,13 +27,8 @@
 
 // ---- accents ----
 #define COL_AMBER        ui_rgb(0xff, 0xb4, 0x54)
-// A visibly brighter amber for a solid-fill control's focused state
-// (the Save button) -- not a blueprint token, since the blueprint has
-// no console-focus concept at all; needed because corner brackets
-// drawn on top of an already-amber fill (ui_focus_brackets' usual
-// treatment) have too little contrast to see, which was the actual
-// complaint this fixes: the save button looked identical focused or
-// not.
+// A visibly brighter amber for a solid-fill control's focused state (the Save button) -- not a...
+// More: docs/code-comments.md (companion-app/source/ui_theme.h:35)
 #define COL_AMBER_BRIGHT ui_rgb(0xff, 0xcb, 0x87)
 #define COL_AMBER_DIM    ui_rgba(255, 180, 84, 0.16f)
 #define COL_CYAN         ui_rgb(0x5c, 0xd6, 0xdf)
@@ -51,9 +41,8 @@
 // .save-btn all use #231506).
 #define COL_ON_AMBER     ui_rgb(0x23, 0x15, 0x06)
 
-// ---- fonts ----
-// Named for the rule they serve in style.css, so a call site reads
-// like the stylesheet it came from.
+// fonts Named for the rule they serve in style.css, so a call site reads like the stylesheet it came from.
+// More: docs/code-comments.md (companion-app/source/ui_theme.h:54)
 typedef struct {
     UiFont *h1;             // Space Grotesk 700 / 50px
     UiFont *pageSub;        // 400 / 19px

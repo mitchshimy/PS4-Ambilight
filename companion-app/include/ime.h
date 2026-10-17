@@ -1,10 +1,5 @@
-// The on-screen keyboard for the numeric and string rows of the settings screens, split out of
-// main.c. It knows nothing about main.c's globals: everything it needs comes in through ImeHost.
-//
-// Flow: Cross on a FIELD_STRING / FIELD_U32 / FIELD_I32 / FIELD_U16 row calls ime_open_field();
-// every frame while ime_is_open(), the main loop calls ime_update(), which does nothing until the
-// system keyboard closes, then applies (or discards) what was typed and reports through
-// host->status. ime_shutdown() closes a dialog that is still open when the app quits.
+// The on-screen keyboard for the numeric and string rows of the settings screens, split out of main.c....
+// More: docs/code-comments.md (companion-app/include/ime.h:1)
 #ifndef IME_H
 #define IME_H
 

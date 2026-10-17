@@ -1,7 +1,5 @@
-// gamma.c -- part of ps4_ambient_light, split out of the original
-// single-file main.c. Fixed 8-preset gamma LUTs + the continuous per-channel gamma builder.
-// See ambient_internal.h for the shared types/externs this file relies
-// on, and main.c's own top comment for this plugin's overall history.
+// gamma.c -- part of ps4_ambient_light, split out of the original single-file main.c. Fixed 8-preset...
+// More: docs/code-comments.md (plugin/source/gamma.c:1)
 
 #include <stdio.h>
 #include <stdint.h>
@@ -18,10 +16,8 @@
 #include "plugin_common.h"
 #include "ambient_internal.h"
 
-// Gamma correction LUTs -- generated OFFLINE with real pow() (this exact
-// comment mirrors the sRGB/PQ LUT precedent above: table lookups only at
-// runtime, no libm linked in this build, see Makefile LIBS).
-// Index 0 = gamma 1.0 (off/passthrough) ... index 7 = gamma 2.8.
+// Gamma correction LUTs -- generated OFFLINE with real pow() (this exact comment mirrors the sRGB/PQ...
+// More: docs/code-comments.md (plugin/source/gamma.c:21)
 #define NUM_GAMMA_LUTS 8
 const uint8_t kGammaLuts[NUM_GAMMA_LUTS][256] = {
     { // gamma 1.0
@@ -170,26 +166,8 @@ const uint8_t kGammaLuts[NUM_GAMMA_LUTS][256] = {
     },
 };
 
-// ============================================================
-// v2.2: per-channel gamma at an arbitrary percentage (Android's own
-// convention -- out = 255*(in/255)^(100/pct), pct=100 == passthrough).
-// The fixed kGammaLuts above only cover 8 preset exponents because
-// they're baked in at compile time with a real pow() run OFFLINE, on
-// a dev machine -- this build links no libm (see Makefile LIBS), so
-// there's no pow()/log()/exp() available at runtime to support an
-// arbitrary user-chosen percentage the same way.
-//
-// Rather than either (a) restricting the new per-channel controls to
-// the same 8 presets, which defeats the point of porting a
-// continuous per-channel control, or (b) linking libm just for this,
-// this uses the well-known Ankerl fast log2/exp2 approximation --
-// pure integer/float bit manipulation, no transcendental libm calls.
-// It's only ever run when the config (re)loads, NOT per-pixel/frame,
-// so its handful of extra ULPs of error versus real pow() (verified
-// in Python before porting: max off-by-one across a full 0-255 LUT,
-// and EXACT agreement across the entire dark end 0-40 that actually
-// matters for the black-crush issue
-// at runtime and are invisible in the final 8-bit LUT anyway.
+// v2.2: per-channel gamma at an arbitrary percentage (Android's own convention -- out =...
+// More: docs/code-comments.md (plugin/source/gamma.c:173)
 static float ambient_fast_log2(float x)
 {
     union { float f; uint32_t i; } vx = { x };
@@ -211,9 +189,8 @@ static float ambient_fast_exp2(float p)
     return v.f;
 }
 
-// x assumed in [0,1] here (normalized 0-255 sample); 0 is handled as
-// a special case since log2(0) is undefined and every real gamma
-// curve maps black to black anyway.
+// x assumed in [0,1] here (normalized 0-255 sample); 0 is handled as a special case since log2(0) is...
+// More: docs/code-comments.md (plugin/source/gamma.c:214)
 static float ambient_fast_pow01(float x, float p)
 {
     if (x <= 0.0f) return 0.0f;
@@ -221,20 +198,7 @@ static float ambient_fast_pow01(float x, float p)
 }
 
 // Per-channel gamma LUTs for the v2.2 gamma_r/gamma_g/gamma_b knobs.
-// Rebuilt on config load/reload (ambient_rebuild_perchannel_gamma_luts
-// below), NOT per pixel -- same pattern as everything else in this
-// file that could otherwise involve float math on a hot path.
-//
-// Stored as FLOAT, not uint8_t, deliberately: Android's own gamma LUT
-// (buildGammaLut in ColorProcessor.kt) is a FloatArray too, and the
-// whole rest of its pipeline stays in Float with no intermediate
-// clamp/round until the single final clamp+round back to a byte. An
-// 8-bit LUT here would force an early, lossy round-to-byte right
-// after gamma, before brightness/contrast/saturation/levels even run
-// -- verified in Python before porting that this isn't just
-// theoretical: chaining early uint8_t clamps between stages produced
-// answers up to ~13/255 off from the real float pipeline on ordinary
-// inputs, not merely off-by-one rounding noise.
+// More: docs/code-comments.md (plugin/source/gamma.c:223)
 float g_gammaLutR[256], g_gammaLutG[256], g_gammaLutB[256];
 
 static void ambient_build_one_gamma_lut(uint32_t pct, float *outLut)

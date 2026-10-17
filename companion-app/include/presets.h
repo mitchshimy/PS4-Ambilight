@@ -1,20 +1,5 @@
 // presets.h -- Game / Movie presets for the Customization screen.
-//
-// A preset is a snapshot of every Customization-screen value (colour,
-// smoothing, letterbox, sampling, RGB balance...). Setup values (WLED
-// address, LED layout, colour order, update rate) are never part of a
-// preset.
-//
-// HOW IT'S STORED: the ini holds [presets] active=game|movie and the full set of
-// each preset's values in [preset_game] / [preset_movie] (same key names and value
-// formats the plugin has always used). The plugin (v3.8+) reads the active preset's
-// section itself, so those keys are NOT also written to [layout] / [color] / [timing]
-// -- those sections keep only setup values (LED layout, colour order, update rate...).
-// Loading an ini from before presets still works: its flat values become Game.
-//
-// Editing a field edits the active preset -- there is no Custom mode.
-// Switching presets stashes the current values into their slot first,
-// so unsaved edits to one preset survive a trip to the other.
+// More: docs/code-comments.md (companion-app/include/presets.h:1)
 
 #ifndef PRESETS_H
 #define PRESETS_H
@@ -36,12 +21,8 @@ void preset_capture(const AmbientConfig *cfg, PresetValues *out);
 void preset_apply(AmbientConfig *cfg, const PresetValues *in);   // clamps to each field's range
 void preset_factory(PresetId id, PresetValues *out);             // the shipped values (see presets.c for the table and why)
 
-// ---- the live preset set (module state) ----
-// Call once after settings_load(). Reads the preset sections from `path`
-// (missing file / sections are fine), migrates an ini written before
-// presets existed, and leaves `cfg` showing the active preset. Once an ini has
-// preset sections they are the only source: leftover flat values are ignored,
-// exactly as the plugin ignores them.
+// the live preset set (module state) Call once after settings_load().
+// More: docs/code-comments.md (companion-app/include/presets.h:39)
 void presets_init(AmbientConfig *cfg, const char *path);
 int  preset_active(void);
 void preset_select(AmbientConfig *cfg, int id);
@@ -53,10 +34,8 @@ bool preset_reset_is_armed(void);
 void preset_reset_arm(void);
 void preset_reset_disarm(void);
 
-// Stashes cfg into the active slot, then writes the whole ini in one pass: setup
-// values in their own sections, [presets], and both preset sections, merged into
-// what's already at `path` so anything else in the file survives. This replaces
-// settings_save() for the app; it removes the old flat copies of preset values.
+// Stashes cfg into the active slot, then writes the whole ini in one pass: setup values in their own...
+// More: docs/code-comments.md (companion-app/include/presets.h:56)
 bool presets_save(const AmbientConfig *cfg, const char *path);
 
 #endif // PRESETS_H

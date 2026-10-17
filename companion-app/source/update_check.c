@@ -1,6 +1,5 @@
-// The background update check, split out of main.c: the worker thread that asks the update source
-// whether the plugin or a shell feed file has a newer build, the flags it publishes through, and
-// the once-a-frame poll that turns the answer into Home's state. The code is as it ran on hardware.
+// The background update check, split out of main.c: the worker thread that asks the update source...
+// More: docs/code-comments.md (companion-app/source/update_check.c:1)
 
 #include <stdio.h>
 #include <stdint.h>
@@ -23,22 +22,8 @@
 #include "plugin_common.h"
 #include "update_check.h"
 
-// ---------------- update source: GitHub, or a local test server ----------------
-//
-// Normally every download resolves through GitHub's release API (net_http.c). For testing builds
-// without publishing a release, put this in the ini the plugin already reads:
-//
-//   [dev]
-//   update_base_url=http://192.168.2.117:8000
-//
-// and every download (the plugin, the shell feed .prx, the Ambilight payload) and its ".sha256" sidecar is
-// fetched from <base>/<file name> instead -- e.g. `python tools/serve_local_release.py`, which
-// serves a folder with python's http.server. Delete the line to go back to GitHub. Read fresh each
-// time, so editing the ini needs no restart. [dev] already exists for dev_ip/dev_logging, and the
-// app's own save leaves unknown keys alone, so this survives a Save.
-//
-// Plain http:// through sceHttpCreateConnectionWithURL works on a console (checked with the update
-// check, installs and the checksum failure paths).
+// update source: GitHub, or a local test server Normally every download resolves through GitHub's...
+// More: docs/code-comments.md (companion-app/source/update_check.c:26)
 static bool dev_update_base_url(char *out, size_t outSize)
 {
     out[0] = '\0';
@@ -52,31 +37,12 @@ static bool dev_update_base_url(char *out, size_t outSize)
     return ok;
 }
 
-// Compares what's currently installed against the checksum published
-// for the latest release, reusing the exact same asset-resolution
-// path do_plugin_update() uses to fetch it. Only meaningful once
-// plugin_registration_state() has already returned UI_INSTALL_OK --
-// NONE/DISABLED take priority in the UI over this, so callers should
-// only invoke this when the plugin is both present and registered.
-//
-// Best-effort/fail-quiet: any network or I/O failure here (no
-// connection, GitHub unreachable, asset renamed, ...) just means "no
-// update reported this session" rather than an error shown to the
-// user -- this runs unprompted on every launch, and a routine offline
-// PS4 shouldn't see a scary status message for it.
+// Compares what's currently installed against the checksum published for the latest release, reusing...
+// More: docs/code-comments.md (companion-app/source/update_check.c:55)
 static bool check_for_plugin_update(void)
 {
-    // Hash the real .prx on disk first, not the cached sidecar --
-    // the sidecar only gets written by do_plugin_update() after an
-    // in-app install, so it goes stale (and silently wrong) the
-    // moment someone drops a different build in by hand, e.g. FTPing
-    // an older .prx over it. Falling back to the sidecar only when
-    // hashing the real file fails means a manual replacement always
-    // gets compared honestly against the real bytes now sitting at
-    // PLUGIN_PRX_PATH, instead of whatever this app last installed.
-    // Re-hashing on every check used to matter when this ran inline
-    // on the main thread at startup; now that it's a background-
-    // thread check, that cost isn't worth trading correctness for.
+    // Hash the real .prx on disk first, not the cached sidecar -- the sidecar only gets written by...
+    // More: docs/code-comments.md (companion-app/source/update_check.c:69)
     char installedHex[SHA256_HEX_SIZE];
     bool hashedRealFile = sha256_hex_of_file(PLUGIN_PRX_PATH, installedHex, sizeof(installedHex));
     if (!hashedRealFile && !read_installed_checksum(installedHex, sizeof(installedHex))) {
@@ -105,10 +71,8 @@ static bool check_for_plugin_update(void)
     return !matches;
 }
 
-// Same question as check_for_plugin_update(), for one of the two shell feed files: is what is on
-// disk what the update source publishes? Returns 1 = newer build available, 0 = up to date,
-// -1 = couldn't tell (not installed, no network, source unreachable) -- which callers treat as
-// "nothing to report", same fail-quiet rule as the plugin check.
+// Same question as check_for_plugin_update(), for one of the two shell feed files: is what is on disk...
+// More: docs/code-comments.md (companion-app/source/update_check.c:108)
 static int check_shell_asset_update(const char *assetName, const char *path)
 {
     char installedHex[SHA256_HEX_SIZE];
@@ -136,48 +100,8 @@ static int check_shell_asset_update(const char *assetName, const char *path)
     return matches ? 0 : 1;
 }
 
-// ---------------- background update check ----------------
-//
-// check_for_plugin_update() above does two sequential blocking HTTPS
-// round trips to GitHub. Running it inline on the main thread at
-// startup -- as this used to do -- held the whole UI hostage behind
-// the network on every single launch, which is what actually produced
-// the "app feels slow to open" latency: even on a fast connection
-// that's a DNS+TLS+request/response pair twice in a row before the
-// home screen becomes interactive, and on a bad connection it's the
-// full 10s connect/resolve/send timeout, more than once.
-//
-// Fixed by kicking the check off on its own thread right after the
-// home screen is up, and polling a plain atomic flag once a frame
-// (poll_background_update_check(), called from the main loop below)
-// instead of blocking anything. SDL_atomic_t is used rather than a
-// plain bool specifically so the main thread's read and the
-// background thread's write can't tear -- g_state itself is still
-// only ever touched from the main thread, in the polling function.
-//
-// CRASH FIX: the first version of this used SDL_CreateThread(), which
-// on a stack size of 0 means "whatever this platform's default is" --
-// SDL's own docs warn that default can be "wildly different between
-// platforms... a few kilobytes" on some. On real hardware this
-// crashed on startup every time: a SIGSEGV write fault at exactly
-// rsp-8, with a huge rbp/rsp gap for only a few stack frames rooted at
-// a fresh thread-entry trampoline -- the textbook shape of overrunning
-// a too-small thread stack, not a bad pointer. github_resolve_asset_
-// api_url() above already treats a 64KB buffer as "too large to
-// comfortably put on this thread's stack", so a platform default small
-// enough to blow past on this call chain isn't a stretch. Switched to
-// the plugin side's own scePthreadCreate pattern (see plugin/source/
-// main.c's ambient_sample_thread call, confirmed against real
-// hardware there) with an explicit stack size instead of trusting an
-// unknown SDL-port default. UPDATE_CHECK_THREAD_STACK_SIZE reuses the
-// same 256KB this file already trusts sceSslInit() with, rather than
-// inventing a new number.
-//
-// Deliberately defined after check_for_plugin_update() rather than
-// forward-declared -- this file has no function forward declarations
-// anywhere else and relies entirely on top-to-bottom definition
-// order, so this follows that same convention instead of introducing
-// a new one.
+// The update check runs on its own thread with an explicit 256 KB stack, polled once a frame via an atomic flag.
+// SDL_CreateThread's default stack overflowed on console at startup; do not go back to it. [docs/code-comments.md]
 #define UPDATE_CHECK_THREAD_STACK_SIZE (256 * 1024)
 
 static SDL_atomic_t g_updateCheckDone;      // 0 = not finished yet, 1 = finished
@@ -205,10 +129,8 @@ void refresh_dev_base_url(void)
 bool g_assetPresent[ASSET_COUNT];    // only the two shell assets are used
 bool g_assetUpdate[ASSET_COUNT];     // last answer from the update source, for all three
 
-// scePthreadCreate's expected entry-point shape (void *(*)(void *)),
-// same as plugin/source/sample_thread.c's ambient_sample_thread --
-// not SDL_CreateThread's int(*)(void*), since this no longer goes
-// through SDL to create the thread.
+// scePthreadCreate's expected entry-point shape (void *(*)(void *)), same as...
+// More: docs/code-comments.md (companion-app/source/update_check.c:208)
 static void *update_check_thread_fn(void *unused)
 {
     (void)unused;
@@ -235,15 +157,12 @@ static void *update_check_thread_fn(void *unused)
     return NULL;
 }
 
-// Fires the check off in the background. Safe to call even when
-// g_state.install isn't UI_INSTALL_OK -- callers still gate on that
-// the same way the old inline call did, this just doesn't block them
-// while it runs.
+// Fires the check off in the background.
+// More: docs/code-comments.md (companion-app/source/update_check.c:238)
 void start_background_update_check(void)
 {
-    // What there is to check right now: the plugin when it is installed and enabled (NONE/DISABLED
-    // have their own button and outrank "is there something newer"), and each shell feed file that
-    // is on disk, but only with the Shell feed switch on -- off means nothing shell-related runs.
+    // What there is to check right now: the plugin when it is installed and enabled (NONE/DISABLED have...
+    // More: docs/code-comments.md (companion-app/source/update_check.c:244)
     int want = 0;
     if (g_state.install == UI_INSTALL_OK) want |= 1 << ASSET_PLUGIN;
     if (g_cfg.shellEnabled) {
@@ -269,21 +188,16 @@ void start_background_update_check(void)
         scePthreadDetach(thread); // fire-and-forget: poll_background_update_check() reads the result via atomics
         g_updateCheckStarted = true;
     }
-    // scePthreadCreate copies whatever it needs out of attr (same as
-    // POSIX pthread_create) -- safe to destroy right after, whether or
-    // not the create call above actually succeeded.
+    // scePthreadCreate copies whatever it needs out of attr (same as POSIX pthread_create) -- safe to...
+    // More: docs/code-comments.md (companion-app/source/update_check.c:272)
     scePthreadAttrDestroy(&attr);
 
-    // If thread creation itself failed, g_updateCheckStarted stays
-    // false and poll_background_update_check() below just never finds
-    // anything to report -- same "fail quiet" behavior
-    // check_for_plugin_update() already documents for network/GitHub
-    // failures.
+    // If thread creation itself failed, g_updateCheckStarted stays false and...
+    // More: docs/code-comments.md (companion-app/source/update_check.c:277)
 }
 
-// Called once a frame from the main loop. Cheap when nothing's ready
-// yet (one atomic read), and only ever touches g_state/set_status
-// from the main thread once the background thread has finished.
+// Called once a frame from the main loop.
+// More: docs/code-comments.md (companion-app/source/update_check.c:284)
 void poll_background_update_check(void)
 {
     if (!g_updateCheckStarted) return;
@@ -302,10 +216,8 @@ void poll_background_update_check(void)
     if (available) {
         set_status("Update available.", false);
     } else if (!g_state.statusIsError) {
-        // Only overwrite a still-neutral "Checking for updates..." --
-        // if something else already changed the status line in the
-        // meantime (a save, an error, the user starting an install),
-        // leave it alone rather than stomping on it late.
+        // Only overwrite a still-neutral "Checking for updates..." -- if something else already changed the...
+        // More: docs/code-comments.md (companion-app/source/update_check.c:305)
         set_status("Ready.", false);
     }
 

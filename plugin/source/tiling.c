@@ -1,7 +1,5 @@
-// tiling.c -- part of ps4_ambient_light, split out of the original
-// single-file main.c. Confirmed-correct BASE detile math (offset formula), no Neo branch.
-// See ambient_internal.h for the shared types/externs this file relies
-// on, and main.c's own top comment for this plugin's overall history.
+// tiling.c -- part of ps4_ambient_light, split out of the original single-file main.c....
+// More: docs/code-comments.md (plugin/source/tiling.c:1)
 
 #include <stdio.h>
 #include <stdint.h>
@@ -18,23 +16,15 @@
 #include "plugin_common.h"
 #include "ambient_internal.h"
 
-// ============================================================
 // Detile math -- confirmed-correct BASE params only (/).
-// Identical formulas to ps4_detile_2dthin.c / detile_verify_probe,
-// just without the Neo branch, which has no reason to run every frame
-// now that base is the settled answer for this hardware.
-// (TileParams itself is declared in ambient_internal.h -- zones.c
-// needs it too, for sampleZoneAverage/detectHdr2200Format's calls
-// into getTiledElementByteOffset below.)
-// ============================================================
+// More: docs/code-comments.md (plugin/source/tiling.c:21)
 
 const TileParams kParamsBase = {
     0xc, 8, 1, 1, 16, 128, 64, 1920, 512, 8, 3, 4
 };
 
-// paddedHeight isn't in TileParams (only paddedWidth is used by the
-// offset math itself), but it's needed here for the v1.1 bounds check
-// below -- 1088 for base params, per (ceil(1080/64)*64).
+// paddedHeight isn't in TileParams (only paddedWidth is used by the offset math itself), but it's...
+// More: docs/code-comments.md (plugin/source/tiling.c:35)
 #define BASE_PADDED_HEIGHT 1088
 #define BASE_PADDED_BUFFER_BYTES ((uint64_t)1920 * BASE_PADDED_HEIGHT * 4)
 

@@ -1,7 +1,5 @@
-// pixel_formats.c -- part of ps4_ambient_light, split out of the original
-// single-file main.c. Runtime pixel-format dispatch, incl. real PQ/HDR decode.
-// See ambient_internal.h for the shared types/externs this file relies
-// on, and main.c's own top comment for this plugin's overall history.
+// pixel_formats.c -- part of ps4_ambient_light, split out of the original single-file main.c. Runtime...
+// More: docs/code-comments.md (plugin/source/pixel_formats.c:1)
 
 #include <stdio.h>
 #include <stdint.h>
@@ -18,13 +16,8 @@
 #include "plugin_common.h"
 #include "ambient_internal.h"
 
-// ============================================================
-// Runtime pixel-format dispatch -- same principle as
-// ps4_detile_2dthin.c's getUnpackFnForFormat(): read live off the
-// registration hook, never assumed at compile time. Unknown format ->
-// NULL -> this plugin explicitly stops sending color instead of
-// guessing (see the flip hook below).
-// ============================================================
+// Runtime pixel-format dispatch -- same principle as ps4_detile_2dthin.c's getUnpackFnForFormat()...
+// More: docs/code-comments.md (plugin/source/pixel_formats.c:21)
 
 typedef void (*PixelUnpackFn)(uint32_t px, uint8_t *r, uint8_t *g, uint8_t *b);
 
@@ -45,39 +38,8 @@ void unpackA8R8G8B8_to_rgb888(uint32_t px, uint8_t *r, uint8_t *g, uint8_t *b)
     *b = (uint8_t)(px & 0xFF);
 }
 
-// A8B8G8R8 / A8B8G8R8_SRGB (format 0x80002200) -- R and B swapped vs.
-// unpackA8R8G8B8_to_rgb888 above.
-//
-// This format was first identified purely by name, against fpPS4's
-// enum table, and the swap this function implies was tried, then
-// REVERTED, based on a real hardware report at the time ("red and
-// blue are wrong" on a busy in-game scene). That report was later
-// confirmed to have been given uncertainly, without HDR controlled
-// for as a variable, and without a real screenshot to check specific
-// pixels against -- just an impression from a scene lit mostly in
-// warm reds and oranges, where a channel swap is genuinely hard to
-// eyeball. This function reverses that revert, based on stronger
-// evidence gathered afterward: a real screenshot, sampled pixel-for-
-// pixel at 5 known coordinates, checked numerically (not by eye)
-// against a probe capture with HDR explicitly turned OFF. The swapped
-// decode matched the real screen within single-digit-to-teens RGB
-// units at all 5 points simultaneously; the no-swap version never
-// matched at any point, on any screen, across the whole investigation
-// (see detile_verify_probe's history/ for the full trail).
-//
-// The format ID itself was confirmed UNCHANGED (0x80002200) between
-// HDR on and off via a fresh registration event -- so this isn't a
-// case of the game switching formats. HDR was corrupting the actual
-// buffer content (a garbage-looking alpha byte, among other things),
-// not just which channel maps to which byte.
-//
-// CONFIRMED FOR HDR-OFF ONLY. This plugin has no way to detect the
-// console's HDR setting, and HDR-on behavior for this format is
-// still completely unverified -- it may need a different unpack
-// entirely (the same way 0x88740000's PQ curve needed its own
-// function above, not just a channel reorder). If colors look wrong
-// again on this format specifically, check HDR status before
-// assuming another channel-order bug.
+// A8B8G8R8 / A8B8G8R8_SRGB (format 0x80002200) -- R and B swapped vs. unpackA8R8G8B8_to_rgb888 above.
+// More: docs/code-comments.md (plugin/source/pixel_formats.c:48)
 void unpackA8B8G8R8_to_rgb888(uint32_t px, uint8_t *r, uint8_t *g, uint8_t *b)
 {
     *b = (uint8_t)((px >> 16) & 0xFF);
@@ -85,45 +47,15 @@ void unpackA8B8G8R8_to_rgb888(uint32_t px, uint8_t *r, uint8_t *g, uint8_t *b)
     *r = (uint8_t)(px & 0xFF);
 }
 
-// ------------------------------------------------------------------
-// HDR (A2R10G10B10_BT2020_PQ) decode -- ported from
-// decode_verification_dump.py's unpack_a2r10g10b10_bt2020_pq, verified
-// there against a real capture + ground-truth screenshot (5 test
-// points, 3/5 usable for real color -- PQ decode landed 6-12x closer
-// to the actual on-screen pixel than plain truncation on the two
-// midtone points). This format was PREVIOUSLY routed to
-// unpackA2R10G10B10_to_rgb888 above -- the same plain truncation used
-// for gamma-encoded SDR -- which is why HDR colors looked wrong: PQ
-// (SMPTE ST 2084) is a fundamentally different curve, not a gamma
-// variant. Bit LAYOUT (which 10 bits are R/G/B/A) is unchanged from
-// SDR A2R10G10B10 -- only the interpretation of the numbers differs.
-//
-// PQ_REFERENCE_WHITE_NITS / PQ_TONE_MAP_MAX_NITS are the same tunable
-// ASSUMPTIONS as the Python script, not measured constants -- if HDR
-// colors still look off after this ships, these two are the knobs to
-// adjust (empirically, against a real capture, same method as /
-// and the screenshot verification). The PQ EOTF and BT.2020->BT.709
-// matrix below are fixed standards and should not need touching.
-// ------------------------------------------------------------------
+// HDR (A2R10G10B10_BT2020_PQ) decode -- ported from decode_verification_dump.py's...
+// More: docs/code-comments.md (plugin/source/pixel_formats.c:88)
 
 #define PQ_REFERENCE_WHITE_NITS 203.0
 #define PQ_TONE_MAP_MAX_NITS    1000.0
 #define SRGB_LUT_SIZE           4096
 
-// Precomputed on the dev machine (Python, matching
-// decode_verification_dump.py's unpack_a2r10g10b10_bt2020_pq exactly)
-// and verified to reproduce identical output to a live pow()-based
-// version on 5 real captured pixels (max 1-unit diff,
-// from LUT quantization -- well within the photo-comparison noise
-// floor already established). Table lookups only, no libm calls --
-// see buildZoneGeometry's comment above: this build does not link
-// libm, and after the printf/klog crash history in this project,
-// nothing here should assume a library "just works" without checking.
-//
-// kPqEotfNitsLut: indexed by the raw 10-bit code value (0-1023) ->
-// linear light in nits (SMPTE ST 2084 inverse EOTF). Domain is exactly
-// 1024 discrete values, so a direct 1-to-1 LUT loses zero precision
-// versus computing pow() live.
+// PQ EOTF is a precomputed 1024-entry table: this build does not link libm, so no pow() here.
+// Matches the Python reference to within 1 unit. [docs/code-comments.md]
 static const double kPqEotfNitsLut[1024] = {
     0.000000, 0.000040, 0.000131, 0.000262, 0.000432, 0.000637, 0.000880, 0.001159,
     0.001474, 0.001826, 0.002215, 0.002642, 0.003108, 0.003612, 0.004156, 0.004741,
@@ -255,12 +187,8 @@ static const double kPqEotfNitsLut[1024] = {
     9367.942884, 9455.633515, 9544.177155, 9633.582551, 9723.858546, 9815.014078, 9907.058184, 10000.000000,
 };
 
-// kSrgbEncode8Lut: indexed by a linear value in [0,1] quantized to
-// 4096 steps -> final 8-bit sRGB-encoded output. This stage's input is
-// continuous (post tone-map, post gamut matrix), so this is a
-// quantized approximation rather than an exact table -- 4096 steps
-// keeps quantization error under 1 code value almost everywhere,
-// same order as the LUT-vs-pow() check above.
+// kSrgbEncode8Lut: indexed by a linear value in [0,1] quantized to 4096 steps -> final 8-bit...
+// More: docs/code-comments.md (plugin/source/pixel_formats.c:258)
 static const uint8_t kSrgbEncode8Lut[SRGB_LUT_SIZE] = {
     0, 1, 2, 2, 3, 4, 5, 6, 6, 7, 8, 9, 10, 10, 11, 12,
     13, 13, 14, 15, 15, 16, 16, 17, 18, 18, 19, 19, 20, 20, 21, 21,
@@ -527,38 +455,12 @@ static double pqToneMap(double nits)
     return x * (1.0 + x / (peak * peak)) / (1.0 + x);
 }
 
-// v2.2.3 PERFORMANCE FIX (not a color-quality change -- see note below):
-// pqToneMap() above is a pure function of ONE 10-bit code (it only ever
-// gets called as pqToneMap(kPqEotfNitsLut[someCode])), so composing the
-// two into a single precomputed 1024-entry table removes two live
-// divisions from the hottest path in the plugin: this runs up to
-// (2*scanDepth+1)^2 times per zone, times up to ~229 zones, times up to
-// 30 times a second -- on the order of 150,000+ calls/sec at this
-// project's own default layout. Under CPU pressure (a game's loading
-// screen was captured at 97% CPU usage during the investigation that
-// led here.
-//
-// This is IDENTICAL output to calling pqToneMap(kPqEotfNitsLut[code])
-// live, not an approximation -- same double-precision formula, same
-// kPqEotfNitsLut values, just evaluated once at first use instead of
-// on every single sample. Verified bit-for-bit identical against the
-// live computation across all 1024 codes before this was wired in
-// (see the session's own check, not restated here). This is exactly
-// the same kind of "no libm on the hot path" pattern this file already
-// uses everywhere else (kGammaLuts, kSrgbEncode8Lut) -- pqToneMap's
-// only new since being one degree removed (a LUT of a LUT) rather than
-// hardcoded at compile time, since it's genuinely cheap and libm-free
-// to build once at runtime, unlike the gamma curves.
+// v2.2.3 PERFORMANCE FIX (not a color-quality change -- see note below): pqToneMap() above is a pure...
+// More: docs/code-comments.md (plugin/source/pixel_formats.c:530)
 static double g_pqToneMappedLut[1024];
 static bool g_pqToneMappedLutBuilt = false; // lazy-init flag: safe without
-                                             // atomics/locking ONLY because
-                                             // this is read/written from
-                                             // the plugin's single
-                                             // background sampling thread.
-                                             // If a future change ever
-                                             // calls the PQ unpack fn from
-                                             // more than one thread, this
-                                             // needs a real guard.
+                                             // atomics/locking ONLY because this is read/written from the plugin's single background sampling thread.
+                                             // More: docs/code-comments.md (plugin/source/pixel_formats.c:554)
 
 static void ambient_ensure_pq_tonemap_lut(void)
 {
@@ -606,40 +508,8 @@ void unpackA2R10G10B10_BT2020_PQ_to_rgb888(uint32_t px, uint8_t *r, uint8_t *g, 
     *b = srgbEncodeLutLookup(b709);
 }
 
-// v2.8: live HDR-vs-SDR auto-detection for format 0x80002200
-// specifically -- this format ID is confirmed AMBIGUOUS on this title
-// (see unpackA8B8G8R8_to_rgb888's own comment): it means A8B8G8R8_SRGB
-// with HDR off, but the SAME registered format ID actually holds
-// A2R10G10B10_BT2020_PQ data when HDR is on, with no reliable signal
-// available from any hooked API to tell which is currently true --
-// hooking sceVideoOutAddBufferHdrPrivilege (the obvious direct signal)
-// was investigated and ruled out, since no real reference
-// implementation of it exists anywhere (not in this codebase's history,
-// not in fpPS4) to safely derive its call signature from, and a wrong
-// guess there risks corrupting a call into Sony's own code.
-//
-// Detected instead via decode-smoothness: real image content decodes
-// smoothly under the correct hypothesis and noisily under the wrong
-// one. Method validated twice, blind, against real captures in
-// decode_verification_dump.py before being ported here -- see that
-// script's own comment and this repo's for the full trail.
-//
-// Kept deliberately cheap, per explicit instruction not to have this
-// plugin compete with the game for CPU: reuses zone coordinates
-// already computed for real LED sampling (no new coordinate math),
-// reads a small fixed subset (HDR2200_DETECT_SAMPLES) rather than
-// every configured zone, and only runs once every
-// HDR2200_DETECT_INTERVAL sampling passes -- not every pass. A
-// hysteresis streak (not a single-shot decision) guards against
-// flipping on one noisy/degenerate frame -- exactly the failure mode
-// that made this heuristic unreliable on near-black loading screens
-// during validation; HDR2200_NOISE_FLOOR skips a check entirely when
-// there isn't enough real signal to trust it either way.
-//
-// UNTESTED WITH HDR ACTUALLY ON. Nothing in this whole investigation
-// has run this decision live, watching real LED output, with HDR
-// engaged
-// been verified before treating this as a finished fix.
+// v2.8: live HDR-vs-SDR auto-detection for format 0x80002200 specifically -- this format ID is...
+// More: docs/code-comments.md (plugin/source/pixel_formats.c:609)
 #define HDR2200_DETECT_SAMPLES   8   // zones sampled per check (capped, not all configured zones)
 #define HDR2200_DETECT_INTERVAL  60  // run the check every Nth sampling pass, not every pass
 #define HDR2200_STREAK_THRESHOLD 4   // consecutive agreeing checks needed before actually switching
@@ -649,8 +519,7 @@ volatile int32_t g_hdr2200Streak    = 0;  // hysteresis counter: + toward HDR, -
 volatile int32_t g_hdr2200Countdown = 0;  // throttle: counts down to the next check
 
 // v3.5: 1 while a 0x88740000 buffer holds 8-bit A8R8G8B8 instead of real PQ.
-// Decided every pass by detectPq8bitMisregistration() in zones.c. Starts at 0
-// (real PQ, what the format ID says) and is cleared on a format change.
+// More: docs/code-comments.md (plugin/source/pixel_formats.c:651)
 volatile int     g_pq8bitMode       = 0;
 
 PixelUnpackFn getUnpackFnForFormat(uint32_t format)
@@ -659,21 +528,15 @@ PixelUnpackFn getUnpackFnForFormat(uint32_t format)
     case 0x88000000: case 0x88060000: // SDR A2R10G10B10 / A2R10G10B10_SRGB
         return unpackA2R10G10B10_to_rgb888;
     case 0x88740000: // A2R10G10B10_BT2020_PQ -- real PQ decode, not SDR truncation (was the bug)
-        // v3.5: YouTube registers this ID with HDR on but draws plain 8-bit
-        // ARGB into the buffer while it plays SDR video. Which one it is gets
-        // decided per frame by detectPq8bitMisregistration() (zones.c), called
-        // just before this from the sampling loop. Real HDR video stays PQ.
+        // v3.5: YouTube registers this ID with HDR on but draws plain 8-bit ARGB into the buffer while it...
+        // More: docs/code-comments.md (plugin/source/pixel_formats.c:662)
         return g_pq8bitMode ? unpackA8R8G8B8_to_rgb888
                             : unpackA2R10G10B10_BT2020_PQ_to_rgb888;
     case 0x80000000: // A8R8G8B8_SRGB -- confirmed live format on real hardware
         return unpackA8R8G8B8_to_rgb888;
     case 0x80002200: // A8B8G8R8_SRGB (HDR off) or A2R10G10B10_BT2020_PQ (HDR on) --
-        // same registered format ID means two different real byte layouts
-        // on this title, decided live by detectHdr2200Format() (called
-        // just before this from the main sampling loop). See that
-        // function's own comment above g_hdr2200IsHdr for the full trail.
-        // v3.6: decided per frame from the alpha byte first, see zones.c and
-        // hdr2200_vote.h. Confirmed live with HDR on and off (HITMAN 3, RDR2).
+        // same registered format ID means two different real byte layouts on this title, decided live by...
+        // More: docs/code-comments.md (plugin/source/pixel_formats.c:671)
         return g_hdr2200IsHdr ? unpackA2R10G10B10_BT2020_PQ_to_rgb888
                                : unpackA8B8G8R8_to_rgb888;
     default:

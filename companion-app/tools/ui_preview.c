@@ -1,12 +1,5 @@
-// ui_preview.c -- render the companion's real UI code to PNGs on a PC, so layout changes can be
-// looked at without a console build. Same sources the PS4 build compiles; only main.c (SDL, pads,
-// sockets) and the Orbis FreeType module load are left out.
-//
-//   tools/ui_preview.sh /tmp/ui     # builds this and writes /tmp/ui/*.png
-//
-// It does NOT prove the console looks identical (fonts are the same files, but this is a desktop
-// FreeType), it proves the layout: what fits, what wraps, whether two banners match, where the
-// button sits.
+// ui_preview.c -- render the companion's real UI code to PNGs on a PC, so layout changes can be looked...
+// More: docs/code-comments.md (companion-app/tools/ui_preview.c:1)
 #include "ui_screens.h"
 #include "settings.h"
 #include <stdio.h>

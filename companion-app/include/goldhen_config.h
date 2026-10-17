@@ -1,24 +1,5 @@
-// goldhen_config.h -- READ one setting from GoldHEN's own config file:
-//
-//   [PluginLoader]
-//   PluginLoader_Enabled = 1        <- "Enable Plugins Loader" in Settings > GoldHEN > Plugin Settings
-//
-// The file name, section and key come from two real files off a console, one with the switch
-// off and one with it on; the value was the only difference between them. GoldHEN writes the
-// file when the switch is changed in its menu.
-//
-// This is READ-ONLY on purpose. An earlier version also wrote the value, and on a console that
-// did not work: the file said 1 but GoldHEN's menu still showed the switch off, because GoldHEN
-// keeps the live value in memory and never re-reads the file. Worse, the file then disagreed
-// with the real state, so Home would have reported the loader on while it was off. GoldHEN also
-// refuses to change the switch while a game or app is running, and this app counts as one. So
-// the only fix is the person's: close the app, tick the switch in GoldHEN's menu.
-//
-// Anything unexpected is LOADER_UNKNOWN, which means "don't claim anything": a missing file, a
-// GoldHEN version without the key, a value that isn't exactly 0 or 1. The app only ever acts
-// on a definite OFF, so an unfamiliar config can never block the plugin's own buttons.
-//
-// Header-only and free of console calls so tests/test_goldhen_config.c can run it on a PC.
+// goldhen_config.h -- READ one setting from GoldHEN's own config file: [PluginLoader]...
+// More: docs/code-comments.md (companion-app/include/goldhen_config.h:1)
 #ifndef GOLDHEN_CONFIG_H
 #define GOLDHEN_CONFIG_H
 

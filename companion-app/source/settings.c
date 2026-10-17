@@ -1,9 +1,5 @@
-// settings.c -- ini schema and defaults copied verbatim from
-// ps4_ambient_light v2.2's own g_config initializer and
-// ambient_load_config's ini_table_get_entry* calls. Every (section,
-// key) pair below was checked against that file directly, not
-// recalled from memory. If the plugin's schema changes, re-sync this
-// table from its main.c.
+// settings.c -- ini schema and defaults copied verbatim from ps4_ambient_light v2.2's own g_config...
+// More: docs/code-comments.md (companion-app/source/settings.c:1)
 
 #include "settings.h"
 #include "config.h"
@@ -20,30 +16,13 @@ const char *kGammaNames[8] = { "1.0", "1.4", "1.8", "2.0", "2.2", "2.4", "2.6", 
 // anything that links settings.c (the isolation tests, mostly) must not also need presets.c.
 const char *kPresetNames[PRESET_COUNT] = { "Game", "Movie" };
 
-// v2.9: smoothing presets, ported from the Android "inspiration"
-// project's own ColorSmoothing.kt (applyPreset) -- the ms values are
-// copied verbatim from its "off"/"responsive"/"balanced"/"smooth"
-// cases (that project's other two per-preset knobs, output delay and a
-// forced update-frequency override, don't have an equivalent here:
-// this plugin has no output-delay concept, and update_frequency_hz is
-// this project's own independent CPU-budget setting that a smoothing
-// preset has no business silently overriding). This is a UI
-// convenience over the two REAL fields below, not a third setting of
-// its own -- nothing here is a new ini key, so kMenuItems' own
-// "every (section,key) pair is exactly what the real plugin reads"
-// invariant for its actual entries is untouched. See its own kMenuItems
-// row (section "ui", not a real ini section) and smoothing_preset_index/
-// smoothing_apply_preset below.
+// v2.9: smoothing presets, ported from the Android "inspiration" project's own ColorSmoothing.kt...
+// More: docs/code-comments.md (companion-app/source/settings.c:23)
 const char *kSmoothingPresetNames[SMOOTHING_PRESET_COUNT] = { "Off", "Responsive", "Balanced", "Smooth" };
 static const uint32_t kSmoothingPresetMs[SMOOTHING_PRESET_COUNT] = { 50, 50, 200, 500 };
 
-// Bucketed rather than an exact-value match against kSmoothingPresetMs:
-// this always has a defined answer (no "Custom" case to render/cycle
-// out of), including for a settling_time_ms a user typed by hand via
-// the raw field rather than picking a preset. Off (index 0) is decided
-// by smoothingEnabled alone -- matches the Android original, where
-// "off" and "responsive" share the exact same 50ms settling time and
-// are distinguished only by whether smoothing is enabled at all.
+// Bucketed rather than an exact-value match against kSmoothingPresetMs: this always has a defined...
+// More: docs/code-comments.md (companion-app/source/settings.c:40)
 int smoothing_preset_index(const AmbientConfig *cfg)
 {
     if (!cfg->smoothingEnabled) return 0;
@@ -65,32 +44,8 @@ void smoothing_apply_preset(AmbientConfig *cfg, int presetIndex)
 // max field for why this reuses it instead of adding a new one.
 #define STRBUF(field) (int32_t)sizeof(((AmbientConfig *)0)->field)
 
-// Grouped and ordered to match the blueprint's own card layout
-// (setup.html / customisation.html), not the plugin's ini section
-// order -- MENU_SCREEN_SETUP items first, then MENU_SCREEN_CUSTOMIZE,
-// each screen's items one contiguous run so the UI can group by a run
-// of matching `group` strings into one card. `label` is now the exact
-// on-screen text, since ui_screens.c builds every settings card
-// directly from this table -- there is no second, hand-written copy of
-// these strings to keep in sync. Percent-style units are not part of
-// the label: they come from the trailing DisplayUnit, so the number
-// shown can differ from the stored one (see settings.h).
-//
-// This reshuffles TWO fields from where the plugin's own ini
-// sections would naturally put them, because the blueprint's cards
-// don't follow section boundaries:
-//  - color_order sits on Set Up's "LED strip layout" card (it's a
-//    pill next to Direction there), not on Customize's "Colour" card.
-//  - config_reload_check_seconds gets its own "Live reload" card on
-//    Set Up, not folded into Customize's "Motion and darkness".
-// Every (section, key, type, min, max) tuple is still exactly what the
-// real plugin reads -- only screen/group/label/order changed. `step`
-// is too, except on UNIT_PCT_OF_MAX rows (brightness and the two
-// thresholds), where it's in the percent the person sees.
-//
-// A few ini keys have no row here on purpose (the two auto letterbox
-// debounce timings). settings_load/settings_save still handle them
-// directly; see the note where they used to sit.
+// Grouped and ordered to match the blueprint's own card layout (setup.html / customisation.html), not...
+// More: docs/code-comments.md (companion-app/source/settings.c:68)
 const MenuItem kMenuItems[] = {
     // =========================== Set Up ===========================
     { "WLED IPv4",         "network", "wled_host",                  FIELD_STRING, OFF(wledHost),        0, STRBUF(wledHost), 0, NULL, 0,
@@ -117,19 +72,14 @@ const MenuItem kMenuItems[] = {
     { "Colour order",      "color",   "color_order",                FIELD_ENUM,   OFF(colorOrder),      0,     5,   1, kColorOrderNames, 6,
       MENU_SCREEN_SETUP, "LED strip layout", NULL },
 
-    // Shell feed: the second plugin, which lights the strip from Home, Settings and the quick menu
-    // while no game is doing it. "enabled" is the real [shell] key the shell feed itself reads.
-    // "shell_autoload" is section "ui" on purpose (not an ini key -- it lives in GoldHEN's own
-    // payload list, which main.c edits when it is toggled); presets.c and settings_fill_table
-    // skip every "ui" row, so it can never leak into the ini.
+    // Shell feed: the second plugin, which lights the strip from Home, Settings and the quick menu while...
+    // More: docs/code-comments.md (companion-app/source/settings.c:120)
     { "Shell feed",        "shell",  "enabled",                   FIELD_BOOL,   OFF(shellEnabled),    0,     1,   1, NULL, 0,
       MENU_SCREEN_SETUP, "Shell feed", "Lights the strip from Home, Settings and the quick menu while no game is doing it. The Game preset also drives these screens." },
     { "Autoload at boot",  "ui",     "shell_autoload",            FIELD_BOOL,   OFF(shellAutoload),   0,     1,   1, NULL, 0,
       MENU_SCREEN_SETUP, "Shell feed", NULL },
     // FIELD_ACTION: sends the Ambilight payload (ps4-ambilight.bin) to GoldHEN's BinLoader (port 9090).
-    // Section "ui", so presets.c/settings_fill_table never touch it. The dummy offset reuses
-    // shellAutoload (same pattern as preset_reset / smoothing_preset). main.c dispatches on
-    // key == "shell_run_now"; it guards the send on the Ambilight payload and .prx both being present.
+    // More: docs/code-comments.md (companion-app/source/settings.c:129)
     { "Ambilight payload", "ui",     "shell_run_now",             FIELD_ACTION, OFF(shellAutoload),   0,     0,   1, NULL, 0,
       MENU_SCREEN_SETUP, "Shell feed", NULL },
 
@@ -141,25 +91,15 @@ const MenuItem kMenuItems[] = {
     { "Reload check (seconds)", "timing", "config_reload_check_seconds", FIELD_U32, OFF(configReloadCheckSeconds), 0, 60, 1, NULL, 0,
       MENU_SCREEN_SETUP, "Live reload", "How often the plugin checks this file for changes while it's running, so updates apply without closing the game. Set to 0 to only read the file once, at load." },
 
-    // ======================== Customize ========================
-    // Capped at 4, not the plugin's old ceiling of 10 -- each step here
-    // is (2*scan_depth+1)^2 real tiled-memory reads PER ZONE, PER
-    // Preset selector + reset button. Both are section "ui": neither is an ini key,
-    // and their offsets are dummies (same trick as smoothing_preset below) -- presets.c
-    // owns the real state, main.c's nudge_field / input code dispatch on `key`, and
-    // presets.c's own field walk skips every "ui" row.
+    // Customize Capped at 4, not the plugin's old ceiling of 10 -- each step here is (2*scan_depth+1)^2...
+    // More: docs/code-comments.md (companion-app/source/settings.c:144)
     { "Preset",   "ui", "preset",       FIELD_ENUM,   OFF(smoothingEnabled), 0, PRESET_COUNT - 1, 1, kPresetNames, PRESET_COUNT,
       MENU_SCREEN_CUSTOMIZE, "Preset", "Game and Movie each keep their own settings. Everything below edits the preset shown here, so switching never overwrites the other one." },
     { "Defaults", "ui", "preset_reset", FIELD_ACTION, OFF(smoothingEnabled), 0, 0, 1, NULL, 0,
       MENU_SCREEN_CUSTOMIZE, "Preset", NULL },
 
-    // SAMPLE-THREAD PASS (see letterbox.c's own probeNonBlack comment
-    // on why a tiled read isn't a free array index). 4 still gives a
-    // clearly smoother average than the default of 1 without the
-    // worst-case cost climbing anywhere near what 10 allowed. The
-    // plugin's own ini loader enforces this same ceiling independently
-    // (SCAN_DEPTH_MAX in ambient_internal.h), so a hand-edited ini
-    // can't bypass it even if this slider's max ever drifts from that.
+    // SAMPLE-THREAD PASS (see letterbox.c's own probeNonBlack comment on why a tiled read isn't a free...
+    // More: docs/code-comments.md (companion-app/source/settings.c:156)
     { "Edge depth",        "layout",  "scan_depth",                 FIELD_U32,    OFF(scanDepth),       0,     4,   1, NULL, 0,
       MENU_SCREEN_CUSTOMIZE, "Screen sampling", "Each edge zone averages a square block of pixels around its sample point." },
 
@@ -167,14 +107,8 @@ const MenuItem kMenuItems[] = {
       MENU_SCREEN_CUSTOMIZE, "Auto letterbox", "Detects black bars on each edge independently and insets sampling to stay off them. This is the only capture inset -- turn it off to sample every pixel unconditionally." },
     { "Bar threshold", "layout", "auto_letterbox_threshold", FIELD_U32, OFF(autoLetterboxThreshold), 0, 255, 1, NULL, 0,
       MENU_SCREEN_CUSTOMIZE, "Auto letterbox", NULL, UNIT_PCT_OF_MAX },
-    // "Stability (frames)" and "Recheck every (frames)" (auto_letterbox_
-    // stability_frames / auto_letterbox_check_interval_frames) are also
-    // dropped from the UI -- these are the debounce timing constants
-    // tuned alongside the depth-bounded, majority-vote detection scan
-    // (see the plugin's own letterbox.c). A user turning "Stability"
-    // down to react faster is exactly how the flicker that setting
-    // exists to prevent comes back. The "Auto letterbox" card's row
-    // layout ({4} -> {2}) is updated to match in kGroupLayouts.
+    // "Stability (frames)" and "Recheck every (frames)" (auto_letterbox_ stability_frames /...
+    // More: docs/code-comments.md (companion-app/source/settings.c:170)
 
     { "Brightness",        "color", "brightness",  FIELD_U32,  OFF(brightness),      0,   255,   5, NULL, 0,
       MENU_SCREEN_CUSTOMIZE, "Colour", "Shape overall brightness, colour intensity, gamma response and the black/white levels used for LED output.", UNIT_PCT_OF_MAX },
@@ -218,10 +152,8 @@ const int kMenuItemCount = sizeof(kMenuItems) / sizeof(kMenuItems[0]);
 void settings_set_defaults(AmbientConfig *cfg)
 {
     memset(cfg, 0, sizeof(*cfg));
-    // wledHost intentionally left blank (not pre-filled with a real
-    // address) -- matches ps4_ambient_light's own compiled default.
-    // Leaves the Setup screen's WLED Host field empty until a user
-    // fills in their own controller's IP.
+    // wledHost intentionally left blank (not pre-filled with a real address) -- matches...
+    // More: docs/code-comments.md (companion-app/source/settings.c:221)
     cfg->wledPort = 4048;
     cfg->ledCountTop = 73; cfg->ledCountRight = 41; cfg->ledCountBottom = 73; cfg->ledCountLeft = 42;
     cfg->startCorner = CORNER_BOTTOM_LEFT;
@@ -247,12 +179,8 @@ void settings_set_defaults(AmbientConfig *cfg)
     cfg->settlingTimeMs = 200;
     cfg->configReloadCheckSeconds = 2;
     cfg->notificationsEnabled = 1;   // on by default, as the plugin treats a missing [notifications] enabled
-    // relayHost intentionally left blank (memset above) and
-    // relaySignalEnabled defaults off, same reasoning as wledHost
-    // above -- this app shouldn't ship pointed at this project's own
-    // relay setup. relayPort's default matches ps4_ambient_light's
-    // own compiled default (24689) since, unlike a host address,
-    // there's nothing personal about a port number.
+    // relayHost intentionally left blank (memset above) and relaySignalEnabled defaults off, same...
+    // More: docs/code-comments.md (companion-app/source/settings.c:250)
     cfg->relayPort = 24689;
 }
 
@@ -275,17 +203,8 @@ static ColorOrder parse_color_order(const char *s, ColorOrder fallback)
     return fallback;
 }
 
-// Clamps value into the [min,max] that kMenuItems declares for
-// (section,key) -- the exact same bounds settings_set_i32() already
-// enforces for every D-Pad-driven edit. settings_load() previously
-// re-implemented range checks by hand per field, and several fields
-// only got a partial check (e.g. LED counts/margins accepted any
-// value >= their lower bound with no upper cap at all, led_offset had
-// no bound check whatsoever) -- a hand-edited, corrupted, or future-
-// schema ini could load values the UI itself would never let you set.
-// Routing every numeric field through the schema's own min/max here
-// means there's exactly one place bounds are defined, and it can't
-// silently drift out of sync the way hand-copied literals could.
+// Clamps value into the [min,max] that kMenuItems declares for (section,key) -- the exact same bounds...
+// More: docs/code-comments.md (companion-app/source/settings.c:278)
 static int32_t clamp_to_schema(const char *section, const char *key, int32_t value)
 {
     for (int i = 0; i < kMenuItemCount; i++) {
@@ -298,9 +217,8 @@ static int32_t clamp_to_schema(const char *section, const char *key, int32_t val
     return value;
 }
 
-// These two letterbox debounce keys have no row in kMenuItems any more (they're
-// hidden from the UI), so clamp_to_schema() can't find bounds for them and
-// would pass any value straight through. Same limits the rows used to carry.
+// These two letterbox debounce keys have no row in kMenuItems any more (they're hidden from the UI)...
+// More: docs/code-comments.md (companion-app/source/settings.c:301)
 static int32_t clamp_i32(int32_t v, int32_t lo, int32_t hi)
 {
     return v < lo ? lo : (v > hi ? hi : v);
@@ -326,10 +244,8 @@ bool settings_load(AmbientConfig *cfg, const char *path)
     if (ini_table_get_entry_as_int(table, "network", "wled_port", &iv))
         cfg->wledPort = (uint16_t)clamp_to_schema("network", "wled_port", iv);
 
-    // Reintroduced (was lost between v17 and v18 -- see color_pipeline.h's
-    // struct comment). Deliberately NOT in kMenuItems, so no
-    // clamp_to_schema() call here -- there's no schema entry for these
-    // three to look up, same as v17 had it.
+    // Reintroduced (was lost between v17 and v18 -- see color_pipeline.h's struct comment).
+    // More: docs/code-comments.md (companion-app/source/settings.c:329)
     if ((v = ini_table_get_entry(table, "network", "relay_host")) != NULL) {
         strncpy(cfg->relayHost, v, sizeof(cfg->relayHost) - 1);
         cfg->relayHost[sizeof(cfg->relayHost) - 1] = '\0';
@@ -353,10 +269,8 @@ bool settings_load(AmbientConfig *cfg, const char *path)
     if (ini_table_get_entry_as_int(table, "layout", "auto_letterbox_check_interval_frames", &iv)) cfg->autoLetterboxCheckIntervalFrames = (uint32_t)clamp_i32(iv, 1, 300);
 
     if (ini_table_get_entry_as_int(table, "color", "brightness", &iv)) cfg->brightness = (uint32_t)clamp_to_schema("color", "brightness", iv);
-    // gamma preset is stored as a string ("1.0".."2.8") in the real ini,
-    // not an index -- match that exactly rather than inventing our own
-    // representation, so a file this app writes still loads correctly
-    // in the real plugin.
+    // gamma preset is stored as a string ("1.0".."2.8") in the real ini, not an index -- match that...
+    // More: docs/code-comments.md (companion-app/source/settings.c:356)
     if ((v = ini_table_get_entry(table, "color", "gamma")) != NULL) {
         for (int i = 0; i < 8; i++) if (!strcmp(v, kGammaNames[i])) { cfg->gammaLutIndex = (uint32_t)i; break; }
     }
@@ -378,9 +292,8 @@ bool settings_load(AmbientConfig *cfg, const char *path)
     if (ini_table_get_entry_as_int(table, "timing", "settling_time_ms", &iv)) cfg->settlingTimeMs = (uint32_t)clamp_to_schema("timing", "settling_time_ms", iv);
     if (ini_table_get_entry_as_int(table, "timing", "config_reload_check_seconds", &iv)) cfg->configReloadCheckSeconds = (uint32_t)clamp_to_schema("timing", "config_reload_check_seconds", iv);
 
-    // Absent means OFF here (the app's default), even though the shell feed itself treats an absent
-    // key as on: an install that never touched this setting shows it off, and the first save writes
-    // it out explicitly so the two agree from then on.
+    // Absent means OFF here (the app's default), even though the shell feed itself treats an absent key as...
+    // More: docs/code-comments.md (companion-app/source/settings.c:381)
     if (ini_table_get_entry_as_bool(table, "shell", "enabled", &bv)) cfg->shellEnabled = bv ? 1 : 0;
 
     // Absent means ON (the plugin's own default), so a file that never mentions it stays on.
@@ -412,9 +325,8 @@ bool settings_item_is_preset_owned(const MenuItem *item)
         && item->type != FIELD_STRING && item->type != FIELD_ACTION;
 }
 
-// Removes `key` from `section`. ini_table_s is a plain struct (see config.h), so this
-// edits it directly. (Comment lines never get here: ini_table_read_from_file drops
-// them, which is why an app save has always stripped the plugin's generated comments.)
+// Removes `key` from `section`. ini_table_s is a plain struct (see config.h), so this edits it directly.
+// More: docs/code-comments.md (companion-app/source/settings.c:415)
 static void ini_remove_entry(ini_table_s *table, const char *section, const char *key)
 {
     for (int i = 0; i < table->size; i++) {
@@ -433,31 +345,11 @@ static void ini_remove_entry(ini_table_s *table, const char *section, const char
 
 void settings_fill_table(ini_table_s *table, const AmbientConfig *cfg, bool presetKeys)
 {
-    // MERGE FIX (reapplied -- this line of work still hasn't picked it
-    // up as of v16): this used to start from a blank table containing
-    // ONLY the fields this app knows about, then write that out --
-    // silently destroying anything else already in the file, including
-    // a hand-added [dev] section (dev_ip/dev_logging -- ps4_ambient_
-    // light v2.2.5, confirmed working on real hardware). Loading the
-    // existing file into the same table FIRST, then upserting just the
-    // known fields on top of it via the same ini_table_create_entry
-    // calls already below, preserves everything else untouched. (The
-    // read happens in the callers now: settings_save and presets_save
-    // load the file into `table` before calling this.)
+    // MERGE FIX (reapplied -- this line of work still hasn't picked it up as of v16): this used to start...
+    // More: docs/code-comments.md (companion-app/source/settings.c:436)
 
-    // BUG FIX: relay_host/relay_port/relay_signal_enabled have no
-    // settings-UI row (by design -- this app doesn't manage them), so
-    // cfg's copies of these three are only ever whatever settings_load
-    // happened to read in, or the struct defaults (blank/24689/false)
-    // if the file never had them. Writing them out unconditionally on
-    // every save -- as this used to -- meant a completely fresh ini
-    // (generated by the plugin itself, which never writes these keys
-    // at all unless a user hand-adds them) grew all three keys the
-    // moment it was ever saved from this app, even though nothing
-    // opted in. Capture whether each key already existed in the file
-    // BEFORE this save touches anything, and only write it back if it
-    // did -- so this app can preserve a hand-added relay setup across
-    // a save without ever being the thing that first introduces one.
+    // Write relay_host/relay_port/relay_signal_enabled back only if the file already had them: this app has no UI
+    // for them and must never be what first introduces a relay setup. [docs/code-comments.md]
     bool hadRelayHost   = ini_table_get_entry(table, "network", "relay_host") != NULL;
     bool hadRelayPort   = ini_table_get_entry(table, "network", "relay_port") != NULL;
     bool hadRelaySignal = ini_table_get_entry(table, "network", "relay_signal_enabled") != NULL;
@@ -549,13 +441,7 @@ bool settings_save(const AmbientConfig *cfg, const char *path)
 }
 
 // Generic get/set through a MenuItem's byte offset into AmbientConfig.
-// Only used for the numeric/bool/enum types (U32/I32/U16/BOOL/ENUM) --
-// FIELD_STRING (wledHost) is handled separately by the UI via the
-// on-screen keyboard, not through these.
-// ---- display-unit helpers (see DisplayUnit in settings.h) -------------
-// Presentation only: stored values stay raw 0-255 / 0-500 / etc. so the
-// ini format and the plugin never see percentages. Only what is shown and
-// typed changes -- "255" means nothing to most people, "100%" does.
+// More: docs/code-comments.md (companion-app/source/settings.c:551)
 static int32_t div_round(int32_t num, int32_t den)
 {
     if (den <= 0) return 0;
@@ -591,10 +477,8 @@ int32_t settings_display_max(const MenuItem *item)
     return settings_to_display(item, item->max);
 }
 
-// For UNIT_PCT_OF_MAX rows `step` in the table is ALREADY in percent (so
-// brightness nudges by a clean 5%, thresholds by 1%); every other unit
-// keeps stepping in stored units, which for the "direct" percents are
-// percent anyway.
+// For UNIT_PCT_OF_MAX rows `step` in the table is ALREADY in percent (so brightness nudges by a clean...
+// More: docs/code-comments.md (companion-app/source/settings.c:594)
 int32_t settings_display_step(const MenuItem *item)
 {
     return item->step > 0 ? item->step : 1;

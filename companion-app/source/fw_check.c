@@ -1,8 +1,5 @@
-// fw_check.c -- reads the console firmware once at startup and adds a notice when the current
-// standalone shell-feed loader is untested on that version, or has no entry for it (it will most
-// likely refuse). The notice never blocks anything; the payload decides at runtime. The old loader's
-// offset table no longer describes the shipped payload.
-// The game plugin's firmware behavior is separate from the shell-feed loader.
+// fw_check.c -- reads the console firmware once at startup and adds a notice when the current...
+// More: docs/code-comments.md (companion-app/source/fw_check.c:1)
 
 // The app reads kern.sdk_version through sysctlbyname. If the call fails or the value is not valid
 // BCD, fw_decode() rejects it and nothing is shown rather than guessing a firmware version.

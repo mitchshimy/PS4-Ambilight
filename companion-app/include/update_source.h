@@ -7,9 +7,8 @@
 #include <stddef.h>
 #include <string.h>
 
-// "  http://192.168.2.117:8000/ \r" -> "http://192.168.2.117:8000". Accepts only http:// or https://
-// URLs (anything else would turn a typo into a request to nowhere), trims blanks and trailing
-// slashes, and fails if it doesn't fit. out is "" on failure.
+// " http://192.168.2.117:8000/ \r" -> "http://192.168.2.117:8000".
+// More: docs/code-comments.md (companion-app/include/update_source.h:10)
 static inline bool update_source_normalize(const char *raw, char *out, size_t outSize)
 {
     if (outSize == 0) return false;

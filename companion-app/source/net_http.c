@@ -12,13 +12,8 @@
 #include <orbis/Ssl.h>
 #include <orbis/Net.h>
 
-// HTTP downloads and the release lookup. See net_http.h.
-//
-// Verified real APIs, not guessed: SDK's samples/net_http/main.c is a
-// real, working https://www.google.com download demo this sequence is
-// copied from -- sceSysmoduleLoadModuleInternal for NET/HTTP/SSL,
-// sceNetInit/PoolCreate, sceSslInit, sceHttpInit, then the
-// template/connection/request chain below.
+// HTTP downloads and the release lookup.
+// More: docs/code-comments.md (companion-app/source/net_http.c:15)
 
 static int g_libnetMemId = 0, g_libhttpCtxId = 0, g_libsslCtxId = 0;
 static bool g_httpReady = false;
@@ -53,11 +48,8 @@ static bool http_init(void)
     return true;
 }
 
-// Downloads full_url to local_dst. Returns true on a clean 200 +
-// complete read. If outDigest is non-NULL, it's filled with the
-// SHA-256 of exactly the bytes written to local_dst, computed
-// incrementally as each chunk arrives -- no separate re-read of the
-// file afterwards.
+// Downloads full_url to local_dst.
+// More: docs/code-comments.md (companion-app/source/net_http.c:56)
 bool http_download(const char *full_url, const char *local_dst, uint8_t outDigest[SHA256_DIGEST_SIZE],
                            const char *acceptHeader)
 {
@@ -67,19 +59,12 @@ bool http_download(const char *full_url, const char *local_dst, uint8_t outDiges
     if (tpl < 0) return false;
     sceHttpsSetSslCallback(tpl, skip_ssl_callback, NULL);
 
-    // Follows the small-header 302 from an api.github.com asset URL
-    // (or, previously, straight from github.com's web app -- see the
-    // BUG FIX comment on GITHUB_RELEASES_LATEST_API_URL in
-    // net_http.h for why that direct route no longer works) on to
-    // the signed objects.githubusercontent.com URL the asset actually
-    // lives at.
+    // Follows the small-header 302 from an api.github.com asset URL (or, previously, straight from...
+    // More: docs/code-comments.md (companion-app/source/net_http.c:70)
     sceHttpSetAutoRedirect(tpl, 1);
 
     // Bounds how long a hung/unreachable host can freeze the app.
-    // Confirmed real 2-arg signatures; NOT confirmed against a
-    // working call site in this SDK (no sample calls these), so treat
-    // as a real, compilable improvement over no timeout at all, not a
-    // confirmed-correct one.
+    // More: docs/code-comments.md (companion-app/source/net_http.c:78)
     sceHttpSetConnectTimeOut(tpl, 10 * 1000 * 1000);  // 10s
     sceHttpSetResolveTimeOut(tpl, 10 * 1000 * 1000);  // 10s
     sceHttpSetSendTimeOut(tpl, 10 * 1000 * 1000);     // 10s
@@ -93,25 +78,16 @@ bool http_download(const char *full_url, const char *local_dst, uint8_t outDiges
     if (conn >= 0) {
         req = sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_GET, full_url, 0);
         if (req >= 0) {
-            // NOT YET VERIFIED (same status as sceHttpSetConnectTimeOut
-            // et al. above): sceHttpAddRequestHeader's signature is
-            // taken from the usual OpenOrbis/orbis-sdk shape
-            // (id, name, value, mode) with mode=1 meaning "overwrite
-            // any existing value for this header" -- not exercised
-            // against a real call site in this SDK snapshot. This is
-            // what asks the GitHub asset API for the raw asset (a
-            // small-header 302 to objects.githubusercontent.com)
-            // instead of its default JSON metadata body.
+            // NOT YET VERIFIED (same status as sceHttpSetConnectTimeOut et al. above): sceHttpAddRequestHeader's...
+            // More: docs/code-comments.md (companion-app/source/net_http.c:96)
             if (acceptHeader) sceHttpAddRequestHeader(req, "Accept", acceptHeader, 1);
 
             if (sceHttpSendRequest(req, NULL, 0) >= 0) {
                 int32_t statusCode = 0;
                 sceHttpGetStatusCode(req, &statusCode);
                 if (statusCode == 200) {
-                    // sceKernelOpen/Write/Close, not fopen -- fopen
-                    // from an unusual thread context is not reliably
-                    // safe in this environment (same fix the plugin
-                    // itself needed).
+                    // sceKernelOpen/Write/Close, not fopen -- fopen from an unusual thread context is not reliably safe in...
+                    // More: docs/code-comments.md (companion-app/source/net_http.c:111)
                     int32_t fd = sceKernelOpen(local_dst, ORBIS_O_CREAT_TRUNC_WRONLY /* see plugin_common.h's BUG FIX comment */, 0777);
                     if (fd >= 0) {
                         uint8_t buf[64 * 1024];
@@ -138,17 +114,8 @@ bool http_download(const char *full_url, const char *local_dst, uint8_t outDiges
     return ok;
 }
 
-// Downloads full_url straight into outBuf (NUL-terminated on success),
-// for small text responses -- just the checksum sidecar file, which
-// is a couple dozen bytes. Same template/connection/request machinery
-// as http_download() above, just written into memory instead of a
-// file since there's no reason to touch the filesystem for this much
-// data. Returns false on any HTTP failure OR if the response would
-// overflow outBufSize (including the NUL) -- a checksum file should
-// never be anywhere close to outBufSize, so an overflow here almost
-// certainly means the URL served something else (an HTML error page,
-// a redirect-to-login, etc.), which must not be silently truncated
-// and treated as a hash.
+// Downloads full_url straight into outBuf (NUL-terminated on success), for small text responses...
+// More: docs/code-comments.md (companion-app/source/net_http.c:141)
 bool http_download_text(const char *full_url, char *outBuf, size_t outBufSize, const char *acceptHeader)
 {
     if (!http_init() || outBufSize == 0) return false;
@@ -185,10 +152,8 @@ bool http_download_text(const char *full_url, char *outBuf, size_t outBufSize, c
                         if (n == 0) break;
                         total += (size_t)n;
                         if (total >= outBufSize - 1) {
-                            // Buffer's full but the server might still
-                            // have more to send -- that's the overflow
-                            // case described above, so treat it as a
-                            // failure rather than guess we got it all.
+                            // Buffer's full but the server might still have more to send -- that's the overflow case described...
+                            // More: docs/code-comments.md (companion-app/source/net_http.c:188)
                             uint8_t probe[1];
                             int extra = sceHttpReadData(req, probe, sizeof(probe));
                             if (extra != 0) ok = false;
@@ -206,19 +171,12 @@ bool http_download_text(const char *full_url, char *outBuf, size_t outBufSize, c
     return ok;
 }
 
-// First hop of the api.github.com fix described on
-// GITHUB_RELEASES_LATEST_API_URL in net_http.h: fetches
-// the latest release's metadata and resolves assetName to that
-// asset's own small api.github.com URL, ready to be GETted with
-// Accept: application/octet-stream by http_download()/
-// http_download_text() to reach the real bytes.
+// First hop of the api.github.com fix described on GITHUB_RELEASES_LATEST_API_URL in net_http.h...
+// More: docs/code-comments.md (companion-app/source/net_http.c:209)
 static bool github_resolve_asset_api_url(const char *assetName, char *outUrl, size_t outUrlSize)
 {
-    // Release JSON is dominated by the (markdown) release-notes body
-    // and can run to several KB -- generous vs. the couple-dozen-byte
-    // checksum sidecar http_download_text() is more typically used
-    // for. Heap-allocated: too large to comfortably put on this
-    // thread's stack.
+    // Release JSON is dominated by the (markdown) release-notes body and can run to several KB -- generous...
+    // More: docs/code-comments.md (companion-app/source/net_http.c:217)
     const size_t kReleaseJsonBufSize = 64 * 1024;
     char *releaseJson = (char *)malloc(kReleaseJsonBufSize);
     if (!releaseJson) return false;

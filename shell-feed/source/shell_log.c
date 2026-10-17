@@ -2,9 +2,8 @@
 // dev_ip:4048), and the few lines in the console's own notification bar.
 #include "shell_internal.h"
 
-// --- [dev] UDP mirror: the sister's telemetry idiom (network.c debug_send_raw): DDP header, port 4048,
-// payload capped at 192 bytes, own short-lived socket, and BOTH dev_ip and dev_logging=true required. The
-// payload starts with the 4-byte magic "SHL1" so a listener can tell it from the plugin's binary packets. ---
+// --- [dev] UDP mirror: the sister's telemetry idiom (network.c debug_send_raw): DDP header, port...
+// More: docs/code-comments.md (shell-feed/source/shell_log.c:5)
 #define SH_DEV_PORT         4048
 #define SH_DEV_PAYLOAD_MAX  192
 #define SH_DEV_MAGIC        "SHL1"
@@ -59,10 +58,8 @@ void shell_event(const char *fmt, ...)
     sh_dev_send(line);
 }
 
-// [v47] A line in the console's own notification bar, for the few shell-feed states a person has to know
-// about without a monitor or the [dev] mirror. Used only where the strip stops or comes back: not per frame,
-// not per re-scan (the heal cooldown alone doesn't make those worth a message), and nothing about whether
-// WLED answers. [notifications] enabled=false silences all but the two "can't start: wled_host" ones.
+// [v47] A line in the console's own notification bar, for the few shell-feed states a person has to...
+// More: docs/code-comments.md (shell-feed/source/shell_log.c:62)
 void sh_notify(bool essential, const char *fmt, ...)
 {
     // essential: the feed can't work without the person knowing (no WLED address). Sent whatever

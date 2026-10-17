@@ -1,34 +1,5 @@
-/*
- * ps4_detile_2dthin.c
- *
- * Standalone C port of sce::GpuAddress::Tiler2d::detileSurface /
- * getTiledElementBitOffset, from GPCS4 (Inori/GPCS4,
- * Graphics/Gnm/GpuAddress/GnmTiler.cpp + GnmTilemodes.cpp), hardcoded for
- * the exact surface this project captured from a live PS4 game via
- * videoout_probe:
- *
- *   width       = 1920
- *   height      = 1080
- *   format      = SCE_VIDEO_OUT_PIXEL_FORMAT_A2R10G10B10_SRGB (32bpp)
- *   tmode       = TILE (0)
- *   tileMode    = kTileModeDisplay_2dThin (register 0x92000310)
- *   arrayMode   = kArrayMode2dTiledThin
- *   microTileMode = kMicroTileModeDisplay
- *
- * All tiling parameters below were derived by hand-evaluating the exact
- * same functions GPCS4 uses (computeSurfaceTileMode, computeSurfaceMacroTileMode,
- * Tiler2d::init) against these inputs -- not guessed, not from general GCN
- * knowledge. See the project's tiling-math notes and the
- * follow-up derivation for the full trail.
- *
- * NOT YET CONFIRMED: whether the console is actually running in Neo
- * (PS4 Pro / boost) mode. That changes bankHeight/numBanks/macroTileAspect
- * and therefore macroTileHeight and the padded buffer height. Both
- * parameter sets are included below (kParamsBase / kParamsNeo) -- run
- * detile against a real captured tile dump with each, and whichever one
- * produces a visually correct image is the right one. This *is* itself
- * indirect confirmation of Neo mode.
- */
+// ps4_detile_2dthin.c Standalone C port of sce::GpuAddress::Tiler2d::detileSurface /...
+// More: docs/code-comments.md (tools/ps4_detile_2dthin.c:1)
 
 #include <stdint.h>
 #include <stddef.h>
@@ -74,9 +45,8 @@ typedef struct {
     uint32_t    bankBits;
 } TileParams;
 
-/* Derived by hand from computeSurfaceTileMode / computeSurfaceMacroTileMode /
- * Tiler2d::init for tileMode=kTileModeDisplay_2dThin, bitsPerElement=32,
- * numFragmentsPerPixel=1, width=1920, height=1080. */
+// Derived by hand from computeSurfaceTileMode / computeSurfaceMacroTileMode / Tiler2d::init for...
+// More: docs/code-comments.md (tools/ps4_detile_2dthin.c:77)
 static const TileParams kParamsBase = {
     .name = "base (non-Neo)",
     .pipeConfig = kPipeConfigP8_32x32_16x16,
@@ -117,9 +87,8 @@ static const TileParams kParamsNeo = {
 
 /* ---- verbatim-ported helper functions (GnmTiler.cpp lines ~128-318) ---- */
 
-/* 32bpp display-microtile element swizzle (kMicroTileModeDisplay, bpp=32 case
- * of getElementIndex -- the other bpp cases were dropped since our surface
- * is always 32bpp). */
+// 32bpp display-microtile element swizzle (kMicroTileModeDisplay, bpp=32 case of getElementIndex...
+// More: docs/code-comments.md (tools/ps4_detile_2dthin.c:120)
 static uint32_t getElementIndex32(uint32_t x, uint32_t y)
 {
     uint32_t elem = 0;
@@ -195,14 +164,8 @@ static uint32_t getBankIndex(uint32_t x, uint32_t y, uint32_t bank_width,
     return bank;
 }
 
-/* ---- core address-swizzle function, ported from
- * Tiler2d::getTiledElementBitOffset (GnmTiler.cpp lines 1090-1231),
- * specialized: bitsPerElement=32, numFragmentsPerPixel=1, tileThickness=1,
- * arrayMode=kArrayMode2dTiledThin, microTileMode=Display, z=0, arraySlice=0,
- * bankSwizzleMask=0, pipeSwizzleMask=0 (all true for a plain scanout buffer,
- * no swizzle/no array/no volume). Dropping those terms removes a lot of
- * dead branches from the original without changing behavior for this case.
- * ---- */
+// core address-swizzle function, ported from Tiler2d::getTiledElementBitOffset (GnmTiler.cpp lines...
+// More: docs/code-comments.md (tools/ps4_detile_2dthin.c:198)
 static uint64_t getTiledElementByteOffset(const TileParams *p, uint32_t x, uint32_t y)
 {
     uint64_t element_index = getElementIndex32(x, y);
@@ -263,17 +226,8 @@ static uint64_t getTiledElementByteOffset(const TileParams *p, uint32_t x, uint3
     return finalBitOffset / 8; /* our element is always byte-aligned (32bpp) */
 }
 
-/*
- * Detile a full 1920x1080 32bpp A2R10G10B10_SRGB surface.
- *
- * tiledPixels: pointer to the full tiled buffer, sized for paddedWidth x
- *              paddedHeight x 4 bytes (use p->paddedWidth/paddedHeight,
- *              NOT 1920x1080, when allocating/reading the source buffer --
- *              the GPU always allocates the padded size).
- * outLinearPixels: caller-allocated buffer sized 1920*1080*4 bytes,
- *                   row-major, top-to-bottom, 4 bytes/pixel matching the
- *                   original A2R10G10B10_SRGB packing.
- */
+// Detile a full 1920x1080 32bpp A2R10G10B10_SRGB surface. tiledPixels: pointer to the full tiled...
+// More: docs/code-comments.md (tools/ps4_detile_2dthin.c:266)
 void detileSurface_1920x1080_A2R10G10B10(const TileParams *p,
                                           const uint8_t *tiledPixels,
                                           uint8_t *outLinearPixels)
@@ -294,12 +248,8 @@ void detileSurface_1920x1080_A2R10G10B10(const TileParams *p,
     }
 }
 
-/*
- * Detile a single pixel -- useful for the empirical-verification step
- * (via the ground-truth capture flow): pull a small chunk of real tiled bytes via
- * wled_send_raw, and check a handful of known pixel locations by hand
- * before committing to a full-frame detile in the hook.
- */
+// Detile a single pixel -- useful for the empirical-verification step (via the ground-truth capture...
+// More: docs/code-comments.md (tools/ps4_detile_2dthin.c:297)
 uint32_t detilePixel_A2R10G10B10(const TileParams *p, const uint8_t *tiledPixels,
                                   uint32_t x, uint32_t y)
 {
@@ -309,10 +259,8 @@ uint32_t detilePixel_A2R10G10B10(const TileParams *p, const uint8_t *tiledPixels
     return px;
 }
 
-/* Unpack A2R10G10B10 (MSB-first, blue at LSB) into 8-bit RGB for the WLED
- * DDP path. sRGB gamma is left as-is here (raw values); apply a
- * gamma-decode curve before sending to the strip if display-accurate
- * color matters more than "looks reasonable enough for ambient light." */
+// Unpack A2R10G10B10 (MSB-first, blue at LSB) into 8-bit RGB for the WLED DDP path. sRGB gamma is left...
+// More: docs/code-comments.md (tools/ps4_detile_2dthin.c:312)
 void unpackA2R10G10B10_to_rgb888(uint32_t px, uint8_t *r, uint8_t *g, uint8_t *b)
 {
     uint32_t r10 = (px >> 20) & 0x3FF;
@@ -323,13 +271,8 @@ void unpackA2R10G10B10_to_rgb888(uint32_t px, uint8_t *r, uint8_t *g, uint8_t *b
     *b = (uint8_t)(b10 >> 2);
 }
 
-/* Unpack A8R8G8B8 (MSB-first: A,R,G,B; little-endian uint32 = 0xAARRGGBB)
- * into 8-bit RGB. No shifting math needed, just byte extraction -- this
- * is the format the real capture confirmed: the
- * A2R10G10B10 function above was the wrong assumption for this title/
- * buffer, not a wrong formula. Applying 10-bit math to 8-bit-per-channel
- * data is exactly what produced the "everything pinned near max"
- * symptom that looked like a tiling bug for most of this project. */
+// Unpack A8R8G8B8 (MSB-first: A,R,G,B; little-endian uint32 = 0xAARRGGBB) into 8-bit RGB.
+// More: docs/code-comments.md (tools/ps4_detile_2dthin.c:326)
 void unpackA8R8G8B8_to_rgb888(uint32_t px, uint8_t *r, uint8_t *g, uint8_t *b)
 {
     *r = (uint8_t)((px >> 16) & 0xFF);
@@ -337,14 +280,8 @@ void unpackA8R8G8B8_to_rgb888(uint32_t px, uint8_t *r, uint8_t *g, uint8_t *b)
     *b = (uint8_t)(px & 0xFF);
 }
 
-/* Runtime format dispatch -- takes the raw format value straight off a
- * live sceVideoOutRegisterBuffers capture (attribute->format) rather
- * than assuming one at compile time. This is the fix for the actual
- * root cause: a format assumption baked in once,
- * never re-checked against what the title is really doing. Add a case
- * here (plus the matching unpack function) for any new format a
- * registration-event capture turns up -- do not fall back to guessing
- * A2R10G10B10 again. */
+// Runtime format dispatch -- takes the raw format value straight off a live sceVideoOutRegisterBuffers...
+// More: docs/code-comments.md (tools/ps4_detile_2dthin.c:340)
 typedef void (*PixelUnpackFn)(uint32_t px, uint8_t *r, uint8_t *g, uint8_t *b);
 
 PixelUnpackFn getUnpackFnForFormat(uint32_t format)
@@ -362,9 +299,8 @@ PixelUnpackFn getUnpackFnForFormat(uint32_t format)
 }
 
 #ifdef PS4_DETILE_TEST_MAIN
-/* Quick sanity check: print the tiled byte offset for a handful of pixel
- * coordinates under both parameter sets, so results can be eyeballed
- * against manually-decoded raw dumps from wled_send_raw. */
+// Quick sanity check: print the tiled byte offset for a handful of pixel coordinates under both...
+// More: docs/code-comments.md (tools/ps4_detile_2dthin.c:365)
 int main(void)
 {
     uint32_t testCoords[][2] = { {0,0}, {1,0}, {0,1}, {7,7}, {8,0}, {0,8},

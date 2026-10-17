@@ -1,19 +1,5 @@
-# Library metadata.
-#
-# Stage C (see shell-feed/README.md and docs/architecture.md): this module's
-# own source (shell-feed/source/*.c) is compiled alongside a second source
-# list -- the sister's real tiling.c, pixel_formats.c, zones.c, gamma.c,
-# color_processing.c, settings.c and config.c, compiled straight from
-# ../plugin/source/, not copied -- so SHAREDFILES below. Otherwise this
-# follows plugin/Makefile's pattern exactly: same toolchain vars, same
-# flags, same link step. This module's own include dir and ../plugin's are
-# both on the include path, since shell-feed/include/shell_internal.h (included by every
-# shell-feed/source/*.c) pulls in the sister's own ambient_internal.h/config.h/preset_select.h.
-#
-# NAMING: every file in shell-feed/source/ is shell_*.c (or main.c). The sister files above are
-# compiled into the same $(INTDIR), so a shell-feed source named tiling.c, zones.c, settings.c,
-# config.c, gamma.c, pixel_formats.c or color_processing.c would write the same .o and one would
-# silently replace the other.
+# Library metadata. Stage C (see shell-feed/README.md and docs/architecture.md): this module's own...
+# More: docs/code-comments.md (shell-feed/Makefile:1)
 
 DEBUG_FLAGS = -D__FINAL__=1
 LOG_TYPE = -D__USE_PRINTF__
@@ -36,11 +22,8 @@ TARGETSTUB   := $(OUTPUT_PRX).so
 LIBS := -lSceLibcInternal -lGoldHEN_Hook -lkernel -lSceSysmodule
 
 EXTRAFLAGS := $(DEBUG_FLAGS) $(LOG_TYPE) -fcolor-diagnostics -Wall
-# O_FLAG intentionally left undefined by default, same reasoning as
-# plugin/Makefile: this module's kernel hooks and shared state with the
-# sister plugin have only been verified crash-free at the compiler's
-# default optimization level. Override explicitly if you want one, e.g.
-# `make O_FLAG=-O2`, at your own risk.
+# O_FLAG intentionally left undefined by default, same reasoning as plugin/Makefile: this module's...
+# More: docs/code-comments.md (shell-feed/Makefile:39)
 
 # You likely won't need to touch anything below this point.
 # Root vars
@@ -53,10 +36,8 @@ COMMON_DIR    := ../common
 SISTER_SRC    := ../plugin/source
 SISTER_INC    := ../plugin/include
 
-# Stage C: the sister's real colour pipeline, compiled from ../plugin/source, not copied. See the
-# comment above and shell-feed/docs/architecture.md. Their .o files land in this module's own
-# $(INTDIR) (same as shell-feed/source/*.c's), which is why the link step's `$(INTDIR)/*.o` glob
-# already picks them up with no other change needed below.
+# Stage C: the sister's real colour pipeline, compiled from ../plugin/source, not copied.
+# More: docs/code-comments.md (shell-feed/Makefile:56)
 SHAREDFILES   := tiling.c pixel_formats.c zones.c gamma.c color_processing.c settings.c config.c
 
 # Define objects to build

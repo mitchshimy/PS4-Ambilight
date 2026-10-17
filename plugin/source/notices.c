@@ -1,18 +1,5 @@
-// notices.c -- part of ps4_ambient_light (plugin only; settings.c and the other shared files never
-// call into this file, because the shell feed compiles them too and does not link it).
-//
-// System-notification-bar messages for things that would otherwise fail silently: the strip not
-// lighting because there is no WLED address, an ini value the plugin ignored, a title it can't read,
-// a plugin update, debug logging left on. Every one is sent at most once per game launch (the plugin
-// is injected into every title's process, so "once" here means once per process), apart from the
-// update notice, which is gated by a marker file so it shows once per version.
-//
-// Deliberately NOT here: anything about the network. Whether the strip is reachable is not this
-// plugin's to know (a router, a power cut, a sleeping WLED), and a notice that is missing the next
-// time would read as "the plugin is fine, so my LEDs are broken" -- or the reverse.
-//
-// Decisions are plain C over the globals settings.c sets, so tools/test_notices.c can drive them on
-// a PC. Messages are one line, under ~150 characters.
+// notices.c -- part of ps4_ambient_light (plugin only; settings.c and the other shared files never...
+// More: docs/code-comments.md (plugin/source/notices.c:1)
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -45,9 +32,8 @@ static void say(bool essential, const char *fmt, ...)
     Notify(TEX_ICON_SYSTEM, "PS4 Ambilight: %s", msg);
 }
 
-// ---- plugin update (marker file) ----
-// The first run only records the version: a fresh install already knows it just installed. After
-// that, a different version in the marker means the .prx was replaced.
+// plugin update (marker file) The first run only records the version: a fresh install already knows it...
+// More: docs/code-comments.md (plugin/source/notices.c:48)
 static void version_notice(void)
 {
     uint32_t cur = g_pluginVersion, old = 0;
@@ -71,9 +57,8 @@ static void version_notice(void)
             (unsigned)((old >> 8) & 0xFF), (unsigned)(old & 0xFF));
 }
 
-// ---- WLED address ----
-// Only "there is none", never "it doesn't answer". Once an address shows up after a warning, say so,
-// so the person who just fixed it isn't left wondering.
+// WLED address Only "there is none", never "it doesn't answer".
+// More: docs/code-comments.md (plugin/source/notices.c:74)
 static void host_check(bool suppressWarning)
 {
     if (g_config.wledHost[0] == '\0') {

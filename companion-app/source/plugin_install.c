@@ -23,16 +23,8 @@
 
 static bool plugin_exists(void); // defined below; forward-declared for plugin_registration_state()
 
-// Read-only scan of GoldHEN's plugins.ini for an exact, active (i.e.
-// not commented-out) line matching PLUGIN_PRX_PATH -- same trimmed
-// exact-match rule ensure_plugin_registered_in_goldhen() uses to avoid
-// duplicate lines, factored out so the home screen's disabled-state
-// check (plugin_registration_state() below) can reuse it without
-// opening the file for write. A commented line (";path" or "#path",
-// after trim) does NOT match the bare path, so a commented entry and
-// a missing one both correctly read as "not registered" here -- the
-// caller doesn't need to tell those two cases apart any further than
-// that.
+// Read-only scan of GoldHEN's plugins.ini for an exact, active (i.e. not commented-out) line matching...
+// More: docs/code-comments.md (companion-app/source/plugin_install.c:26)
 static bool plugin_registered_in_goldhen_ini(void)
 {
     const char *path = PLUGIN_PRX_PATH;
@@ -68,50 +60,16 @@ static bool plugin_registered_in_goldhen_ini(void)
     return found;
 }
 
-// Three-way install state for the home screen: not installed (no
-// .prx on disk at all), installed but disabled (.prx present, but
-// plugins.ini's entry for it is commented out or missing), or
-// installed and enabled. Doesn't distinguish "commented" from
-// "missing" any further -- see plugin_registered_in_goldhen_ini()'s
-// comment for why that's fine.
+// Three-way install state for the home screen: not installed (no .prx on disk at all), installed but...
+// More: docs/code-comments.md (companion-app/source/plugin_install.c:71)
 UiInstallState plugin_registration_state(void)
 {
     if (!plugin_exists()) return UI_INSTALL_NONE;
     return plugin_registered_in_goldhen_ini() ? UI_INSTALL_OK : UI_INSTALL_DISABLED;
 }
 
-// Registers the plugin in GoldHEN's plugins.ini under [default]
-// (loads for every title).
-//
-// This is deliberately NOT built on this file's own ini_table_s
-// (settings_load/save's machinery) -- that's a generic parser meant
-// for OUR OWN ini, where this app owns every key. plugins.ini is
-// GoldHEN's file, shared with every other installed plugin, and uses
-// a different dialect: bare-path lines with no "key = value" at all,
-// plus ";"-prefixed comment lines GoldHEN itself ships as inert
-// examples. Routing this through ini_table_read_from_file +
-// ini_table_write_to_file was tried and empirically checked against a
-// file shaped exactly like the one this app will actually find: it
-// silently drops every comment line (ini_table_read_from_file's
-// Comment state is dead code -- nothing ever transitions into it) and
-// rewrites every bare-path entry as "path = ", corrupting even a
-// pre-existing, unrelated, already-working plugin registration
-// ([CUSA00411]'s entry in that test) into a form GoldHEN's own loader
-// likely won't recognize. None of that is acceptable for a file this
-// app doesn't own.
-//
-// So this instead only ever inserts one line, entirely by byte
-// position -- find "[default]", find where its body ends (the next
-// "[...]" header or EOF), insert our path there if it isn't already
-// present anywhere under that section, and copy every other byte of
-// the file through completely unchanged. If the file doesn't exist
-// yet, it's created with just [default] and our own entry -- nothing
-// else, since this app has no business guessing what other plugins a
-// given user does or doesn't have installed. Verified against all of:
-// no file yet, a file shaped like the one this app will actually find
-// (comments + our section + an unrelated section with its own real
-// entry), running it twice in a row (must not duplicate the line),
-// and a file that has no [default] section at all yet.
+// Registers the plugin in GoldHEN's plugins.ini under [default] (loads for every title).
+// More: docs/code-comments.md (companion-app/source/plugin_install.c:83)
 static bool ensure_plugin_registered_in_goldhen(void)
 {
     const char *path = PLUGIN_PRX_PATH;
@@ -160,13 +118,8 @@ static bool ensure_plugin_registered_in_goldhen(void)
     } while (0)
 
     if (!buf || len == 0) {
-        // No existing file (or an empty one): create it with just
-        // [default] and our own entry. Earlier drafts of this
-        // function also wrote out several other plugins' filenames as
-        // commented-out examples -- those came from one particular
-        // user's own existing plugins.ini, not from anything GoldHEN
-        // itself ships or every install has, and had no business being
-        // hardcoded into a file this app creates for anyone else.
+        // No existing file (or an empty one): create it with just [default] and our own entry.
+        // More: docs/code-comments.md (companion-app/source/plugin_install.c:163)
         GH_APPEND("[default]\n");
         GH_APPEND(path);
         GH_APPEND("\n");
@@ -197,9 +150,8 @@ static bool ensure_plugin_registered_in_goldhen(void)
                 if (*s == '[' && (s == buf || s[-1] == '\n')) { bodyEnd = s; break; }
             }
 
-            // Trim trailing blank lines from the body so the new line
-            // lands right after the last real line, not after a run of
-            // blank ones.
+            // Trim trailing blank lines from the body so the new line lands right after the last real line, not...
+            // More: docs/code-comments.md (companion-app/source/plugin_install.c:200)
             const char *insertAt = bodyEnd;
             while (insertAt > afterHdr && (insertAt[-1] == '\n' || insertAt[-1] == '\r')) insertAt--;
 
@@ -207,10 +159,8 @@ static bool ensure_plugin_registered_in_goldhen(void)
             if (insertAt > afterHdr) GH_APPEND("\n");
             GH_APPEND(path);
             GH_APPEND("\n");
-            // Keep a blank-line separator before the next section, if
-            // there is one -- matches the convention already visible
-            // in a real plugins.ini (a blank line between [default]
-            // and the next title's section).
+            // Keep a blank-line separator before the next section, if there is one -- matches the convention...
+            // More: docs/code-comments.md (companion-app/source/plugin_install.c:210)
             if (bodyEnd < buf + len) GH_APPEND("\n");
             GH_APPEND_N(bodyEnd, (size_t)(buf + len - bodyEnd));
         }
@@ -236,21 +186,16 @@ static bool plugin_exists(void)
     return true;
 }
 
-// Downloads the latest plugin build and installs it. Used for both
-// "Install plugin" (first run) and re-fetching a newer build once
-// already installed.
+// Downloads the latest plugin build and installs it.
+// More: docs/code-comments.md (companion-app/source/plugin_install.c:239)
 void do_plugin_update(void)
 {
     refresh_dev_base_url();
     set_status(net_dev_base_url()[0] ? "Looking up the release on the local test server..." : "Looking up latest release...", false);
     render_and_present();   // one frame of feedback before the blocking I/O below
 
-    // First hop: resolve both assets' own small api.github.com URLs
-    // from the release metadata, up front, before downloading
-    // anything -- so a stale/renamed asset fails fast with a clear
-    // status message instead of after the (much larger) .prx download.
-    // See the BUG FIX comment on GITHUB_RELEASES_LATEST_API_URL in net_http.h
-    // for why this replaces a direct GET of PLUGIN_UPDATE_URL.
+    // First hop: resolve both assets' own small api.github.com URLs from the release metadata, up front...
+    // More: docs/code-comments.md (companion-app/source/plugin_install.c:248)
     char prxAssetUrl[256];
     const char *acceptHdr = NULL;   // NULL when the source is a plain local file server
     if (!resolve_asset_url(PLUGIN_ASSET_NAME, prxAssetUrl, sizeof(prxAssetUrl), &acceptHdr)) {
@@ -266,9 +211,8 @@ void do_plugin_update(void)
     set_status("Downloading plugin...", false);
     render_and_present();
 
-    // Second hop: Accept: application/octet-stream is what makes the
-    // GitHub asset API respond with a small-header redirect straight
-    // to the asset bytes instead of its default JSON metadata body.
+    // Second hop: Accept: application/octet-stream is what makes the GitHub asset API respond with a...
+    // More: docs/code-comments.md (companion-app/source/plugin_install.c:269)
     APP_MKDIR(APP_DATA_DIR);
     const char *tmpPath = APP_DATA_DIR "/ps4_ambient_light_update.tmp";
     uint8_t digest[SHA256_DIGEST_SIZE];
@@ -282,15 +226,8 @@ void do_plugin_update(void)
 
     char expectedHex[512]; // checksum sidecar is tiny; generous vs. a bare 65
     if (!http_download_text(shaAssetUrl, expectedHex, sizeof(expectedHex), acceptHdr)) {
-        // NOT YET VERIFIED (same status as the IME-dialog and L1/R1
-        // conventions flagged at the top of this file): sceKernelUnlink
-        // matches libkernel's usual POSIX-mirroring naming
-        // (sceKernelOpen/Read/Write/Close/Rename are all real and
-        // already used above/below), but no sample in this SDK
-        // snapshot was found that actually calls it. If it's missing
-        // at link time, the fallback is to just leave the .tmp file on
-        // disk -- harmless (it's overwritten by O_TRUNC next attempt)
-        // -- rather than something this function must have.
+        // NOT YET VERIFIED (same status as the IME-dialog and L1/R1 conventions flagged at the top of this...
+        // More: docs/code-comments.md (companion-app/source/plugin_install.c:285)
         sceKernelUnlink(tmpPath);
         set_status("Update failed: couldn't fetch checksum for verification.", true);
         return;
@@ -304,24 +241,13 @@ void do_plugin_update(void)
         return;
     }
 
-    // Stage the new build alongside the live one, and only ever touch
-    // PLUGIN_PRX_PATH itself via sceKernelRename() once the staged
-    // copy is fully verified good -- a copy failure partway through
-    // never touches the live, working file.
+    // Stage the new build alongside the live one, and only ever touch PLUGIN_PRX_PATH itself via...
+    // More: docs/code-comments.md (companion-app/source/plugin_install.c:307)
     const char *stagingPath = PLUGIN_PRX_PATH ".new";
     int32_t src = sceKernelOpen(tmpPath, 0, 0777);
     if (src < 0) { set_status("Update failed: couldn't reopen downloaded file.", true); return; }
-    // BUG FIX: this used to be the bare literal "0x200 | 0x001" with
-    // no O_TRUNC at all (see plugin_common.h's BUG FIX comment) -- if
-    // stagingPath already had leftover bytes from an earlier update
-    // attempt and the new download was the same size or smaller, this
-    // open() didn't truncate them, so the copy loop below (which reads
-    // src until ITS eof, not stagingPath's old length) could carry
-    // that leftover tail through the rename into the live
-    // PLUGIN_PRX_PATH -- corrupting the install with extra trailing
-    // bytes that were never part of the SHA-256-verified download,
-    // which is exactly what made check_for_plugin_update() see a
-    // mismatch against GitHub's checksum on every subsequent launch.
+    // Open the staging file with O_TRUNC (see plugin_common.h), or leftover bytes from an earlier attempt
+    // ride through the rename and break the SHA-256 match on every launch. [docs/code-comments.md]
     int32_t dst = sceKernelOpen(stagingPath, ORBIS_O_CREAT_TRUNC_WRONLY, 0777);
     if (dst < 0) { sceKernelClose(src); set_status("Update failed: can't write staging file.", true); return; }
     uint8_t buf[64 * 1024];
@@ -333,22 +259,8 @@ void do_plugin_update(void)
         if (sceKernelWrite(dst, buf, n) != n) { copyOk = false; break; }
     }
     sceKernelClose(src);
-    // DURABILITY FIX: force the staged copy's data out of the OS
-    // write-back cache and onto physical storage BEFORE it's renamed
-    // into place. Without this, sceKernelWrite() above only guarantees
-    // the bytes are visible to reads within this same running OS
-    // instance -- nothing stopped a reboot (or GoldHEN/the console
-    // dropping power) between "Installed." and the plugin actually
-    // being reloaded from disk from silently reverting stagingPath's
-    // dirty pages, so the rename below could complete against data
-    // that was never actually committed. fsync() operates on the
-    // fd, same POSIX call already used (in a different file) on the
-    // libc FILE*-based path in config.c -- sceKernelOpen()'s fds are
-    // the same POSIX-compatible fds, so this works on the raw fd here
-    // too, no sceKernel-prefixed equivalent needed. Checked: a failed
-    // fsync means the data isn't safely on disk, so this must abort
-    // the install rather than rename an unverified-durable file into
-    // the live path.
+    // fsync the staged copy before renaming it into place, and abort the install if fsync fails;
+    // otherwise a power loss can leave a rename over data that never reached disk. [docs/code-comments.md]
     if (copyOk && fsync(dst) < 0) copyOk = false;
     sceKernelClose(dst);
     if (!copyOk) {
@@ -361,14 +273,8 @@ void do_plugin_update(void)
         return;
     }
 
-    // Same reasoning as above, applied to the rename itself: a rename
-    // is a directory-metadata change, which the OS can also hold in
-    // write-back cache rather than committing immediately. Re-opening
-    // PLUGIN_PRX_PATH here and fsyncing that fd (rather than trying to
-    // fsync stagingPath's now-stale fd, or a directory fd -- open()
-    // on a directory isn't reliably supported by this SDK's libkernel)
-    // pushes the renamed directory entry and its data out to disk
-    // before this function reports success.
+    // Same reasoning as above, applied to the rename itself: a rename is a directory-metadata change...
+    // More: docs/code-comments.md (companion-app/source/plugin_install.c:364)
     {
         int32_t verifyFd = sceKernelOpen(PLUGIN_PRX_PATH, 0, 0777);
         if (verifyFd >= 0) {
@@ -390,10 +296,8 @@ void do_plugin_update(void)
     set_status("Installed. Relaunch your game.", false);
 }
 
-// Re-enables a .prx that's already on disk but whose plugins.ini entry
-// is commented out or missing (UI_INSTALL_DISABLED) -- just rewrites
-// the ini line locally via the same ensure_plugin_registered_in_goldhen()
-// used after a fresh install/update, no network download needed.
+// Re-enables a .prx that's already on disk but whose plugins.ini entry is commented out or missing...
+// More: docs/code-comments.md (companion-app/source/plugin_install.c:393)
 void do_plugin_enable(void)
 {
     if (!ensure_plugin_registered_in_goldhen()) {
@@ -404,15 +308,8 @@ void do_plugin_enable(void)
     set_status("Plugin enabled. Relaunch your game to load it.", false);
 }
 
-// ---------------- GoldHEN's plugin loader switch ----------------
-//
-// Settings > GoldHEN > Plugin Settings > Enable Plugins Loader is saved in /data/GoldHEN/config.ini
-// ([PluginLoader] PluginLoader_Enabled, goldhen_config.h). With it off GoldHEN loads no plugin for
-// any game, and for a long time Home couldn't tell. Now Home reads it and shows it ahead of every
-// other check. The app only READS it: GoldHEN keeps the live value in memory and doesn't re-read
-// the file (writing 1 left its menu showing the switch off), and it won't change the switch at all
-// while a game or app is running, which includes this one. So the button just closes the app.
-// Only a definite 0 counts as off: a missing file or key (an older GoldHEN) is UNKNOWN.
+// GoldHEN's plugin loader switch Settings > GoldHEN > Plugin Settings > Enable Plugins Loader is saved...
+// More: docs/code-comments.md (companion-app/source/plugin_install.c:407)
 
 PluginLoaderState read_plugin_loader_state(void)
 {
@@ -424,9 +321,8 @@ PluginLoaderState read_plugin_loader_state(void)
     return s;
 }
 
-// Re-reads the switch and updates Home when it changed. Cheap (the file is about 1 KB), and the
-// person can flip it in GoldHEN's own menu while this app sits in the background, so Home calls
-// this every couple of seconds and right after coming back to the foreground.
+// Re-reads the switch and updates Home when it changed.
+// More: docs/code-comments.md (companion-app/source/plugin_install.c:427)
 void refresh_plugin_loader_state(void)
 {
     PluginLoaderState s = read_plugin_loader_state();

@@ -1,11 +1,9 @@
-// shell_buffers.c -- finding the compositor's display buffers: the memory-map scan, matching the two
-// 1920x1080 regions, the TSC calibration, and the self-heal that re-runs the scan after a run of bad
-// buffer checks. A buffer is trusted only while its region still looks exactly as it did when it was found.
+// shell_buffers.c -- finding the compositor's display buffers: the memory-map scan, matching the two...
+// More: docs/code-comments.md (shell-feed/source/shell_buffers.c:1)
 #include "shell_internal.h"
 
-// =====================================================================
 // [v14] Memory-map scan + optional CPU_READ probe (see header)
-// =====================================================================
+// More: docs/code-comments.md (shell-feed/source/shell_buffers.c:6)
 typedef struct {
     void    *start;
     void    *end;

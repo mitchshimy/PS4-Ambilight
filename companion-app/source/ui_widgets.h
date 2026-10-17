@@ -1,16 +1,5 @@
 // ui_widgets.h -- the blueprint's components, as components.
-//
-// Rather than hard-coding pixel positions per screen, this reproduces
-// the small slice of CSS box model the design actually uses: border-box
-// sizing, padding, margins, a flex row with `gap` and `flex: 1 1 240px`
-// growth, and CSS line boxes for vertical text placement. Card heights
-// then fall out of their content the same way they do in the browser.
-//
-// This was checked against the blueprint screenshots rather than
-// assumed. On Set up, the four LED-count inputs land at x = 191, 581,
-// 971, 1361 with width 370, the Colour row's six fields come out 240
-// wide, and Screen sampling's five come out 292 -- all matching the
-// captures pixel for pixel.
+// More: docs/code-comments.md (companion-app/source/ui_widgets.h:1)
 
 #ifndef UI_WIDGETS_H
 #define UI_WIDGETS_H
@@ -80,31 +69,24 @@ typedef struct {
 
 float ui_card_height(const UiFonts *f, const UiCard *card, float width);
 
-// Vertical offset (from the card's top edge) and height of one field
-// row, so a caller can scroll a focused control into view without
-// duplicating the card's layout maths.
+// Vertical offset (from the card's top edge) and height of one field row, so a caller can scroll a...
+// More: docs/code-comments.md (companion-app/source/ui_widgets.h:83)
 bool ui_card_row_offset(const UiFonts *f, const UiCard *card, int row, float *outY, float *outH);
 void  ui_card_draw(UiCanvas *c, const UiFonts *f, const UiCard *card, float x, float y, float width);
 
 // ---- shared pieces used directly by the Home screen ----
 void ui_focus_brackets(UiCanvas *c, UiRect r, UiColor color);
 
-// A full outline ring drawn just outside a control's own bounding box
-// -- for controls where ui_focus_brackets' corner marks would sit on
-// top of a solid fill colour (a big amber button, say) and be hard to
-// see there regardless of the bracket colour. Sitting outside the
-// control means the ring is always against the page background
-// instead, so contrast never depends on the control's own fill.
+// A full outline ring drawn just outside a control's own bounding box -- for controls where...
+// More: docs/code-comments.md (companion-app/source/ui_widgets.h:92)
 void ui_focus_ring(UiCanvas *c, UiRect r, UiRadius radius, float gap, float thickness, UiColor color);
 void ui_draw_keycap(UiCanvas *c, const UiFonts *f, float x, float baselineY, const char *label, float *outAdvance);
 // A keycap chip followed by a short description, e.g. "L1/R1" +
 // "nudge value" -- the convention Home's own footer already uses.
 typedef struct { const char *cap; const char *word; } UiHintItem;
 
-// Line-box height of a hint row (keycap chips are taller than the
-// surrounding text, so CSS-style line-box math is needed the same way
-// ui_text_baseline_for_box() needs it elsewhere) -- callers use this
-// to place whatever comes after the row.
+// Line-box height of a hint row (keycap chips are taller than the surrounding text, so CSS-style...
+// More: docs/code-comments.md (companion-app/source/ui_widgets.h:104)
 float ui_hint_row_line_height(const UiFonts *f);
 float ui_hint_row_baseline_above(const UiFonts *f);
 

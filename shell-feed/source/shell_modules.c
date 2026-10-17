@@ -2,9 +2,8 @@
 // consolidated handle scan, case-insensitive name matching, and symbol resolution.
 #include "shell_internal.h"
 
-// ---------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------
+// More: docs/code-comments.md (shell-feed/source/shell_modules.c:5)
 
 int first_byte(void *p)
 {
@@ -62,14 +61,8 @@ void list_modules_api(void)
            (unsigned)ret, (int)numModules);
 }
 
-// [v8] ONE consolidated scan: walks the handle range ONCE per phase and
-// answers every question this probe used to run a SEPARATE full table scan
-// for (Piglet, ScreenShot, VideoRecording, Mono discovery, four guessed
-// Mono filenames -- up to ten full passes total in v7, HANDOFF 7.15's
-// "repeated-full-scan design issue"). Still scans 0..SCAN_START_CAP
-// unconditionally, then keeps going until SCAN_MISS_RUN consecutive misses
-// or SCAN_HARD_CAP, exactly as v5-v7 (HANDOFF 7.9's fix, unchanged). All
-// name matching is case-insensitive (fixes v7-A's missed Mono modules).
+// [v8] ONE consolidated scan: walks the handle range ONCE per phase and answers every question this...
+// More: docs/code-comments.md (shell-feed/source/shell_modules.c:65)
 
 struct ScanResult scan_and_discover(const char *phase)
 {
@@ -113,10 +106,8 @@ struct ScanResult scan_and_discover(const char *phase)
                 printf(TAG "   [%s] mono match: handle=%d name=%s\n", phase, h, info.name);
             r.monoMatchCount++;
             int isSgen = name_has_ci(info.name, "monosgen");
-            // Prefer a "monosgen" match (the confirmed real runtime, 7.15)
-            // over any earlier non-sgen match (e.g. libmono-btls-shared.sprx,
-            // a TLS/crypto helper, not the VM itself); otherwise keep the
-            // first match found.
+            // Prefer a "monosgen" match (the confirmed real runtime, 7.15) over any earlier non-sgen match (e.g....
+            // More: docs/code-comments.md (shell-feed/source/shell_modules.c:116)
             if (r.hMono < 0 || (isSgen && !r.monoPrimaryIsSgen)) {
                 r.hMono = h;
                 r.monoPrimaryIsSgen = isSgen;

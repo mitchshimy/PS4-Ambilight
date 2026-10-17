@@ -1,9 +1,5 @@
-// relay_signal.c -- same one-shot-UDP-datagram approach ddp.c already
-// uses for the real strip data, just a different (much smaller)
-// payload and destination. Kept as its own file rather than folded
-// into ddp.c since this isn't DDP at all -- no header, no zone data,
-// just the bare ASCII text "on"/"off" -- and ddp.c's own DDP_HEADER_SIZE/
-// DDP_MAX_ZONES constants are specific to that protocol, not this one.
+// relay_signal.c -- same one-shot-UDP-datagram approach ddp.c already uses for the real strip data...
+// More: docs/code-comments.md (companion-app/source/relay_signal.c:1)
 
 #include "relay_signal.h"
 #include <string.h>

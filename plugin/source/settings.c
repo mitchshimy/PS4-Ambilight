@@ -1,7 +1,5 @@
-// settings.c -- part of ps4_ambient_light, split out of the original
-// single-file main.c. AmbientConfig defaults, ini load, and live-reload change detection.
-// See ambient_internal.h for the shared types/externs this file relies
-// on, and main.c's own top comment for this plugin's overall history.
+// settings.c -- part of ps4_ambient_light, split out of the original single-file main.c. AmbientConfig...
+// More: docs/code-comments.md (plugin/source/settings.c:1)
 
 #include <stdio.h>
 #include <stdint.h>
@@ -24,25 +22,17 @@
 #include "media_titles.h"
 
 
-// Defaults match v1.3's hardcoded behavior exactly -- upgrading from a
-// build with no ini file present should look identical to before,
-// not silently change anything.
-// The running title (e.g. "CUSA00129"), set by plugin_load before the first
-// ambient_load_config(); empty if GoldHEN could not say. Only used to pick a preset.
+// Defaults match v1.3's hardcoded behavior exactly -- upgrading from a build with no ini file present...
+// More: docs/code-comments.md (plugin/source/settings.c:27)
 char g_titleId[16] = "";
 
 AmbientConfig g_config = {
-    // wledHost intentionally blank, not pre-filled with this project's
-    // own controller's IP -- a build anyone else uses shouldn't ship
-    // with someone else's network address. Blank just leaves DDP send
-    // targeting nothing until a real ini (or the companion app) sets
-    // wled_host; see AMBIENT_DEFAULT_INI below for the generated file.
+    // wledHost intentionally blank, not pre-filled with this project's own controller's IP -- a build...
+    // More: docs/code-comments.md (plugin/source/settings.c:35)
     .wledHost = "",
     .wledPort = 4048,
-    // relayHost blank for the same reason as wledHost above -- also
-    // moot either way, since relaySignalEnabled defaults to false
-    // below, so this address is never dialed unless a user explicitly
-    // opts in AND sets their own relay_host in the ini.
+    // relayHost blank for the same reason as wledHost above -- also moot either way, since...
+    // More: docs/code-comments.md (plugin/source/settings.c:42)
     .relayHost = "",
     .relayPort = 24689, // must match wled-relay's tv_external_source.EXTERNAL_SOURCE_PORT
     .relaySignalEnabled = false, // opt-in only -- see the field comment above
@@ -51,10 +41,8 @@ AmbientConfig g_config = {
     .direction = DIR_CLOCKWISE,
     .ledOffset = 0,
     .scanDepth = 1,
-    // v3.0: on by default -- this is now the only inset applied before
-    // sampling (see ambient_internal.h). threshold/stability default
-    // values are unchanged from when this was introduced in v2.9 as an
-    // addition on top of manual margins.
+    // v3.0: on by default -- this is now the only inset applied before sampling (see ambient_internal.h)....
+    // More: docs/code-comments.md (plugin/source/settings.c:54)
     .autoLetterboxEnabled = true,
     .autoLetterboxThreshold = 18,
     .autoLetterboxStabilityFrames = 3,
@@ -77,10 +65,8 @@ AmbientConfig g_config = {
     .smoothingEnabled = 0, // off by default -- v1.3 had no smoothing, don't change behavior silently
     .settlingTimeMs = 200,
     .configReloadCheckSeconds = 2, // matches the auto-generated template's default (2s) -- this is a
-                                    // brand-new capability with no prior behavior to preserve, so unlike every
-                                    // other default above it does NOT need to match "what v2.0 did" (v2.0 simply
-                                    // couldn't do this at all). Only matters if ambient_create_default_config()
-                                    // ever stops matching this value -- keep the two in sync by hand.
+                                    // brand-new capability with no prior behavior to preserve, so unlike every other default above it does...
+                                    // More: docs/code-comments.md (plugin/source/settings.c:80)
 };
 
 static bool ambient_file_exists(const char *filename)
@@ -89,9 +75,8 @@ static bool ambient_file_exists(const char *filename)
     return stat(filename, &buff) == 0;
 }
 
-// What the last ambient_load_config() found, for the plugin's notifications (notices.c). Set here
-// because this is where the ini is read; only the plugin reads them, and settings.c is also compiled
-// into the shell feed, so nothing here may call back into plugin-only code.
+// What the last ambient_load_config() found, for the plugin's notifications (notices.c).
+// More: docs/code-comments.md (plugin/source/settings.c:92)
 volatile uint32_t g_configLoadCount = 0;        // bumped at the end of every ambient_load_config() call
 volatile uint32_t g_configDefaultCreated = 0;   // the last call wrote the default ini (there was none)
 volatile uint32_t g_configParseFailed = 0;      // the last call found an ini it could not read
@@ -116,9 +101,8 @@ static bool cfg_int_in(ini_table_s *table, const char *section, const char *key,
     return true;
 }
 
-// Same sceKernelOpen-not-fopen gotcha plugin_loader's own code comment
-// flags ("Does not work, may not have write access") -- not
-// rediscovering that the hard way here.
+// Same sceKernelOpen-not-fopen gotcha plugin_loader's own code comment flags ("Does not work, may not...
+// More: docs/code-comments.md (plugin/source/settings.c:119)
 static void ambient_create_default_config(void)
 {
     int32_t f = sceKernelOpen(AMBIENT_CONFIG_PATH, 0x200 | 0x001, 0777);
@@ -160,11 +144,8 @@ static LedDirection parse_direction(const char *s, LedDirection fallback)
     return fallback;
 }
 
-// Matched by exact string, not parsed as a float -- deliberately, to
-// avoid any float-parsing code path at runtime in a build with no
-// libm linked. Only these 8 values exist as precomputed LUTs anyway
-// (see kGammaLuts below), so a free-form value couldn't be honored
-// correctly regardless.
+// Matched by exact string, not parsed as a float -- deliberately, to avoid any float-parsing code path...
+// More: docs/code-comments.md (plugin/source/settings.c:163)
 static uint32_t parse_gamma_index(const char *section, const char *s, uint32_t fallback)
 {
     static const char *kGammaStrings[NUM_GAMMA_LUTS] = {"1.0","1.4","1.8","2.0","2.2","2.4","2.6","2.8"};
@@ -176,9 +157,8 @@ static uint32_t parse_gamma_index(const char *section, const char *s, uint32_t f
     return fallback; // unrecognized string -- keep default rather than guess
 }
 
-// True if `section` holds at least one preset-owned key, i.e. the ini really
-// has that preset. Checked by key rather than by section name so an empty or
-// stray "[preset_movie]" line doesn't count as a preset.
+// True if `section` holds at least one preset-owned key, i.e. the ini really has that preset.
+// More: docs/code-comments.md (plugin/source/settings.c:179)
 const char *g_presetOverride = NULL; // see ambient_internal.h; this plugin never sets it
 
 static bool preset_section_has_keys(ini_table_s *table, const char *section)
@@ -204,10 +184,8 @@ void ambient_load_config(void)
         ambient_create_default_config();
         g_configDefaultCreated = ambient_file_exists(AMBIENT_CONFIG_PATH) ? 1 : 0;
         ambient_rebuild_perchannel_gamma_luts(); // g_gammaLut{R,G,B} are static, zero-init by
-                                                  // default -- MUST build the identity LUTs here
-                                                  // too, or defaults (gammaR/G/B=100, meant to be
-                                                  // a no-op) would silently crush every sample to
-                                                  // black instead.
+                                                  // default -- MUST build the identity LUTs here too, or defaults (gammaR/G/B=100, meant to be a no-op)...
+                                                  // More: docs/code-comments.md (plugin/source/settings.c:207)
         g_configLoadCount++;
         return; // g_config's compile-time defaults (== v1.3 behavior) stand otherwise
     }
@@ -223,20 +201,12 @@ void ambient_load_config(void)
     const char *v;
     int iv; bool bv;
 
-    // v3.8: the settings a preset owns (sampling depth, letterbox, colour,
-    // smoothing, RGB balance) are read from the chosen [preset_*] section.
-    // NULL means an ini from before presets, which still has them in
-    // [layout]/[color]/[timing]; it reads exactly as it always did. Setup
-    // values (network, LED layout, colour order, update rate, reload check)
-    // are never part of a preset and always come from their own sections.
-    // A key missing from the chosen section is treated like any other missing
-    // key here: the value it already has stands.
+    // v3.8: the settings a preset owns (sampling depth, letterbox, colour, smoothing, RGB balance) are...
+    // More: docs/code-comments.md (plugin/source/settings.c:226)
     const char *ps;
     if (g_presetOverride != NULL && preset_section_has_keys(table, g_presetOverride)) {
-        // g_presetOverride wins over active=/the title guess, but only if its
-        // section actually has keys -- an override pointing at a section the
-        // ini doesn't define falls through to the normal pick below rather
-        // than silently losing every preset-owned setting.
+        // g_presetOverride wins over active=/the title guess, but only if its section actually has keys -- an...
+        // More: docs/code-comments.md (plugin/source/settings.c:236)
         ps = g_presetOverride;
     } else {
         ps = preset_section_pick(ini_table_get_entry(table, "presets", "active"),
@@ -248,17 +218,13 @@ void ambient_load_config(void)
     const char *sColor  = ps ? ps : "color";
     const char *sTiming = ps ? ps : "timing";
 
-    // v3.9: [compat] gpu_only_remap. OPTIONAL: default 3, not in the shipped ini, nothing needs
-    // to set it. 0 off, 1 second CPU_READ view only, 2 also the untyped fallback, 3 also
-    // sceKernelMprotect on the game's own mapping (the only method that has worked, on MK11).
-    // It only acts on a buffer the guard already rejected as GPU-only, so it cannot change a
-    // title that reads fine today. See buffer_guard.c and docs/debugging/gpu-only-buffers.md.
+    // v3.9: [compat] gpu_only_remap.
+    // More: docs/code-comments.md (plugin/source/settings.c:251)
     if (cfg_int_in(table, "compat", "gpu_only_remap", 0, 3, &iv))
         g_gpuOnlyRemap = (uint32_t)iv;
 
-    // v3.9.1: [compat] report_file. OPTIONAL, default 0 (off), not in the shipped ini. 1 makes the
-    // plugin write /data/ps4-ambilight/ps4_ambient_report_<TITLEID>.txt (report.c): a tester adds it. Anything
-    // but 0 or 1 is ignored and the value stands, like gpu_only_remap above.
+    // v3.9.1: [compat] report_file.
+    // More: docs/code-comments.md (plugin/source/settings.c:259)
     if (ini_table_get_entry_as_int(table, "compat", "report_file", &iv) && (iv == 0 || iv == 1))
         g_reportEnabled = (uint32_t)iv;
 
@@ -315,9 +281,8 @@ void ambient_load_config(void)
     if (cfg_int_in(table, sColor, "dark_threshold", 0, 255, &iv))
         g_config.darkThreshold = (uint32_t)iv;
 
-    // v2.2: Android-ported per-channel color knobs (see AmbientConfig
-    // struct comment for why these use a different 0-neutral-point
-    // convention than the fields just above).
+    // v2.2: Android-ported per-channel color knobs (see AmbientConfig struct comment for why these use a...
+    // More: docs/code-comments.md (plugin/source/settings.c:318)
     if (ini_table_get_entry_as_int(table, sColor, "contrast", &iv))
         g_config.contrast = iv < -100 ? -100 : (iv > CONTRAST_MAX ? CONTRAST_MAX : iv);
     if (cfg_int_in(table, sColor, "brightness_r", 0, 500, &iv))
@@ -334,16 +299,8 @@ void ambient_load_config(void)
         g_config.gammaB = (uint32_t)iv;
     ambient_rebuild_perchannel_gamma_luts();
 
-    // v2.2.5: [dev] is intentionally undocumented in the generated ini
-    // template (AMBIENT_DEFAULT_INI) and absent from both reference
-    // configs in this folder -- someone has to already know to type
-    // "[dev]" / "dev_ip=..." / "dev_logging=true" into their own ini
-    // by hand. That's deliberate: see the struct comment on why this
-    // shouldn't be one flag away from accidentally-on for a normal
-    // user. Both keys are required together -- a stray dev_ip with no
-    // dev_logging=true does nothing, and vice versa (checked again,
-    // redundantly, right at the one place that actually sends
-    // anything -- see debug_send_raw).
+    // v2.2.5: [dev] is intentionally undocumented in the generated ini template (AMBIENT_DEFAULT_INI) and...
+    // More: docs/code-comments.md (plugin/source/settings.c:337)
     if ((v = ini_table_get_entry(table, "dev", "dev_ip")) != NULL) {
         strncpy(g_config.devIp, v, sizeof(g_config.devIp) - 1);
         g_config.devIp[sizeof(g_config.devIp) - 1] = '\0';
@@ -369,55 +326,8 @@ void ambient_load_config(void)
     g_configLoadCount++;
 }
 
-// v2.1 live config reload: re-reads the ini file if its mtime changed,
-// checked at most once every configReloadCheckSeconds (0 = never,
-// matches v2.0's load-once behavior). Safe without any locking because
-// g_config/g_zoneX/g_zoneY/g_numZones are read AND written exclusively
-// by this one thread -- plugin_load's initial ambient_load_config()/
-// buildZoneGeometry() call happens before this thread is even spawned,
-// and the flip hook only ever touches g_currentDisplayBufferIndex, not
-// any of this state.
-// v2.1.1 BUGFIX (real hardware confirmed live reload never fired --
-// ): the original version used g_configLastMtime==0 as
-// its own "not yet initialized" sentinel. That's a real, fatal design
-// flaw independent of any PS4-specific quirk: 0 is also a value
-// st_mtime could legitimately have (unpopulated/unsupported on this
-// filesystem, or just a coincidence). If st_mtime is ever actually 0,
-// this check would conclude "still establishing baseline" FOREVER,
-// on every single call, and reload would silently never fire again --
-// exactly the symptom reported. Fixed with a separate boolean flag so
-// the sentinel state can never collide with a real mtime value.
-//
-// Also now tracks file SIZE alongside mtime and reloads if EITHER
-// changed -- not because mtime is confirmed broken on this platform
-// (not verified from here), but because this is cheap insurance
-// against exactly that class of platform-level uncertainty, and this
-// project has already spent one whole session finding out an
-// assumption about low-level platform behavior was wrong.
-// v2.1.4: real hardware showed st_size is just as
-// broken as st_mtime on this filesystem -- stuck reporting a fixed
-// wrong value (8) for the entire life of the process, never once
-// reflecting the real file's actual size even while it was being
-// actively edited. Both fields come off the same stat() call, so
-// "st_mtime is broken, but surely st_size is fine" was never a safe
-// assumption -- it just hadn't been checked directly yet. What IS
-// proven reliable on this platform is a raw sceKernelOpen +
-// sceKernelLseek(SEEK_END) + sceKernelClose read: that's exactly how
-// the initial plugin-load config read (and the v2.1.3 content preview)
-// already get real, live data, and both are confirmed correct against
-// this exact path by the fact edits DO take effect after a game
-// restart. So the reload check now sources its size signal from that
-// same syscall path instead of patching around stat() a third time.
-// Existence is still checked via stat() in ambient_file_exists() --
-// that's a boolean return code, not a numeric field, and nothing here
-// suggests that part is unreliable.
-// v2.1.5: content hash, added because size alone can't see a
-// same-length edit (confirmed on real hardware -- an RGB->RBG swap
-// left cur_size/last_size both correctly reading a stable, real 2809
-// but never differing, so event stayed 3/"unchanged" forever). FNV-1a
-// is used purely as a cheap, dependency-free change signal, not for
-// any security property -- no libm, no external library, consistent
-// with the existing no-libm constraint (see the PQ/sRGB LUT work above).
+// v2.1 live config reload: re-reads the ini file if its mtime changed, checked at most once every...
+// More: docs/code-comments.md (plugin/source/settings.c:372)
 #define AMBIENT_FNV1A_OFFSET_BASIS 0x811c9dc5u
 #define AMBIENT_FNV1A_PRIME        0x01000193u
 static uint32_t ambient_fnv1a32(const uint8_t *data, size_t len)
@@ -430,26 +340,12 @@ static uint32_t ambient_fnv1a32(const uint8_t *data, size_t len)
     return hash;
 }
 
-// Sanity cap on the hash read, independent of the earlier no-libm
-// constraint -- this is about not handing malloc() a garbage size if
-// AMBIENT_CONFIG_PATH ever resolves to something unexpected. The real
-// file is a few KB at most (even a heavily-commented ini); 1 MiB is
-// generous headroom, not a real expected size.
+// Sanity cap on the hash read, independent of the earlier no-libm constraint -- this is about not...
+// More: docs/code-comments.md (plugin/source/settings.c:433)
 #define AMBIENT_CONFIG_MAX_HASH_READ (1024 * 1024)
 
-// Replaces v2.1.4's ambient_get_real_config_size: still gets size the
-// same proven way (sceKernelOpen + sceKernelLseek(SEEK_END)), but now
-// also seeks back to the start and reads the whole file through the
-// same fd to compute a content hash in the same call, rather than
-// opening the file twice per check. Both outputs share one success/
-// failure result since they come from the same read; on any failure
-// *outSize carries the negative orbis error code (or a sentinel below)
-// same as v2.1.4's function did, and *outHash is left untouched.
-// v3.9.4: no longer static -- shell-feed's own reload poll (shell_cfg_poll) wants the sister's
-// proven size+hash read (raw sceKernelOpen/Lseek/Read, not stat(), see the comment above
-// ambient_check_config_reload for why) but needs its own cadence, logging and
-// buildZoneGeometry()/g_smoothedRgbValid side effects, not ambient_check_config_reload()'s. This
-// function's own body and behaviour are unchanged; only its linkage changed.
+// Replaces v2.1.4's ambient_get_real_config_size: still gets size the same proven way (sceKernelOpen +...
+// More: docs/code-comments.md (plugin/source/settings.c:440)
 bool ambient_get_real_config_size_and_hash(int64_t *outSize, uint32_t *outHash)
 {
     int32_t fd = sceKernelOpen(AMBIENT_CONFIG_PATH, 0 /* O_RDONLY */, 0777);
@@ -476,9 +372,8 @@ bool ambient_get_real_config_size_and_hash(int64_t *outSize, uint32_t *outHash)
         return false;
     }
 
-    // sz fits in AMBIENT_CONFIG_MAX_HASH_READ (checked above), so this
-    // is a small, bounded allocation, not proportional to whatever
-    // AMBIENT_CONFIG_PATH happens to resolve to.
+    // sz fits in AMBIENT_CONFIG_MAX_HASH_READ (checked above), so this is a small, bounded allocation, not...
+    // More: docs/code-comments.md (plugin/source/settings.c:479)
     uint8_t *buf = (sz > 0) ? (uint8_t *)malloc((size_t)sz) : NULL;
     if (sz > 0 && buf == NULL) {
         sceKernelClose(fd);
@@ -500,21 +395,12 @@ bool ambient_get_real_config_size_and_hash(int64_t *outSize, uint32_t *outHash)
     return true;
 }
 
-// mtime is kept in the struct/packet purely for backward-compatible
-// layout with the v2.1.2/v2.1.3 captures already on file -- it is
-// HARDCODED to 0 as of v2.1.4 and no longer read from stat() or used
-// for change-detection at all (confirmed non-functional on this
-// filesystem /). Size, sourced from
-// ambient_get_real_config_size_and_hash above, is one of two change
-// signals as of v2.1.5 -- see g_configLastHash below for the other,
-// added because size alone missed a real same-length edit on hardware.
+// mtime is kept in the struct/packet purely for backward-compatible layout with the v2.1.2/v2.1.3...
+// More: docs/code-comments.md (plugin/source/settings.c:503)
 static bool g_haveConfigBaseline = false;
 static off_t g_configLastSize = 0;
 // v2.1.5: content hash (FNV-1a/32) of the whole file, alongside size.
-// Needed because a same-length edit (confirmed on hardware: RGB->RBG)
-// changes the file's content without changing its byte count, which
-// size alone has no way to detect. Reload now fires if EITHER size or
-// hash differs from last check.
+// More: docs/code-comments.md (plugin/source/settings.c:513)
 static uint32_t g_configLastHash = 0;
 // Increments on every call, independent of what the call finds -- see
 // send_config_reload_debug_packet's check_count field above for why.
@@ -569,29 +455,8 @@ void ambient_check_config_reload(void)
 
     g_configLastSize = (off_t)realSize;
     g_configLastHash = realHash;
-    // v2.4.1: relay_send_external_source(true) was previously only
-    // ever called once, at the very end of a successful plugin_load --
-    // if relay_signal_enabled was still false at that moment (e.g. the
-    // game was already running when the ini was edited to turn it on),
-    // nothing would ever re-send "on" for the rest of that session,
-    // even though g_config.relaySignalEnabled below picks up the new
-    // value correctly. Capturing the value BEFORE reload and comparing
-    // after closes that gap: a live false->true edit now sends "on"
-    // immediately (matching plugin_load's own real transition), and a
-    // live true->false edit sends "off" once, so wled-relay isn't left
-    // waiting on a flag this plugin will now never touch again.
-    // Skipped while backgrounded -- matches ambient_sample_thread's own
-    // condition for what "on" means, so this can't contradict whatever
-    // that loop decides once it resumes.
-    // v2.6: the true->false direction described above didn't actually
-    // work until this version -- relay_send_external_source() used to
-    // gate itself on g_config.relaySignalEnabled internally, which by
-    // this point is already false (that's what triggered this call),
-    // so the "off" send this call exists to make was being silently
-    // swallowed. That internal gate is gone now (see that function's
-    // own comment) -- this call site's own "only fires on a real
-    // transition" condition is what makes it safe for a
-    // never-opted-in user, not a second gate inside the function.
+    // On a live relay_signal_enabled edit, send "on" or release the relay once (not while backgrounded), so the relay
+    // is never left waiting on a flag this plugin no longer touches. [docs/code-comments.md]
     bool wasRelaySignalEnabled = g_config.relaySignalEnabled;
     ambient_load_config();  // re-reads the file; unset/removed keys keep their CURRENT g_config value, not the compiled default (see note below)
     if (g_config.relaySignalEnabled != wasRelaySignalEnabled && !g_isBackgrounded) {
@@ -604,12 +469,8 @@ void ambient_check_config_reload(void)
 
 
 
-// Is the shell feed really running? True only while it keeps proving it: it rewrites
-// /data/ps4-ambilight/ps4_shell_alive with a changing counter about once a second, and this reports false once that
-// value has not changed for SHELL_ALIVE_STALE_MS (file missing, shell feed off, crashed, older build, or not
-// installed all look the same: the value never changes). A switch-off the shell feed itself honours (the disable
-// file, [shell] enabled=false) is believed immediately. Right after load there is nothing to compare yet, so it
-// answers true for the first SHELL_ALIVE_STALE_MS. Stateful; call from one thread, about every 250 ms, not per frame.
+// Is the shell feed really running?
+// More: docs/code-comments.md (plugin/source/settings.c:607)
 extern uint64_t sceKernelGetProcessTimeCounter(void);          // same declarations state.c carries; harmless if the SDK header already has them
 extern uint64_t sceKernelGetProcessTimeCounterFrequency(void);
 #define SHELL_ALIVE_PATH     AMBILIGHT_DATA_DIR "/ps4_shell_alive"

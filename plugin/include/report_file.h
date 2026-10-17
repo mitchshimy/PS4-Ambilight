@@ -1,14 +1,5 @@
 // report_file.h -- the text of the per-title report file (v3.9.1).
-//
-// A tester who reports "the strip stays dark in game X" has so far had to run a debug build
-// and capture UDP packets. The release build now writes a short text file instead,
-// /data/ps4-ambilight/ps4_ambient_report_<TITLEID>.txt, and the tester sends that. Everything in it is
-// already kept in plain globals in every build; only the packets that send them are
-// debug-only. It holds no personal data: no WLED address, no ini values, nothing typed.
-//
-// This header is string logic only, with no console calls, so tools/test_report.c can build
-// it on a PC (same idea as preset_select.h and pq8bit_vote.h). report.c fills a
-// ReportSnapshot from the live globals and does the file I/O.
+// More: docs/code-comments.md (plugin/include/report_file.h:1)
 #ifndef REPORT_FILE_H
 #define REPORT_FILE_H
 
@@ -50,9 +41,8 @@ typedef struct {
     int32_t  remapLastRet;
 } ReportSnapshot;
 
-// Where the title has got to, from the counters alone. "running" means the sampler loop has
-// completed at least one pass. A game that dies on its first pass is left at "flipping",
-// which is why the file is written on every change and not only at the end.
+// Where the title has got to, from the counters alone.
+// More: docs/code-comments.md (plugin/include/report_file.h:53)
 static inline const char *report_stage(const ReportSnapshot *s)
 {
     uint32_t flips = s->flipGnm + s->flipVideoOut + s->flipWorkload;
@@ -89,9 +79,8 @@ static inline void report_build_path(char *out, size_t cap, const char *titleId)
     snprintf(out, cap, "%s%s%s", REPORT_PATH_PREFIX, id, REPORT_PATH_SUFFIX);
 }
 
-// True when something a person reading the file cares about moved: the stage, the format,
-// or the guard/remap outcome. The per-frame counters (flips, passes, timing) are left out on
-// purpose, or this would rewrite the file every second.
+// True when something a person reading the file cares about moved: the stage, the format, or the...
+// More: docs/code-comments.md (plugin/include/report_file.h:92)
 static inline int report_changed(const ReportSnapshot *a, const ReportSnapshot *b)
 {
     return strcmp(report_stage(a), report_stage(b)) != 0

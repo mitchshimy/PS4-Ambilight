@@ -1,11 +1,5 @@
 // ddp.c -- copied/adapted from ps4_ambient_light's wled_send_rgb_zones.
-// The packet header bytes (0x41, 0x00, 0x0B, 0x01, offset=0) are NOT
-// arbitrary -- they're the exact DDP header this whole project has
-// used since detile_verify_probe's very first capture, verified
-// against real WLED behavior throughout. Copied here unchanged rather
-// than re-derived from the DDP spec, same "reuse, don't reinvent"
-// rule this project has followed since the Makefile/config.c reuse
-// in the plugin itself.
+// More: docs/code-comments.md (companion-app/source/ddp.c:1)
 
 #include "ddp.h"
 #include <string.h>

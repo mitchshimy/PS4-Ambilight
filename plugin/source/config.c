@@ -100,15 +100,8 @@ int eof_hack(int c) {
     return EOF;
 }
 
-// v2.2: reads via sceKernelOpen/sceKernelRead/sceKernelClose into a
-// memory buffer instead of fopen()/fgetc(). This function is reachable
-// from ambient_check_config_reload() on ambient_sample_thread (a worker
-// thread spawned separately from plugin load), and libc stdio (FILE*,
-// buffering, locks) isn't safe to touch off the main plugin-load thread
-// on this toolchain -- that's what was crashing. Same raw-syscall
-// approach game_patch/utils.cpp already uses successfully elsewhere in
-// this repo. The parsing state machine below is unchanged; only the
-// byte source changed, from fgetc(f) to indexing into filebuf.
+// Raw sceKernel* file calls only: libc stdio (fopen, FILE*) is not safe off the plugin-load thread and crashed.
+// Keep every read and write here on raw syscalls. [docs/code-comments.md]
 bool ini_table_read_from_file(ini_table_s* table, const char* file)
 {
     int32_t fd = sceKernelOpen(file, 0 /* O_RDONLY */, 0777);
@@ -121,9 +114,8 @@ bool ini_table_read_from_file(ini_table_s* table, const char* file)
     }
     sceKernelLseek(fd, 0, SEEK_SET);
 
-    // malloc(0) is legal-but-implementation-defined (may return NULL even
-    // on success), so a genuinely empty file gets a 1-byte buffer that
-    // nothing ever reads into rather than being misread as a malloc failure.
+    // malloc(0) is legal-but-implementation-defined (may return NULL even on success), so a genuinely...
+    // More: docs/code-comments.md (plugin/source/config.c:124)
     char *filebuf = (char *)malloc((size_t)(filesize > 0 ? filesize : 1));
     if (filebuf == NULL) {
         sceKernelClose(fd);

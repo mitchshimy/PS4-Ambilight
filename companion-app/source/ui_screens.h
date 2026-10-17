@@ -1,8 +1,5 @@
 // ui_screens.h -- the three blueprint screens.
-//
-// Home is laid out at home.html's own absolute coordinates; Set up and
-// Customization are built from ui_widgets' card/field model, which
-// reproduces setup.html and customization.html's flow layout.
+// More: docs/code-comments.md (companion-app/source/ui_screens.h:1)
 
 #ifndef UI_SCREENS_H
 #define UI_SCREENS_H
@@ -27,9 +24,8 @@ typedef enum {
 #define HOME_FOCUS_SETUP 2
 #define HOME_FOCUS_CUST  3
 
-// Field counts per screen are derived from kMenuItems via
-// ui_screen_item_range() -- don't reintroduce hardcoded counts here; they
-// go stale the moment a row is added or hidden and break Save focus.
+// Field counts per screen are derived from kMenuItems via ui_screen_item_range() -- don't reintroduce...
+// More: docs/code-comments.md (companion-app/source/ui_screens.h:30)
 
 typedef struct {
     UiScreenId screen;
@@ -39,14 +35,11 @@ typedef struct {
     // GoldHEN's "Enable Plugins Loader", read from its config. Zero is LOADER_UNKNOWN, which Home
     // treats as on: only a definite OFF changes what Home shows or what its button does.
     PluginLoaderState loader;
-    // The shell feed's side of Home: zero-initialised means SHELL_OFF, which draws Home exactly as
-    // it was before the shell feed existed. What the button does and whether Test strip is offered
-    // is home_plan(install, shell) (install_plan.h) -- computed from these two on demand, so the
-    // renderer and main.c can never disagree about it.
+    // The shell feed's side of Home: zero-initialised means SHELL_OFF, which draws Home exactly as it was...
+    // More: docs/code-comments.md (companion-app/source/ui_screens.h:42)
     ShellSummary shell;
-    // Whether the Ambilight payload is actually running, read from the shell feed's heartbeat file
-    // (shell_feed.c: shell_alive_poll). Running means the heartbeat is changing; starting means the
-    // payload was sent a moment ago and no heartbeat has shown up yet. Both false = not running.
+    // Whether the Ambilight payload is actually running, read from the shell feed's heartbeat file...
+    // More: docs/code-comments.md (companion-app/source/ui_screens.h:47)
     bool shellFeedRunning;
     bool shellFeedStarting;
     bool setupComplete;
@@ -58,19 +51,16 @@ typedef struct {
     char fwBody[128];
     int homeFocus;
 
-    // Help screen only: the Triangle-button QR popup (help_qr.c)
-    // pointing at this project's README. Independent of scrollY --
-    // opening it doesn't move or reset the card list underneath.
+    // Help screen only: the Triangle-button QR popup (help_qr.c) pointing at this project's README.
+    // More: docs/code-comments.md (companion-app/source/ui_screens.h:61)
     bool qrVisible;
 
     // Set up / Customization
     float scrollY;
     int focusField;           // index into that screen's field list; == field count means the Save button
 
-    // Footer/status line, shown on every screen. statusIsSaved gives
-    // the blueprint's two-tone "saved -> path -- ..." treatment;
-    // otherwise the whole line renders in one colour (warn-amber for
-    // statusIsError, muted grey otherwise).
+    // Footer/status line, shown on every screen. statusIsSaved gives the blueprint's two-tone "saved ->...
+    // More: docs/code-comments.md (companion-app/source/ui_screens.h:70)
     char statusLine[256];
     // Set up / Customization: a one-line hint for the row just pressed (empty = none). Those screens
     // draw no status line, so the save bar shows this in place of its usual note.
@@ -78,42 +68,25 @@ typedef struct {
     bool statusIsSaved;
     bool statusIsError;
 
-    // The LED edge frame (led_frame.c) draws exactly these bytes, in
-    // wire order -- the literal RGB triplets main.c last sent over
-    // DDP, not an approximation of them. NULL/0 means nothing has
-    // been sent yet (or the last send failed), which the frame shows
-    // as a dim, unmistakably-placeholder colour rather than a fake
-    // gradient. Owned by the caller (main.c); this struct only borrows
-    // the pointer for the duration of one ui_render() call.
+    // The LED edge frame (led_frame.c) draws exactly these bytes, in wire order -- the literal RGB...
+    // More: docs/code-comments.md (companion-app/source/ui_screens.h:81)
     const uint8_t *ledColors;
     int ledColorCount;
 
-    // Screen positions for those same LEDs, in the same order --
-    // main.c's own layout_build() output, reused here rather than
-    // led_frame.c calling layout_build() a second time every frame
-    // purely to re-derive positions main.c already computed.
+    // Screen positions for those same LEDs, in the same order -- main.c's own layout_build() output...
+    // More: docs/code-comments.md (companion-app/source/ui_screens.h:91)
     const LedSlot *ledSlots;
     int ledSlotCount;
 
-    // True for a short window right after settings_save() succeeds --
-    // the Save button shows a distinct "Saved!" state while this is
-    // set, rather than nothing visibly happening. main.c owns the
-    // timing (how long the window lasts); this struct just carries
-    // the current yes/no for one frame.
+    // True for a short window right after settings_save() succeeds -- the Save button shows a distinct...
+    // More: docs/code-comments.md (companion-app/source/ui_screens.h:98)
     bool saveJustConfirmed;
 } UiState;
 
 void ui_render(UiCanvas *c, const UiFonts *f, const AmbientConfig *cfg, const UiState *st);
 
-// Draws every part of Home except the LED edge frame (led_frame.c's
-// job, driven by UiState.ledSlots/ledColors). Exposed separately so
-// main.c can cache the result and, while Test Strip's animation keeps
-// the LED frame the only thing actually changing, redraw just that
-// instead of repainting all of Home's text, icons and background at
-// 30fps for content that's identical frame to frame. ui_render()
-// itself still draws Home in one combined call for callers (like the
-// desktop verification harness) that have no reason to know this
-// split exists.
+// Draws every part of Home except the LED edge frame (led_frame.c's job, driven by...
+// More: docs/code-comments.md (companion-app/source/ui_screens.h:108)
 void ui_render_home_static(UiCanvas *c, const UiFonts *f, const AmbientConfig *cfg, const UiState *st);
 
 // Total content height of the current settings screen, so the caller
@@ -125,20 +98,12 @@ float ui_screen_content_height(const UiFonts *f, const AmbientConfig *cfg, UiScr
 bool ui_screen_focus_bounds(const UiFonts *f, const AmbientConfig *cfg, UiScreenId screen,
                              int fieldIndex, float *outTop, float *outBottom);
 
-// The [start, start+count) span of kMenuItems belonging to one
-// MenuScreen -- shared by the card builder (ui_screens.c) and main.c's
-// D-Pad navigation/editing, so both ever agree on which kMenuItems
-// index a given on-screen field is. A screen's items are one
-// contiguous run (see settings.c's own comment above kMenuItems).
+// The [start, start+count) span of kMenuItems belonging to one MenuScreen -- shared by the card...
+// More: docs/code-comments.md (companion-app/source/ui_screens.h:128)
 void ui_screen_item_range(MenuScreen screen, int *outStart, int *outCount);
 
-// Row layout for D-Pad grid navigation: fills rowStart[]/rowCount[]
-// with each row's starting field index (0-based within the screen,
-// matching UiState.focusField) and field count, in the same row
-// splits the card renderer uses (kGroupLayouts in ui_screens.c) --
-// main.c's Up/Down/Left/Right navigation is built on this so it can
-// never disagree with what's actually drawn. Returns the number of
-// rows written (capped at maxRows).
+// Row layout for D-Pad grid navigation: fills rowStart[]/rowCount[] with each row's starting field...
+// More: docs/code-comments.md (companion-app/source/ui_screens.h:135)
 int ui_screen_field_rows(UiScreenId screen, int rowStart[], int rowCount[], int maxRows);
 
 #endif // UI_SCREENS_H

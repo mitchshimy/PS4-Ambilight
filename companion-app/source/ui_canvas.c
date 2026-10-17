@@ -1,11 +1,5 @@
 // ui_canvas.c -- see ui_canvas.h for why this module exists.
-//
-// Rasterisation strategy: a scanline polygon filler with 5 vertical
-// sub-samples per pixel row and exact analytic horizontal coverage
-// per span. That combination is cheap (no 2D supersample buffer) but
-// still resolves the two things this design leans on hardest: 1px
-// hairline borders at fractional alpha, and 1.4-1.7px icon strokes at
-// arbitrary angles.
+// More: docs/code-comments.md (companion-app/source/ui_canvas.c:1)
 
 #include "ui_canvas.h"
 
@@ -20,9 +14,8 @@
 #define SUBSAMPLES 5
 #define MAX_CROSSINGS 128
 
-// ---------------------------------------------------------------
 // Shape / coverage workspace
-// ---------------------------------------------------------------
+// More: docs/code-comments.md (companion-app/source/ui_canvas.c:23)
 
 typedef struct {
     int start;      // index into pts (in vertices, not floats)
@@ -241,9 +234,8 @@ void ui_shape_fill(UiShape *s, UiColor color)
 
 void ui_shape_end(UiShape *s) { s->ptCount = 0; s->contourCount = 0; }
 
-// ---------------------------------------------------------------
 // Canvas
-// ---------------------------------------------------------------
+// More: docs/code-comments.md (companion-app/source/ui_canvas.c:244)
 
 UiCanvas *ui_canvas_create(int w, int h)
 {
@@ -340,13 +332,11 @@ void ui_blend_pixel(UiCanvas *c, int x, int y, UiColor color, float coverage)
        | (uint32_t)(nb + 0.5f);
 }
 
-// ---------------------------------------------------------------
 // Geometry helpers
-// ---------------------------------------------------------------
+// More: docs/code-comments.md (companion-app/source/ui_canvas.c:343)
 
-// Number of segments used to approximate a quarter turn -- scaled by
-// radius so small 4px control corners stay cheap while a 96px CTA
-// corner still looks circular.
+// Number of segments used to approximate a quarter turn -- scaled by radius so small 4px control...
+// More: docs/code-comments.md (companion-app/source/ui_canvas.c:347)
 static int arc_segments(float radius)
 {
     int n = (int)(radius * 1.2f) + 3;
@@ -412,9 +402,8 @@ static int build_round_rect(float *out, UiRect r, UiRadius k, bool reverse)
 
 #define ROUND_RECT_MAX_PTS 256
 
-// ---------------------------------------------------------------
 // Primitives
-// ---------------------------------------------------------------
+// More: docs/code-comments.md (companion-app/source/ui_canvas.c:415)
 
 void ui_fill_rect(UiCanvas *c, UiRect r, UiColor color)
 {
@@ -494,9 +483,8 @@ void ui_stroke_circle(UiCanvas *c, float cx, float cy, float r, float width, UiC
     ui_shape_fill(s, color);
 }
 
-// Stroke outline construction. Each segment becomes a quad and each
-// interior joint / round cap becomes a disc; the shared coverage
-// buffer's max() combine is what keeps the seams invisible.
+// Stroke outline construction.
+// More: docs/code-comments.md (companion-app/source/ui_canvas.c:497)
 void ui_shape_stroke_polyline(UiShape *s, const float *xy, int n, float width, bool closed, bool roundCaps)
 {
     if (n < 2 || width <= 0.0f) return;
@@ -562,18 +550,8 @@ void ui_dashed_hline(UiCanvas *c, float x, float y, float w, float dash, float g
     ui_shape_fill(s, color);
 }
 
-// ---------------------------------------------------------------
-// .scene background
-// ---------------------------------------------------------------
-//
-// style.css:
-//   background:
-//     linear-gradient(var(--bg-grid) 1px, transparent 1px) 0 0/80px 80px,
-//     linear-gradient(90deg, var(--bg-grid) 1px, transparent 1px) 0 0/80px 80px,
-//     radial-gradient(1200px 700px at 50% -10%, rgba(255,180,84,0.05), transparent 60%),
-//     #0b0c0e;
-// Layers paint back-to-front in reverse source order, so: flat base,
-// then the warm glow, then the grid lines on top.
+// .scene background style.css: background: linear-gradient(var(--bg-grid) 1px, transparent 1px) 0...
+// More: docs/code-comments.md (companion-app/source/ui_canvas.c:565)
 void ui_draw_scene(UiCanvas *c)
 {
     if (c->sceneCache) {
@@ -583,10 +561,8 @@ void ui_draw_scene(UiCanvas *c)
 
     ui_canvas_clear(c, ui_rgb(0x0b, 0x0c, 0x0e));
 
-    // Radial glow. The ending shape is an ellipse with radii
-    // 1200x700 centred at (50%, -10%) of the canvas; the colour stop
-    // reaches full transparency at 60% of that radius, so nothing
-    // outside t = 0.6 needs touching.
+    // Radial glow. The ending shape is an ellipse with radii 1200x700 centred at (50%, -10%) of the...
+    // More: docs/code-comments.md (companion-app/source/ui_canvas.c:586)
     {
         float cx = c->w * 0.5f;
         float cy = c->h * -0.10f;
@@ -621,16 +597,13 @@ void ui_draw_scene(UiCanvas *c)
             for (int y = 0; y < c->h; y++) ui_blend_pixel(c, x, y, line, 1.0f);
     }
 
-    // Cache what was just built. Built once, valid for the canvas's
-    // entire lifetime -- ui_draw_scene() takes no arguments beyond the
-    // canvas itself, so its output can only ever depend on c->w/c->h,
-    // which never change after ui_canvas_create().
+    // Cache what was just built. Built once, valid for the canvas's entire lifetime -- ui_draw_scene()...
+    // More: docs/code-comments.md (companion-app/source/ui_canvas.c:624)
     size_t bytes = (size_t)c->w * c->h * sizeof(uint32_t);
     c->sceneCache = (uint32_t *)malloc(bytes);
     if (c->sceneCache) memcpy(c->sceneCache, c->px, bytes);
-    // If the allocation failed, sceneCache stays NULL and every future
-    // call just repaints the scene the slow way -- correct, only not
-    // fast, so there's no failure mode here worse than "as before".
+    // If the allocation failed, sceneCache stays NULL and every future call just repaints the scene the...
+    // More: docs/code-comments.md (companion-app/source/ui_canvas.c:631)
 }
 
 void ui_fill_rect_fast(UiCanvas *c, UiRect r, UiColor color)

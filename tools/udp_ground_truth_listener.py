@@ -17,9 +17,8 @@ while True:
     header = hexstr[:20]
     payload = hexstr[20:]
 
-    # If the payload is a repeated solid color (what wled_signal sends),
-    # the first 3 bytes (6 hex chars) of the payload are the R,G,B value
-    # repeated for every LED — show that explicitly.
+    # If the payload is a repeated solid color (what wled_signal sends), the first 3 bytes (6 hex chars)...
+    # More: docs/code-comments.md (tools/udp_ground_truth_listener.py:20)
     if len(payload) >= 6:
         r = int(payload[0:2], 16)
         g = int(payload[2:4], 16)

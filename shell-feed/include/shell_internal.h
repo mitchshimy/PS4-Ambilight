@@ -1,25 +1,5 @@
-// shell_internal.h -- what the shell feed's source files share. The plugin's counterpart is
-// plugin/include/ambient_internal.h.
-//
-// File map (shell-feed/source/):
-//   main.c            module_start / module_stop only
-//   shell_modules.c   which modules are loaded, and where their symbols are
-//   shell_hooks.c     the RegisterBuffers / SubmitFlip hooks, installing them, the positive-control calls
-//   shell_buffers.c   memory-map scan, display-buffer matching, TSC calibration, self-heal
-//   shell_config.c    the ini as the shell reads it: load, live reload, the [shell] enabled= poll
-//   shell_frame.c     one frame: sample the zones, colour chain, smoothing
-//   shell_state.c     the game plugin's foreground bit (read) and the shell's heartbeat file (written)
-//   shell_relay.c     the wled-relay on/off signal (personal, opt-in), combining this feed with the game's claim
-//   shell_log.c       log lines, the [dev] UDP mirror, console notifications
-//   shell_report.c    the compile-time gates, the report file and its thread
-//   shell_live.c      live_send(): the send loop
-//   shell_thread.c    probe_thread(): the start-up sequence and the standby waits
-//   shell_shim.c      the symbols the shared plugin files expect from files this module does not link
-//   shell_probe17.c   the probe's original v17 sampler; only build_points() still runs
-//
-// Every file here starts with shell_ on purpose. The Makefile compiles the plugin's own tiling.c,
-// zones.c, settings.c, config.c ... into this module's build/ folder as well, and two sources with the
-// same name would write the same .o.
+// shell_internal.h -- what the shell feed's source files share.
+// More: docs/code-comments.md (shell-feed/include/shell_internal.h:1)
 #ifndef SHELL_INTERNAL_H
 #define SHELL_INTERNAL_H
 
@@ -110,11 +90,8 @@
 #define BAND_LR    240          // left/right zone depth, px
 #define SC_PTS     128          // scattered points for the bar analysis
 
-// [v21] This probe's zone order is top L->R (73), right T->B (41), bottom R->L (73), left B->T (42),
-// zone 0 at the top-left corner. The sister plugin's order for the person's ini (bottom_left,
-// clockwise, offset 0) starts at the bottom-left, 42 LEDs (one left edge) earlier, so zone z
-// belongs at LED (z + LED_ROT) mod NZ. Verified on a PC: docs/2026-10-05_zone_order_check.md.
-// Hard-coded for that ini; an ini-driven layout comes later.
+// [v21] This probe's zone order is top L->R (73), right T->B (41), bottom R->L (73), left B->T (42)...
+// More: docs/code-comments.md (shell-feed/include/shell_internal.h:113)
 #define LED_ROT    LED_LEFT
 
 static inline uint64_t rdtsc17(void)
@@ -156,10 +133,8 @@ struct ScanResult {
     int monoPrimaryIsSgen;  // 1 if hMono's name contains "monosgen" (the confirmed real runtime -- 7.15)
 };
 
-// ---------------------------------------------------------------------------------------------------
-// Shared between the shell feed's own files. Hidden: nothing below is exported from the module, the
-// same as when all of it was `static` in one main.c.
-// ---------------------------------------------------------------------------------------------------
+// Shared between the shell feed's own files.
+// More: docs/code-comments.md (shell-feed/include/shell_internal.h:159)
 #pragma GCC visibility push(hidden)
 
 // shell_modules.c

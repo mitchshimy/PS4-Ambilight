@@ -1,9 +1,5 @@
-// ui_screens.c -- Home / Set up / Customization, transcribed from
-// home.html, setup.html and customization.html.
-//
-// Values come from the live AmbientConfig, so nothing here is a
-// placeholder: the numbers on screen are the ones in
-// /data/ps4-ambilight/ps4_ambient_light.ini.
+// ui_screens.c -- Home / Set up / Customization, transcribed from home.html, setup.html and...
+// More: docs/code-comments.md (companion-app/source/ui_screens.c:1)
 
 #include "ui_screens.h"
 #include "app_version.h"
@@ -17,26 +13,8 @@
 #include <string.h>
 #include <math.h>
 
-// ---------------------------------------------------------------
-// Value formatting
-// ---------------------------------------------------------------
-//
-// Every settings card is now built directly from kMenuItems
-// (settings.c) rather than a hand-written, parallel field list --
-// settings.c's `label` is the exact on-screen text, so there is
-// exactly one place that has to agree with the blueprint, and every
-// visible field is wired to a real, working settings_get_i32/
-// settings_set_i32 by construction, not by a second lookup that could
-// drift out of sync with what's actually editable.
-//
-// What still lives here, because it's a UI-only concern settings.h
-// deliberately knows nothing about: which icon a field/card gets,
-// whether an enum renders as a plain input or an icon pill, per-field
-// label tinting (the RGB balance channel colours), fixed-vs-flex
-// column width, and how each group's fields wrap into rows. All of it
-// is keyed off a MenuItem's `key` or `group` string, so reordering
-// kMenuItems never breaks it -- only renaming a key/group would, and
-// the two are only ever a few lines apart in this file.
+// Value formatting Every settings card is now built directly from kMenuItems (settings.c) rather than...
+// More: docs/code-comments.md (companion-app/source/ui_screens.c:20)
 
 static const char *kCornerLabels[4] = { "Bottom left", "Bottom right", "Top left", "Top right" };
 static const char *kDirLabels[2]    = { "Clockwise", "Counterclockwise" };
@@ -55,9 +33,8 @@ static const char *vnum(ValueBuf *vb, long v)
     return d;
 }
 
-// Same contiguous-run assumption settings.c's own comment documents:
-// every MENU_SCREEN_SETUP item comes before every MENU_SCREEN_CUSTOMIZE
-// one, so a screen's items are one [start, start+count) span.
+// Same contiguous-run assumption settings.c's own comment documents: every MENU_SCREEN_SETUP item...
+// More: docs/code-comments.md (companion-app/source/ui_screens.c:58)
 void ui_screen_item_range(MenuScreen screen, int *outStart, int *outCount)
 {
     int start = -1, count = 0;
@@ -116,10 +93,8 @@ static UiColor label_color_for_key(const char *key)
     return none;
 }
 
-// The two enum fields the blueprint draws as icon pills, rather than
-// plain text inputs -- Colour order is FIELD_ENUM too but is styled
-// as a plain input (see setup.html), so this is a real special case,
-// not "every enum is a pill".
+// The two enum fields the blueprint draws as icon pills, rather than plain text inputs -- Colour order...
+// More: docs/code-comments.md (companion-app/source/ui_screens.c:119)
 static bool is_pill_enum(const char *key)
 {
     return !strcmp(key, "led_start_corner") || !strcmp(key, "led_direction") || !strcmp(key, "preset");
@@ -137,9 +112,8 @@ static bool fixed_width_for_key(const char *key, float *outBasis)
     return false;
 }
 
-// Formats item's current value from cfg as display text. Returns NULL
-// for FIELD_BOOL (handled as a toggle, not text) -- FIELD_STRING is
-// returned directly (points into cfg, valid as long as cfg is).
+// Formats item's current value from cfg as display text.
+// More: docs/code-comments.md (companion-app/source/ui_screens.c:140)
 static const char *format_value(const MenuItem *item, const AmbientConfig *cfg, ValueBuf *vb)
 {
     if (item->type == FIELD_BOOL) return NULL;
@@ -170,10 +144,8 @@ static const char *format_value(const MenuItem *item, const AmbientConfig *cfg, 
     return vnum(vb, v);
 }
 
-// Per-group visual identity (accent colour, card-title icon) and how
-// that group's fields wrap into rows -- both pixel-measured against
-// the blueprint captures, same numbers the old hand-written per-card
-// functions used.
+// Per-group visual identity (accent colour, card-title icon) and how that group's fields wrap into...
+// More: docs/code-comments.md (companion-app/source/ui_screens.c:173)
 typedef struct {
     const char *group;
     UiIconId icon;
@@ -251,8 +223,7 @@ int ui_screen_field_rows(UiScreenId screen, int rowStart[], int rowCount[], int 
 }
 
 // Builds every card for one settings screen directly from kMenuItems.
-// `focus` is the 0-based index within this screen's own item range
-// (matching what main.c's navigation uses), or -1 for nothing focused.
+// More: docs/code-comments.md (companion-app/source/ui_screens.c:253)
 static int build_group_cards(MenuScreen screen, const AmbientConfig *cfg, int focus, ValueBuf *vb,
                               UiCard *cards, UiField *fp, UiFieldRow *rp)
 {
@@ -295,11 +266,8 @@ static int build_group_cards(MenuScreen screen, const AmbientConfig *cfg, int fo
                     field.kind = UI_FIELD_TOGGLE;
                     field.toggleOn = settings_get_i32(cfg, item) != 0;
                 } else if (item->type == FIELD_ACTION) {
-                    // Two actions: the Shell feed's "send the Ambilight payload now" button,
-                    // and the preset reset (its text says which preset it will reset, and what
-                    // the next press will do). The text comes from settings_action_text(), which
-                    // tests/test_action_buttons.c checks; an action it doesn't know shows its
-                    // own label rather than borrowing another button's text.
+                    // Two actions: the Shell feed's "send the Ambilight payload now" button, and the preset reset (its...
+                    // More: docs/code-comments.md (companion-app/source/ui_screens.c:298)
                     field.kind = UI_FIELD_BUTTON;
                     field.valueIcon = field.labelIcon;
                     field.armed = !strcmp(item->key, "preset_reset") && preset_reset_is_armed();
@@ -320,9 +288,8 @@ static int build_group_cards(MenuScreen screen, const AmbientConfig *cfg, int fo
 
                 fp[fi++] = field;
             }
-            // Row index within THIS card (0-based) decides whether the
-            // group's row2MarginTop applies -- cardRowCount is that
-            // index before incrementing.
+            // Row index within THIS card (0-based) decides whether the group's row2MarginTop applies...
+            // More: docs/code-comments.md (companion-app/source/ui_screens.c:323)
             rp[ri++] = (UiFieldRow){ &fp[rowStart], rowFieldCount[rowIdx],
                                       (cardRowCount == 1) ? gl->row2MarginTop : 0.0f };
             cardRowCount++;
@@ -353,25 +320,8 @@ static int build_group_cards(MenuScreen screen, const AmbientConfig *cfg, int fo
     return ci;
 }
 
-// ---------------------------------------------------------------
-// Help
-// ---------------------------------------------------------------
-//
-// Static prose, not data-driven from kMenuItems like Set up/
-// Customization are -- there's nothing per-config to show. Reuses
-// UiCard purely for its title+icon+desc layout: every card here has
-// rowCount 0, so ui_card_draw never reaches its field-row code at
-// all.
-//
-// Content is kept honest against what's actually true elsewhere in
-// this app: group names match kMenuItems' own "group" strings
-// (settings.c).
-//
-// Built inside a function, not as a file-scope static const table --
-// COL_* (ui_theme.h) expands to a call to ui_rgb(), an ordinary
-// function, not a constant expression, so it can't sit in a
-// static-storage initializer the way kGroupLayouts' plain ints and
-// strings can.
+// Help Static prose, not data-driven from kMenuItems like Set up/ Customization are -- there's nothing...
+// More: docs/code-comments.md (companion-app/source/ui_screens.c:356)
 #define HELP_CARD_COUNT 6
 
 static void help_cards_init(UiCard out[HELP_CARD_COUNT])
@@ -507,29 +457,18 @@ static void render_help_screen(UiCanvas *c, const UiFonts *f, const UiState *st)
     }
 }
 
-// ---------------------------------------------------------------
-// Help -> QR popup (Triangle)
-// ---------------------------------------------------------------
-//
-// A dim backdrop over whatever Help already drew, plus one centered
-// panel: title, one line of instructions, the QR code itself (drawn
-// module-by-module with ui_fill_rect_fast -- see that function's own
-// comment on why it, not the AA rasteriser, is the right tool for a
-// grid of single-digit-px squares), and the URL spelled out in mono
-// underneath for anyone who'd rather type it than scan it. help_qr.c
-// owns the actual QR bitmap; this only lays it out.
+// Help -> QR popup (Triangle) A dim backdrop over whatever Help already drew, plus one centered panel...
+// More: docs/code-comments.md (companion-app/source/ui_screens.c:510)
 static void render_qr_modal(UiCanvas *c, const UiFonts *f)
 {
-    // Backdrop -- same idea as a CSS position:fixed dimmer, just a
-    // flat rect the size of the page at low alpha over everything
-    // already drawn this frame.
+    // Backdrop -- same idea as a CSS position:fixed dimmer, just a flat rect the size of the page at low...
+    // More: docs/code-comments.md (companion-app/source/ui_screens.c:523)
     ui_fill_rect(c, ui_rect(0.0f, 0.0f, PAGE_W, PAGE_H), ui_rgba(0, 0, 0, 0.72f));
 
     int qrSize = help_qr_size();
     if (qrSize <= 0) {
-        // help_qr_init() failed (see main.c's startup check) -- rather
-        // than draw an empty panel that looks broken, say so plainly
-        // and point at the fallback that always works regardless.
+        // help_qr_init() failed (see main.c's startup check) -- rather than draw an empty panel that looks...
+        // More: docs/code-comments.md (companion-app/source/ui_screens.c:530)
         float pw = 720.0f, ph = 220.0f;
         UiRect p = ui_rect((PAGE_W - pw) * 0.5f, (PAGE_H - ph) * 0.5f, pw, ph);
         ui_fill_round_rect(c, p, ui_radius_all(RADIUS_PANEL), COL_PANEL_BG);
@@ -543,12 +482,8 @@ static void render_qr_modal(UiCanvas *c, const UiFonts *f)
         return;
     }
 
-    // Each module drawn at a fixed on-screen size rather than
-    // stretching to fill some target box -- at this panel's size a
-    // module works out to a clean integer pixel count, and a QR
-    // scanner (especially a phone camera at a shallow angle off the
-    // TV) reads crisp square edges far more reliably than anything
-    // that landed on a fractional pixel boundary.
+    // Each module drawn at a fixed on-screen size rather than stretching to fill some target box -- at...
+    // More: docs/code-comments.md (companion-app/source/ui_screens.c:546)
     const float moduleSize = 8.0f;
     float qrPx = (float)qrSize * moduleSize;
 
@@ -566,9 +501,8 @@ static void render_qr_modal(UiCanvas *c, const UiFonts *f)
         "Opens this project's README on GitHub.",
         COL_TEXT_BODY);
 
-    // QR itself -- a plain white square behind it first (most scanners
-    // expect light modules to actually be light, not "the panel's own
-    // dark background showing through"), then the dark modules on top.
+    // QR itself -- a plain white square behind it first (most scanners expect light modules to actually be...
+    // More: docs/code-comments.md (companion-app/source/ui_screens.c:569)
     float qrTop = p.y + 118.0f;
     float qrX = p.x + (pw - qrPx) * 0.5f;
     ui_fill_rect(c, ui_rect(qrX, qrTop, qrPx, qrPx), ui_rgb(255, 255, 255));
@@ -602,9 +536,8 @@ static void render_qr_modal(UiCanvas *c, const UiFonts *f)
     }
 }
 
-// ---------------------------------------------------------------
 // Settings-screen shell
-// ---------------------------------------------------------------
+// More: docs/code-comments.md (companion-app/source/ui_screens.c:605)
 
 static int build_cards(const AmbientConfig *cfg, const UiState *st, UiScreenId screen, ValueBuf *vb,
                         UiCard *cards, UiField *fp, UiFieldRow *rp)
@@ -627,9 +560,8 @@ float ui_screen_content_height(const UiFonts *f, const AmbientConfig *cfg, UiScr
         if (i) h += CARD_GAP;
         h += ui_card_height(f, &cards[i], CONTENT_W);
     }
-    // .content-inner padding-bottom: clears the save bar (now 156px,
-    // up from 120px, to fit the hint row) plus the same margin above
-    // it the original 190px left for a 120px bar.
+    // .content-inner padding-bottom: clears the save bar (now 156px, up from 120px, to fit the hint row)...
+    // More: docs/code-comments.md (companion-app/source/ui_screens.c:630)
     h += 226.0f;
     return h;
 }
@@ -685,12 +617,8 @@ static void render_settings_screen(UiCanvas *c, const UiFonts *f, const AmbientC
     ui_clip_pop(c);
 
     {
-        // .save-bar -- shared by Set up and Customization, not
-        // Customization-only. Taller than the blueprint's own version
-        // (120px -> 156px) to fit a hint row the blueprint doesn't
-        // have at all: L1/R1's value-nudge shortcut has no other
-        // on-screen indication anywhere, so without this a user would
-        // only ever find it by accident.
+        // .save-bar -- shared by Set up and Customization, not Customization-only.
+        // More: docs/code-comments.md (companion-app/source/ui_screens.c:688)
         float barH = 156.0f;
         float barY = PAGE_H - barH;
         ui_fill_rect(c, ui_rect(0.0f, barY, PAGE_W, barH), COL_BG0);
@@ -711,19 +639,8 @@ static void render_settings_screen(UiCanvas *c, const UiFonts *f, const AmbientC
         };
         ui_draw_hint_row(c, f, PAGE_MARGIN_X, hintsBase, hints, 4);
 
-        // .save-btn -- a solid amber fill, same as the blueprint,
-        // always, EXCEPT for two states layered on top, neither of
-        // which changes that resting look:
-        //  - focused: a brighter fill (still clearly "the amber
-        //    button") plus a ring drawn outside it rather than
-        //    brackets drawn on top of it -- corner brackets sitting
-        //    directly on an already-amber fill had too little contrast
-        //    to actually see, which was the original bug here.
-        //  - just saved: swaps to a green fill, a checkmark, and
-        //    "Saved!" for a couple of seconds (main.c owns the
-        //    timing) -- pressing Save previously had no visible effect
-        //    at all beyond the status line at the very bottom of the
-        //    screen, easy to miss entirely.
+        // .save-btn -- a solid amber fill, same as the blueprint, always, EXCEPT for two states layered on...
+        // More: docs/code-comments.md (companion-app/source/ui_screens.c:714)
         bool showConfirm = st->saveJustConfirmed;
         const char *label = showConfirm ? "Saved!"
                            : (st->screen == UI_SCREEN_SETUP) ? "Save setup" : "Save customization";
@@ -736,11 +653,8 @@ static void render_settings_screen(UiCanvas *c, const UiFonts *f, const AmbientC
         float by = barY + (barH - bh) * 0.5f;
         UiRect btnRect = ui_rect(bx, by, bw, bh);
 
-        // Derived from the schema, same as main.c's navigation -- NOT a
-        // hardcoded count. It used to be SETUP_FIELD_COUNT/CUST_FIELD_COUNT
-        // constants, which silently broke the Save button's focus ring the
-        // moment a row was hidden from kMenuItems (main.c moved focus onto
-        // Save at the real count, this check still waited for the old one).
+        // Derived from the schema, same as main.c's navigation -- NOT a hardcoded count.
+        // More: docs/code-comments.md (companion-app/source/ui_screens.c:739)
         int screenFieldStart = 0, screenFieldCount = 0;
         ui_screen_item_range((st->screen == UI_SCREEN_SETUP) ? MENU_SCREEN_SETUP : MENU_SCREEN_CUSTOMIZE,
                              &screenFieldStart, &screenFieldCount);
@@ -757,18 +671,13 @@ static void render_settings_screen(UiCanvas *c, const UiFonts *f, const AmbientC
     led_frame_draw(c, st->ledSlots, st->ledSlotCount, st->ledColors, st->ledColorCount);
 }
 
-// ---------------------------------------------------------------
 // Home
-// ---------------------------------------------------------------
+// More: docs/code-comments.md (companion-app/source/ui_screens.c:760)
 
 static void render_home_credit(UiCanvas *c, const UiFonts *f);
 
-// ---- Home banners and button (plugin + shell feed) ----------------------------------------
-//
-// With the shell feed off, Home draws ONE banner (the plugin's) at full width, exactly as it
-// always did. With it on, two banners of the same height sit side by side: "Shell feed" on the
-// left, the plugin's on the right. Same height means the button below doesn't move, so the
-// compact banners trade padding for a second line of description text.
+// Home banners and button (plugin + shell feed) With the shell feed off, Home draws ONE banner (the...
+// More: docs/code-comments.md (companion-app/source/ui_screens.c:766)
 
 // Splits `text` into at most two lines that each fit `maxW`, breaking at spaces. A second
 // line that still doesn't fit is cut short with "...". ASCII only, which every string here is.
@@ -1078,12 +987,8 @@ void ui_render_home_static(UiCanvas *c, const UiFonts *f, const AmbientConfig *c
         ui_fill_rect(c, ui_rect(PAGE_MARGIN_X, top, CONTENT_W, 1.0f), COL_PANEL_BORDER);
         float y = top + 1.0f + 28.0f;
 
-        // The hints line contains inline-flex .keycap boxes, which are
-        // taller than the 14px text strut. CSS grows the line box
-        // around them -- and since a keycap aligns its own text
-        // baseline with the line's, the extra height lands above the
-        // baseline. Ignoring this put the whole footer 2px high and
-        // the status line under it 5px high.
+        // The hints line contains inline-flex .keycap boxes, which are taller than the 14px text strut.
+        // More: docs/code-comments.md (companion-app/source/ui_screens.c:1081)
         float hintsLineH = ui_hint_row_line_height(f);
         float base = y + ui_hint_row_baseline_above(f);
 
@@ -1111,13 +1016,8 @@ void ui_render_home_static(UiCanvas *c, const UiFonts *f, const AmbientConfig *c
     render_home_credit(c, f);
 }
 
-// "by Shimy", bottom-right of Home. Right-aligned to the same 144px
-// margin as the page content, a small amber bar on its left (the same
-// accent every card carries), "by" in the muted label colour and the
-// name itself in amber display type so it reads as a signature rather
-// than another hint. The Test Strip's edge ticks sit within ~22px of
-// the screen edge at the deepest scan setting, so this stays well
-// clear of them.
+// "by Shimy", bottom-right of Home.
+// More: docs/code-comments.md (companion-app/source/ui_screens.c:1114)
 static void render_home_credit(UiCanvas *c, const UiFonts *f)
 {
     UiFont *nameFont = f->credit ? f->credit : f->cta;   // Michroma, or Space Grotesk if that file is missing
@@ -1142,10 +1042,8 @@ static void render_home_credit(UiCanvas *c, const UiFonts *f)
     ui_text_draw(c, nameFont, nameX, baseline, name, COL_AMBER);
 }
 
-// Thin wrapper matching this function's old combined behavior, used
-// by ui_render()'s own dispatch below (which callers like the desktop
-// harness still go through -- they have no reason to know about the
-// caching split main.c uses).
+// Thin wrapper matching this function's old combined behavior, used by ui_render()'s own dispatch...
+// More: docs/code-comments.md (companion-app/source/ui_screens.c:1145)
 static void render_home(UiCanvas *c, const UiFonts *f, const AmbientConfig *cfg, const UiState *st)
 {
     ui_render_home_static(c, f, cfg, st);

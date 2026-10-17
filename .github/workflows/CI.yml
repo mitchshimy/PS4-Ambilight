@@ -20,17 +20,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@main
 
-      # payloads/CHECKSUMS.md is what people verify ps4-ambilight.bin against, and the
-      # release attaches that binary. Fail here, on every push, if the binary was replaced
-      # without the page. Fix: sh tools/update_payload_checksum.sh, then commit both.
+      # payloads/CHECKSUMS.md is what people verify ps4-ambilight.bin against, and the release attaches that...
+      # More: docs/code-comments.md (.github/workflows/CI.yml:23)
       - name: Check payloads/CHECKSUMS.md matches the Ambilight payload
         run: sh tools/update_payload_checksum.sh --check
 
-      # On a tag push, the tag has to name the version the plugin says it
-      # is, so tagging v3.5.0 can't ship a plugin that still reports 3.4.
-      # g_pluginVersion in plugin/source/hooks.c is 0xMMmm (0x0304 = 3.4),
-      # so only major.minor is compared and the tag's patch part is free.
-      # Failing here also stops the publish job, which needs this one.
+      # On a tag push, the tag has to name the version the plugin says it is, so tagging v3.5.0 can't ship a...
+      # More: docs/code-comments.md (.github/workflows/CI.yml:29)
       - name: Check tag matches plugin version
         if: startsWith(github.ref, 'refs/tags/')
         run: |
@@ -43,12 +39,8 @@ jobs:
           fi
           val=$((16#$raw))
           want="$(( (val >> 8) & 255 )).$(( val & 255 ))"
-          # Allows an optional "-rc.N" pre-release suffix (e.g. v3.9.4-rc1)
-          # so a shell-feed hardware test build (see publish job below) can
-          # be tagged and built through this same check without it being
-          # mistaken for a real release tag. The suffix sits on the patch
-          # segment, after the last ".", so it doesn't affect the
-          # major.minor extraction two lines below.
+          # Allows an optional "-rc.N" pre-release suffix (e.g. v3.9.4-rc1) so a shell-feed hardware test build...
+          # More: docs/code-comments.md (.github/workflows/CI.yml:46)
           if ! printf '%s' "$tag" | grep -Eq '^v[0-9]+\.[0-9]+(\.[0-9]+)?(-rc\.?[0-9]+)?$'; then
             echo "::error::tag '$tag' isn't a version tag like v$want.0 or v$want.0-rc1"
             exit 1
@@ -66,14 +58,8 @@ jobs:
           repository: GoldHEN/GoldHEN_Plugins_SDK
           path: SDK
 
-      # Upstream's 64-bit detour path has real bugs (wrong instruction
-      # size, wrong jump-write variant, and a non-executable malloc'd
-      # trampoline that either crashes or gets silently blocked under
-      # DEP/W^X) -- see patches/goldhen-sdk-detour64-fix.patch's own
-      # header for the full breakdown of each hunk. Applying this is
-      # what makes the SDK checkout above match what was actually
-      # tested crash-free on hardware; without it, this job would
-      # silently build against upstream's broken version every time.
+      # Upstream's 64-bit detour path has real bugs (wrong instruction size, wrong jump-write variant, and a...
+      # More: docs/code-comments.md (.github/workflows/CI.yml:69)
       - name: Patch GoldHEN SDK
         working-directory: SDK
         run: patch -p1 < ../patches/goldhen-sdk-detour64-fix.patch
@@ -81,9 +67,8 @@ jobs:
       - name: Setup variables
         run: |
           sudo apt install -y llvm lld
-          # The 'llvm' package on ubuntu-latest only installs versioned
-          # binaries (llvm-ar-NN), not an unversioned 'llvm-ar' -- and the
-          # GoldHEN SDK's Makefile calls the unversioned name.
+          # The 'llvm' package on ubuntu-latest only installs versioned binaries (llvm-ar-NN), not an...
+          # More: docs/code-comments.md (.github/workflows/CI.yml:84)
           sudo ln -sf "$(command -v llvm-ar || ls /usr/bin/llvm-ar-* | sort -V | tail -1)" /usr/local/bin/llvm-ar
           echo "OO_PS4_TOOLCHAIN=$GITHUB_WORKSPACE/OpenOrbis/PS4Toolchain" >> $GITHUB_ENV
 
@@ -108,13 +93,8 @@ jobs:
         working-directory: plugin
         run: make DEBUG=1
 
-      # shell-feed Stage A: built against the same patched SDK, same
-      # toolchain env, as the Stage-A merge plan calls for. Its Makefile
-      # computes the same bin/plugins/ output folder plugin/Makefile does
-      # (both resolve "../bin/plugins" from their own directory), so both
-      # plugins land in prx_final/ and prx_debug/ together -- the upload
-      # steps below select each .prx by name rather than globbing the
-      # whole folder, so the two artifacts stay distinct.
+      # shell-feed Stage A: built against the same patched SDK, same toolchain env, as the Stage-A merge...
+      # More: docs/code-comments.md (.github/workflows/CI.yml:111)
       - name: Build shell-feed (Release)
         working-directory: shell-feed
         run: make
@@ -152,14 +132,8 @@ jobs:
           if-no-files-found: error
 
   build_pkg:
-    # PkgTool.Core's pkg_build subcommand (unlike sfo_new/sfo_setentry,
-    # which don't touch OpenSSL) needs libssl1.1 to sign/hash the
-    # package, and ubuntu-latest is Ubuntu 24.04, which dropped
-    # libssl1.1 from its repos entirely -- only libssl3 is available,
-    # so PkgTool.Core aborts with "No usable version of libssl was
-    # found" (confirmed on a real run). ubuntu-22.04 still ships
-    # libssl1.1 by default, so pin here rather than hand-installing a
-    # legacy .deb alongside libssl3.
+    # PkgTool.Core's pkg_build subcommand (unlike sfo_new/sfo_setentry, which don't touch OpenSSL) needs...
+    # More: docs/code-comments.md (.github/workflows/CI.yml:155)
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
@@ -170,26 +144,21 @@ jobs:
           sudo apt install -y llvm lld
           sudo ln -sf "$(command -v llvm-ar || ls /usr/bin/llvm-ar-* | sort -V | tail -1)" /usr/local/bin/llvm-ar
           echo "OO_PS4_TOOLCHAIN=$GITHUB_WORKSPACE/OpenOrbis/PS4Toolchain" >> $GITHUB_ENV
-          # PkgTool.Core is a self-contained .NET build that otherwise
-          # crashes on a bare runner looking for ICU -- this skips
-          # culture-aware globalization instead of installing libicu.
+          # PkgTool.Core is a self-contained .NET build that otherwise crashes on a bare runner looking for ICU...
+          # More: docs/code-comments.md (.github/workflows/CI.yml:173)
           echo "DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1" >> $GITHUB_ENV
 
       - name: Download OpenOrbis Toolchain
         run: curl -sL https://github.com/illusion0001/OpenOrbis-PS4-Toolchain/releases/latest/download/toolchain.tar.gz | tar xz -C ./
 
       - name: Make Linux toolchain binaries executable
-        # The release tarball doesn't reliably preserve the executable
-        # bit for the Linux tools (create-fself/create-gp4/PkgTool.Core)
-        # the way it does for the Windows .exes build.bat calls.
+        # The release tarball doesn't reliably preserve the executable bit for the Linux tools...
+        # More: docs/code-comments.md (.github/workflows/CI.yml:182)
         run: chmod +x "$OO_PS4_TOOLCHAIN"/bin/linux/*
 
       - name: Compile
-        # Linux equivalent of build.bat's compile loop. The Windows
-        # script's extra -I for include\freetype2 is a dead flag on this
-        # toolchain snapshot -- ft2build.h already resolves via the
-        # top-level include dir below -- so it's dropped here rather
-        # than carried over.
+        # Linux equivalent of build.bat's compile loop.
+        # More: docs/code-comments.md (.github/workflows/CI.yml:188)
         working-directory: companion-app
         run: |
           mkdir -p build/int
@@ -254,10 +223,8 @@ jobs:
           path: companion-app/pkg_out/*.pkg
           if-no-files-found: error
 
-  # Separate from both build jobs so build_prx and build_pkg can run in
-  # parallel: this job just waits on both and is the only one that
-  # talks to softprops/action-gh-release, so there's no risk of the two
-  # builds racing each other to create/update the same tagged release.
+  # Separate from both build jobs so build_prx and build_pkg can run in parallel: this job just waits on...
+  # More: docs/code-comments.md (.github/workflows/CI.yml:257)
   publish:
     if: startsWith(github.ref, 'refs/tags/')
     needs: [build_prx, build_pkg]
@@ -265,9 +232,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      # Only for payloads/ and the script that checks it: the Ambilight payload
-      # (ps4-ambilight.bin) is a committed binary, not a build output, so the release takes
-      # it from the tagged commit.
+      # Only for payloads/ and the script that checks it: the Ambilight payload (ps4-ambilight.bin) is a...
+      # More: docs/code-comments.md (.github/workflows/CI.yml:268)
       - name: Checkout (payloads and tools only)
         uses: actions/checkout@main
         with:
@@ -294,29 +260,16 @@ jobs:
           name: ps4_ambient_light-companion_pkg
           path: pkg
 
-      # Only the Release .prx is ever fetched by anything at runtime --
-      # companion-app/source/main.c's PLUGIN_UPDATE_URL points at
-      # ".../releases/latest/download/ps4_ambient_light.prx", which
-      # only resolves once an actual GitHub Release exists with an
-      # asset of exactly that name attached. This job produces both
-      # that asset and its checksum sidecar (PLUGIN_CHECKSUM_URL,
-      # "<same name>.sha256") from the SAME build_prx artifact, so they
-      # can never drift out of sync with each other -- do_plugin_update()
-      # in companion-app/source/plugin_install.c refuses to install if they don't match. The same
-      # happens for ps4_shell_feed.prx: the companion app's Shell feed
-      # install downloads it and its sidecar by these names and checks one
-      # against the other. (The Ambilight payload has its own step below.)
+      # Only the Release .prx is ever fetched by anything at runtime -- companion-app/source/main.c's...
+      # More: docs/code-comments.md (.github/workflows/CI.yml:297)
       - name: Compute checksums
         working-directory: prx
         run: |
           sha256sum ps4_ambient_light.prx > ps4_ambient_light.prx.sha256
           sha256sum ps4_shell_feed.prx > ps4_shell_feed.prx.sha256
 
-      # The Ambilight payload (payloads/ps4-ambilight.bin). The companion app's Shell feed
-      # install fetches it, and its ".sha256" sidecar, by exactly these names from the latest
-      # release, and refuses the file if the two disagree. The sidecar is made from the file
-      # being attached. build_prx already ran this check on the push; running it again on the
-      # tagged commit means a binary changed without payloads/CHECKSUMS.md can't ship.
+      # The Ambilight payload (payloads/ps4-ambilight.bin).
+      # More: docs/code-comments.md (.github/workflows/CI.yml:315)
       - name: Verify and checksum the Ambilight payload
         run: |
           set -eu
@@ -325,12 +278,8 @@ jobs:
           sha256sum ps4-ambilight.bin > ps4-ambilight.bin.sha256
           cat ps4-ambilight.bin.sha256
 
-      # A tag like v3.9.4-rc1 passes the build_prx version check (see its
-      # comment) but must never become the release that "latest" resolves
-      # to, since do_plugin_update() in companion-app and the researchers'
-      # own notes both treat "latest" as what real users receive. This is
-      # what makes it safe to test shell-feed's release-asset naming on a
-      # real tag (merge plan step 10) before it ever ships for real.
+      # A tag like v3.9.4-rc1 passes the build_prx version check (see its comment) but must never become the...
+      # More: docs/code-comments.md (.github/workflows/CI.yml:328)
       - name: Determine prerelease flag
         id: prerelease
         run: |

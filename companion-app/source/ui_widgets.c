@@ -50,9 +50,8 @@
 
 static float fmaxf2(float a, float b) { return a > b ? a : b; }
 
-// ---------------------------------------------------------------
 // Text wrapping
-// ---------------------------------------------------------------
+// More: docs/code-comments.md (companion-app/source/ui_widgets.c:53)
 
 int ui_wrap_text(UiFont *font, const char *text, float maxWidth, char out[][256], int maxLines)
 {
@@ -94,14 +93,8 @@ int ui_wrap_text(UiFont *font, const char *text, float maxWidth, char out[][256]
     return lines;
 }
 
-// ---------------------------------------------------------------
-// Focus marks
-// ---------------------------------------------------------------
-//
-// style.css draws two 12x12 L-brackets in the accent colour at the top
-// corners of a focused control (both ::before and ::after sit at
-// top:-2px), replacing the glow ring the old UI used. Note both are at
-// the TOP -- not opposite corners.
+// Focus marks style.css draws two 12x12 L-brackets in the accent colour at the top corners of a...
+// More: docs/code-comments.md (companion-app/source/ui_widgets.c:97)
 void ui_focus_brackets(UiCanvas *c, UiRect r, UiColor color)
 {
     const float L = 12.0f, T = 2.0f, OFF = 2.0f;
@@ -124,9 +117,8 @@ void ui_focus_ring(UiCanvas *c, UiRect r, UiRadius radius, float gap, float thic
     ui_stroke_round_rect(c, outer, outerRadius, thickness, color);
 }
 
-// ---------------------------------------------------------------
 // Keycap
-// ---------------------------------------------------------------
+// More: docs/code-comments.md (companion-app/source/ui_widgets.c:127)
 
 void ui_draw_keycap(UiCanvas *c, const UiFonts *f, float x, float baselineY, const char *label, float *outAdvance)
 {
@@ -148,10 +140,8 @@ void ui_draw_keycap(UiCanvas *c, const UiFonts *f, float x, float baselineY, con
     if (outAdvance) *outAdvance = w + 6.0f;   // margin-right: 6px
 }
 
-// A hint row's line box is taller than its own text, because the
-// keycap chips inside it are taller than the surrounding 14px text --
-// same CSS line-box reasoning ui_text_baseline_for_box() handles for
-// plain text, worked out once here so every caller agrees.
+// A hint row's line box is taller than its own text, because the keycap chips inside it are taller...
+// More: docs/code-comments.md (companion-app/source/ui_widgets.c:151)
 static void ui_hint_row_metrics(const UiFonts *f, float *outAbove, float *outBelow)
 {
     UiFont *kf = f->monoKeycap;
@@ -169,9 +159,8 @@ float ui_hint_row_line_height(const UiFonts *f)
     return above + below;
 }
 
-// Distance from a hint row's line-box top to its baseline -- the
-// piece ui_hint_row_line_height's total doesn't expose on its own,
-// and every caller that positions a row needs.
+// Distance from a hint row's line-box top to its baseline -- the piece ui_hint_row_line_height's total...
+// More: docs/code-comments.md (companion-app/source/ui_widgets.c:172)
 float ui_hint_row_baseline_above(const UiFonts *f)
 {
     float above, below;
@@ -193,9 +182,8 @@ void ui_draw_hint_row(UiCanvas *c, const UiFonts *f, float x, float baselineY,
     }
 }
 
-// ---------------------------------------------------------------
 // Field sizing
-// ---------------------------------------------------------------
+// More: docs/code-comments.md (companion-app/source/ui_widgets.c:196)
 
 static float field_control_height(const UiFonts *f, const UiField *fd)
 {
@@ -245,9 +233,8 @@ static void row_widths(const UiFieldRow *row, float containerW, float *outW)
     }
 }
 
-// ---------------------------------------------------------------
 // Card measurement
-// ---------------------------------------------------------------
+// More: docs/code-comments.md (companion-app/source/ui_widgets.c:248)
 
 static float total_row_height(const UiFonts *f)
 {
@@ -298,9 +285,8 @@ bool ui_card_row_offset(const UiFonts *f, const UiCard *card, int row, float *ou
     return false;
 }
 
-// ---------------------------------------------------------------
 // Field drawing
-// ---------------------------------------------------------------
+// More: docs/code-comments.md (companion-app/source/ui_widgets.c:301)
 
 static void draw_input(UiCanvas *c, const UiFonts *f, UiRect r, const char *value, bool focused)
 {
@@ -395,9 +381,8 @@ static void draw_field(UiCanvas *c, const UiFonts *f, const UiField *fd, float x
     }
 }
 
-// ---------------------------------------------------------------
 // Card drawing
-// ---------------------------------------------------------------
+// More: docs/code-comments.md (companion-app/source/ui_widgets.c:398)
 
 void ui_card_draw(UiCanvas *c, const UiFonts *f, const UiCard *card, float x, float y, float width)
 {
@@ -407,9 +392,8 @@ void ui_card_draw(UiCanvas *c, const UiFonts *f, const UiCard *card, float x, fl
     ui_fill_round_rect(c, outer, ui_radius_all(RADIUS_PANEL), COL_PANEL_BG);
     ui_stroke_round_rect(c, outer, ui_radius_all(RADIUS_PANEL), CARD_BORDER, COL_PANEL_BORDER);
 
-    // border-left: 3px solid var(--panel-accent). Drawn as a clipped
-    // rounded rect so it follows the panel's own 8px corners instead of
-    // sticking out as a square stripe.
+    // border-left: 3px solid var(--panel-accent).
+    // More: docs/code-comments.md (companion-app/source/ui_widgets.c:410)
     ui_clip_push(c, ui_rect(x, y, CARD_BORDER_LEFT, h));
     ui_stroke_round_rect(c, outer, ui_radius_all(RADIUS_PANEL), CARD_BORDER_LEFT, card->accent);
     ui_clip_pop(c);
@@ -480,9 +464,8 @@ void ui_card_draw(UiCanvas *c, const UiFonts *f, const UiCard *card, float x, fl
     }
 }
 
-// ---------------------------------------------------------------
 // Page header
-// ---------------------------------------------------------------
+// More: docs/code-comments.md (companion-app/source/ui_widgets.c:483)
 
 void ui_page_header(UiCanvas *c, const UiFonts *f, const char *title, const char *subtitle)
 {

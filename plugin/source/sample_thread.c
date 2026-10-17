@@ -1,7 +1,5 @@
-// sample_thread.c -- part of ps4_ambient_light, split out of the original
-// single-file main.c. The worker thread: resolves the live buffer, samples zones, applies color, sends UDP -- decoupled from the render/submission path.
-// See ambient_internal.h for the shared types/externs this file relies
-// on, and main.c's own top comment for this plugin's overall history.
+// sample_thread.c -- part of ps4_ambient_light, split out of the original single-file main.c. The...
+// More: docs/code-comments.md (plugin/source/sample_thread.c:1)
 
 #include <stdio.h>
 #include <stdint.h>
@@ -19,76 +17,23 @@
 #include "ambient_internal.h"
 #include "smoothing.h"
 
-// v1.1: all the actual work -- resolving the live buffer, sampling 229
-// zones, sending the UDP packet -- now happens here, on its own
-// thread, at its own ~30Hz pace, never inside the render/submission
-// path. Same scePthreadCreate pattern as detile_verify_probe's
-// pad_poll_thread.
-//
-// Tradeoff this introduces (worth understanding, not a hidden cost):
-// this thread can read g_currentDisplayBufferIndex / g_bufferAddrs /
-// g_activeFormat at any point in a flip's lifecycle, including
-// mid-update on another thread. Every one of those is a single
-// word-sized volatile read/write (same pattern already used
-// throughout this project without locks), so there's no torn-read risk
-// on real hardware, but the *value* read could be up to one flip old.
-// At ~30Hz sampling against ~60Hz flips, worst case this thread is
-// working from a frame that's already been superseded by a newer one
-// by the time it finishes reading -- i.e. the light output can lag
-// real screen content by up to roughly one extra frame interval versus
-// the old in-hook version. That's the price for never risking a stall
-// on the thread the game actually needs to stay smooth, and is a far
-// better tradeoff for a hobby ambient-light feature than occasional
-// frame hitches during real play.
-// v2.0: was a fixed #define (33*1000, ~30Hz). Now computed once at
-// thread start from g_config.updateFrequencyHz (validated 1-240 at
-// load time, see ambient_load_config). Kept as a plain local rather
-// than a macro since it's no longer a compile-time constant.
+// v1.1: all the actual work -- resolving the live buffer, sampling 229 zones, sending the UDP packet...
+// More: docs/code-comments.md (plugin/source/sample_thread.c:22)
 
-// step 2: window size for the timing telemetry below.
-// 30 iterations at the ~30Hz default sample rate is roughly one
-// telemetry packet per second of real play -- frequent enough to see
-// trends during a session, not so frequent it competes with the actual
-// zone-color UDP traffic. TIMING_ENABLED lets this be compiled out
-// entirely for a "final" build once the number is in hand, same spirit
-// as PROBE_INCLUDE_NEO in detile_verify_probe.
+// step 2: window size for the timing telemetry below. 30 iterations at the ~30Hz default sample rate...
+// More: docs/code-comments.md (plugin/source/sample_thread.c:48)
 #ifndef TIMING_ENABLED
 #define TIMING_ENABLED 1
 #endif
 #define TIMING_WINDOW_SIZE 30
 
-// v2.0 smoothing state: previous frame's post-processed color per
-// zone, so each new sample can be blended toward instead of snapped
-// to. This is a simple discrete integer approximation of an RC-style
-// exponential smoothing, NOT a calibrated real time-constant -- alpha
-// is derived from settlingTimeMs vs the actual sample interval and
-// verified in Python to converge monotonically without oscillation
-// across a range of settling times, but "settling_time_ms
-// = 200" should be read as "roughly", not as a precise guarantee.
+// v2.0 smoothing state: previous frame's post-processed color per zone, so each new sample can be...
+// More: docs/code-comments.md (plugin/source/sample_thread.c:60)
 static uint8_t g_smoothedRgb[MAX_TOTAL_ZONES][3];
 bool g_smoothedRgbValid = false; // false until the first real frame, so startup doesn't fade in from black
 
-// v3.7 read-verify. A zone whose new read differs a lot from the last accepted
-// one is re-read from the SAME buffer once the whole pass has finished
-// sampling; if the two reads of one buffer disagree, the buffer was still
-// being written (or cleared) while we looked, so the new value is discarded
-// and the last accepted one is kept.
-// This is title-agnostic: it never asks "which buffer / how many flips back",
-// only "did this buffer hold still for the length of one pass".
-//
-// Tried first and dropped: a gate that only trusted a change once it held for
-// 2 passes. A stale slot that stays stale repeats, so it "persists" and gets
-// trusted, and every real transition paid an extra pass of delay for it (a GOWR
-// capture showed the flash get through). Read-verify costs nothing on static
-// content (no zone is flagged) and adds no delay to a real change: a stable
-// buffer reads the same twice, so it is accepted on the first pass.
-//
-// Known limit: a stale slot that is genuinely not being touched during the
-// pass reads identically twice and is accepted; only a buffer that changes
-// under the sampler is caught. The hold is capped (VERIFY_MAX_HOLD passes per
-// zone) so a title that rewrites its buffer continuously cannot freeze the
-// lights. State resets with g_smoothedRgbValid (first frame, letterbox commit,
-// live settings reload) so a deliberate hard cut is accepted immediately.
+// v3.7 read-verify. A zone whose new read differs a lot from the last accepted one is re-read from the...
+// More: docs/code-comments.md (plugin/source/sample_thread.c:71)
 #define VERIFY_TOLERANCE 8   // raw 0-255 per channel: below this, a change isn't worth re-reading
 #define VERIFY_MAX_HOLD  3   // consecutive passes one zone may be held before the new read is accepted anyway
 static uint8_t g_acceptedRawRgb[MAX_TOTAL_ZONES][3]; // last verified RAW read per zone (pre color-processing)
@@ -100,10 +45,8 @@ static uint32_t s_rawDiagFrameCounter = 0; // v2.2.2: throttles the raw-pixel di
 #endif
 
 
-// LAUNCH_GAP milestones (docs/debugging/launch-gap-test.md). Event-only HOF1 records over the opt-in
-// [dev] UDP channel, each sent ONCE per process, from the sampler thread only -- the flip/register hooks
-// stay record-only. Resolution is one sampler pass (~33 ms): these are "first seen by the sampler", not
-// the exact instant a hook ran. Every record carries bg= so a launch that starts backgrounded is visible.
+// LAUNCH_GAP milestones (docs/debugging/launch-gap-test.md).
+// More: docs/code-comments.md (plugin/source/sample_thread.c:103)
 static void launch_gap_milestones(void)
 {
     static bool seenRegister = false, seenFlip = false, seenFormat = false;
@@ -132,9 +75,8 @@ static void launch_gap_milestones(void)
                              (unsigned long long)now, (unsigned long long)hz);
     }
 
-    // Mid-session changes (the milestones above fire once; these catch what happens after). Capped so a
-    // title that flaps cannot flood the dev channel. Resolution is one sampler pass, so a change that
-    // flips and flips back inside one pass is not seen.
+    // Mid-session changes (the milestones above fire once; these catch what happens after).
+    // More: docs/code-comments.md (plugin/source/sample_thread.c:135)
     {
         static uint32_t lastFmt = 0, lastCalls = 0;
         static int lastValid = 0;
@@ -170,10 +112,8 @@ void *ambient_sample_thread(void *args)
                          (unsigned long long)sceKernelGetProcessTimeCounterFrequency());
     uint32_t sampleIntervalUs = 1000000u / g_config.updateFrequencyHz;
     uint32_t smoothingAlpha = 256u; // recomputed every iteration below (cheap), so live reload picks up changes
-    // sceKernelGetProcessTimeCounter[Frequency] -- same TSC-based timer
-    // already proven in this repo (frame_logger.prx). Needed
-    // unconditionally now (not just under TIMING_ENABLED) since the
-    // config-reload check below uses real elapsed time too.
+    // sceKernelGetProcessTimeCounter[Frequency] -- same TSC-based timer already proven in this repo...
+    // More: docs/code-comments.md (plugin/source/sample_thread.c:173)
     uint64_t tscFreq = sceKernelGetProcessTimeCounterFrequency();
     uint64_t lastReloadCheckTicks = sceKernelGetProcessTimeCounter();
 
@@ -181,9 +121,8 @@ void *ambient_sample_thread(void *args)
     uint64_t budgetTicks = (tscFreq * (uint64_t)sampleIntervalUs) / 1000000ULL;
     uint64_t minTicks = UINT64_MAX, maxTicks = 0, sumTicks = 0;
     uint32_t windowSamples = 0, overBudgetCount = 0, windowId = 0;
-    // Pure observation via the confirmed sceKernelGetCurrentCpu() -- no
-    // affinity/priority call involved, just recording where the scheduler
-    // is actually placing this thread by default.
+    // Pure observation via the confirmed sceKernelGetCurrentCpu() -- no affinity/priority call involved...
+    // More: docs/code-comments.md (plugin/source/sample_thread.c:184)
     int32_t minCpuSeen = INT32_MAX, maxCpuSeen = -1, lastCpu = -1;
     uint32_t migrationCount = 0;
 #endif
@@ -193,14 +132,8 @@ void *ambient_sample_thread(void *args)
         // the config-reload check below also uses real elapsed time.
         uint64_t t0 = sceKernelGetProcessTimeCounter();
 
-        // v2.4: throttled to roughly once a second (every ~30
-        // iterations of this thread's own ~30Hz loop) rather than
-        // every iteration -- this calls into a symbol resolved by
-        // name against a real signature, which could only
-        // corroborate from a third-party reimplementation (see the
-        // struct's own comment above), not Sony's actual SDK or real
-        // hardware, so its exposure is kept low while unproven. Once
-        // a second is already far faster than a human needs for this.
+        // v2.4: throttled to roughly once a second (every ~30 iterations of this thread's own ~30Hz loop)...
+        // More: docs/code-comments.md (plugin/source/sample_thread.c:196)
         if (sceSystemServiceGetStatusPtr != NULL) {
             static uint32_t sysServicePollCounter = 0;
             if ((++sysServicePollCounter % 30) == 0) {
@@ -214,18 +147,8 @@ void *ambient_sample_thread(void *args)
                                nowBackgrounded ? 0 : 1,
                                (unsigned long long)sceKernelGetProcessTimeCounter(),
                                (unsigned long long)sceKernelGetProcessTimeCounterFrequency());
-                        // true ("on") = foregrounded again, this plugin
-                        // is driving the strip; false ("off") =
-                        // backgrounded, hand control back to wled-relay.
-                        // v2.6: explicit guard here now that
-                        // relay_send_external_source() no longer gates
-                        // itself internally -- this transition
-                        // (foreground/background) is completely
-                        // independent of relaySignalEnabled, so without
-                        // this check a user who never opted in would
-                        // still get a real send on every suspend/resume.
-                        // Backgrounding releases the relay only when the shell feed is not running
-                        // (the shell feed takes the strip over from a backgrounded game).
+                        // true ("on") = foregrounded again, this plugin is driving the strip; false ("off") = backgrounded...
+                        // More: docs/code-comments.md (plugin/source/sample_thread.c:217)
                         if (g_config.relaySignalEnabled) {
                             if (nowBackgrounded) relay_release_external_source();
                             else                 relay_send_external_source(true);
@@ -242,9 +165,8 @@ void *ambient_sample_thread(void *args)
                 ambient_check_config_reload();
                 if (g_configLoadCount != loadsBefore) ambient_notices_on_reload(); // the file changed and was re-read
                 lastReloadCheckTicks = t0;
-                // Recompute everything derived from config that this
-                // loop otherwise only computes once at thread start --
-                // this IS the "live" part of live reload.
+                // Recompute everything derived from config that this loop otherwise only computes once at thread start...
+                // More: docs/code-comments.md (plugin/source/sample_thread.c:245)
                 sampleIntervalUs = 1000000u / g_config.updateFrequencyHz;
 #if TIMING_ENABLED
                 budgetTicks = (tscFreq * (uint64_t)sampleIntervalUs) / 1000000ULL;
@@ -256,15 +178,8 @@ void *ambient_sample_thread(void *args)
         launch_gap_milestones(); // once-per-process events; a few loads and compares per pass otherwise
 
         if (g_isBackgrounded) {
-            // v2.4: closes the real, confirmed gap from --
-            // suspending via the PS button no longer leaves the strip
-            // frozen showing the last on-screen frame indefinitely;
-            // skip the capture/process/send pipeline below while
-            // backgrounded. Placed AFTER the reload check/smoothing
-            // recompute above (not before) so live config reload still
-            // works even while suspended, and this recovers
-            // immediately, with fresh settings, the instant this
-            // plugin is foregrounded again.
+            // v2.4: closes the real, confirmed gap from -- suspending via the PS button no longer leaves the strip...
+            // More: docs/code-comments.md (plugin/source/sample_thread.c:259)
             usleep(sampleIntervalUs);
             continue;
         }
@@ -275,38 +190,15 @@ void *ambient_sample_thread(void *args)
                                        ? g_bufferAddrs[displayBufferIndex] : 0;
 #if AMBIENT_SAMPLE_LAG >= 1
         {
-            // Read a slot N flips back, which the GPU has had longer to
-            // finish drawing; the slot the hook just reported may be
-            // mid-render. Waits (see the v3.7 note below) until enough history
-            // is known. A blank/no-frame flip (index sentinel) keeps
-            // the old path (liveBufferAddr == 0 -> keepalive) instead of
-            // re-reading a real slot.
-            //
-            // AMBIENT_SAMPLE_LAG only selects WHICH tracked variable to read
-            // -- there is no way to derive "N flips back" from the current
-            // index alone, so each level needs hooks.c to track its own
-            // variable (g_prevDisplayBufferIndex for 1,
-            // g_prevPrevDisplayBufferIndex for 2). A value of 2 used to
-            // silently read the same slot as 1, since the old `>= 1` check
-            // is also true for 2 and nothing tracked a second step back --
-            // confirmed by three RDR1 captures at "lag 2" that were
-            // byte-identical to lag 1. See docs/debugging/sample-lag-and-boot-flash.md.
+            // Read a slot N flips back, which the GPU has had longer to finish drawing; the slot the hook just...
+            // More: docs/code-comments.md (plugin/source/sample_thread.c:278)
 #if AMBIENT_SAMPLE_LAG >= 2
             uint32_t prevIdx = g_prevPrevDisplayBufferIndex;
 #else
             uint32_t prevIdx = g_prevDisplayBufferIndex;
 #endif
-            // v3.7: until the lag history exists, do NOT fall back to the
-            // slot the hook just reported -- that is exactly the slot the
-            // GPU is about to render into. Two GOWR captures (seq 0, flip
-            // counter 4, i.e. the first pass after game boot) showed a
-            // bright raw read there while all three buffers re-read black in
-            // the same pass; that first read also seeds smoothing with no
-            // prior value to fall back to, so it decayed on the strip as a
-            // visible flash. No frame is sampled (liveBufferAddr = 0, the
-            // existing keepalive path) for up to LAG_HISTORY_WAIT_PASSES
-            // passes; a title that really never changes slot (single
-            // buffer) then gets the old behaviour instead of staying dark.
+            // Until the lag history exists, do not sample the slot the hook just reported (the GPU is about to render into it):
+            // that gave a bright first read and a visible flash. No frame is sampled for a few passes instead. [docs/code-comments.md]
 #define LAG_HISTORY_WAIT_PASSES 30 // ~1 s at 30 Hz
             static uint32_t s_noHistoryPasses = 0;
             if (displayBufferIndex != 0xFFFFFFFFu) {
@@ -336,13 +228,8 @@ void *ambient_sample_thread(void *args)
         }
 #endif
 
-        // v3.9: never read a buffer the kernel says is not mapped or CPU-readable. Mortal Kombat 11
-        // crashed here (SIGSEGV, page not present) on its first sampling pass: its display buffers
-        // are GPU-only (protection 0x30). ambient_resolve_readable() asks the kernel, and for a
-        // GPU-only direct-memory buffer makes it CPU-readable (buffer_guard.c), returning the
-        // address to read and setting g_readableLimit for the pixel-read bounds checks. 0 means
-        // unreadable, which takes the existing keepalive path (liveBufferAddr = 0): the strip
-        // holds its last color instead of the game dying.
+        // Never read a buffer the kernel says is unmapped or not CPU-readable (Mortal Kombat 11 crashed here);
+        // 0 from ambient_resolve_readable() takes the keepalive path and the strip holds its last colour. [docs/code-comments.md]
         bool bufferUnreadable = false;
         if (liveBufferAddr != 0) {
             liveBufferAddr = ambient_resolve_readable(liveBufferAddr);
@@ -353,14 +240,8 @@ void *ambient_sample_thread(void *args)
                               g_activeFormat, bufferUnreadable);
 
 #if (__FINAL__) == 0
-        // v3.1: what actually found "this title never lights up" -- see
-        // hooks.c's g_pluginVersion comment. Sent UNCONDITIONALLY, not
-        // just from inside the liveBufferAddr!=0 branch below -- the
-        // whole point is to keep reporting the true hook-call-count
-        // state even when the pipeline is going silent, same reasoning
-        // as send_timing_packet's own always-on placement. Throttled to
-        // roughly once a second, same ~30-iteration pattern already
-        // used for the sceSystemServiceGetStatus poll above.
+        // v3.1: what actually found "this title never lights up" -- see hooks.c's g_pluginVersion comment.
+        // More: docs/code-comments.md (plugin/source/sample_thread.c:356)
         {
             static uint32_t s_flipDiagCounter = 0;
             if ((++s_flipDiagCounter % 30) == 0) {
@@ -400,27 +281,20 @@ void *ambient_sample_thread(void *args)
             }
             PixelUnpackFn unpack = getUnpackFnForFormat(g_activeFormat);
             if (unpack != NULL) { // re-check -- format could have gone unknown since the last read
-                // v2.9: throttled internally (autoLetterboxCheckIntervalFrames)
-                // and a complete no-op when autoLetterboxEnabled is false --
-                // see letterbox.c. Runs before this pass's own zone sampling
-                // below so that a border committed just now is reflected in
-                // THIS pass's g_zoneX/g_zoneY, not the next one.
+                // v2.9: throttled internally (autoLetterboxCheckIntervalFrames) and a complete no-op when...
+                // More: docs/code-comments.md (plugin/source/sample_thread.c:403)
                 ambient_check_letterbox(&kParamsBase, liveBufferAddr, unpack);
 
                 uint8_t rgbTriplets[MAX_TOTAL_ZONES * 3];
 #if (__FINAL__) == 0
-                // FLK1 flicker/flash probe (v3.3): raw pipeline read for the 6
-                // fixed probe zones, captured here (before color processing)
-                // so the debug packet below can show what the pipeline itself
-                // saw, same as tools/flicker_capture.py expects. Trivial cost:
-                // 6 comparisons per zone, compiled out entirely in release.
+                // FLK1 flicker/flash probe (v3.3): raw pipeline read for the 6 fixed probe zones, captured here...
+                // More: docs/code-comments.md (plugin/source/sample_thread.c:412)
                 uint8_t probeRaw[6][3];
                 uint32_t probeZoneIdx[6];
                 for (int pk = 0; pk < 6; pk++) probeZoneIdx[pk] = ((uint32_t)(2 * pk + 1) * g_numZones) / 12u;
 #endif
-                // Pass 1: sample every zone from the chosen buffer. Nothing
-                // stateful (color processing, dark threshold) runs yet, so a
-                // read that later gets rejected leaves no trace.
+                // Pass 1: sample every zone from the chosen buffer.
+                // More: docs/code-comments.md (plugin/source/sample_thread.c:421)
                 bool anySuspect = false;
                 for (uint32_t i = 0; i < g_numZones; i++) {
                     uint8_t r, g, b;
@@ -443,11 +317,8 @@ void *ambient_sample_thread(void *args)
                     if (!s_suspect[i]) g_verifyHold[i] = 0; // quiet zone: hold streak ends (a suspect zone keeps its count across passes)
                 }
 
-                // Pass 2: only zones that moved a lot are re-read, from the
-                // same buffer, now that the rest of the pass has elapsed. Two
-                // reads of one buffer that disagree mean it was mid-write.
-                // (When a whole scene really changes every zone is re-read
-                // once -- a stable buffer just agrees with itself.)
+                // Pass 2: only zones that moved a lot are re-read, from the same buffer, now that the rest of the pass...
+                // More: docs/code-comments.md (plugin/source/sample_thread.c:446)
                 if (anySuspect) {
                     for (uint32_t i = 0; i < g_numZones; i++) {
                         if (!s_suspect[i]) { g_verifyHold[i] = 0; continue; }
@@ -475,10 +346,8 @@ void *ambient_sample_thread(void *args)
                     }
                 }
 
-                // Pass 3: color processing, smoothing and output on the
-                // verified value. Color processing/dark-threshold hysteresis
-                // therefore runs exactly once per zone per pass, on a value
-                // that was actually accepted.
+                // Pass 3: color processing, smoothing and output on the verified value.
+                // More: docs/code-comments.md (plugin/source/sample_thread.c:478)
                 for (uint32_t i = 0; i < g_numZones; i++) {
                     g_acceptedRawRgb[i][0] = s_rawFirst[i][0];
                     g_acceptedRawRgb[i][1] = s_rawFirst[i][1];
@@ -504,18 +373,7 @@ void *ambient_sample_thread(void *args)
 
 #if (__FINAL__) == 0
                 // FLK1 probe (v3.3), decoded by tools/flicker_capture.py.
-                // Exists to answer "is this a slot-timing problem, and did
-                // the AMBIENT_SAMPLE_LAG fix close it" with a capture, not a
-                // guess: for 6 zones spread around the strip, sends the
-                // color actually output, the pipeline's raw read (from
-                // liveBufferAddr -- i.e. AFTER the lag-1 buffer selection
-                // above), AND the same zone re-read directly from buffer
-                // slots 0, 1 and 2 right now. If the slot this pass used
-                // (curIdx, adjusted by AMBIENT_SAMPLE_LAG) still disagrees
-                // with its own re-read, or a bright raw value has no
-                // matching bright slot anywhere, the fix did not close it.
-                // Layout matches flicker_capture.py's HDR_FMT/ZONE_FMT
-                // exactly; see that file's top comment for the byte map.
+                // More: docs/code-comments.md (plugin/source/sample_thread.c:506)
                 {
                     static uint32_t s_probeSeq = 0;
                     static uint8_t  s_prevOut[MAX_TOTAL_ZONES * 3];
@@ -540,17 +398,8 @@ void *ambient_sample_thread(void *args)
                         uint32_t fmt = g_activeFormat;
                         uint16_t flipTotal = (uint16_t)((g_flipHookCallCount + g_videoOutSubmitFlipHookCallCount +
                                                          g_gnmForWorkloadHookCallCount) & 0xFFFFu);
-                        // curIdx: the RAW slot the flip hook reported (displayBufferIndex), not the
-                        // one this pass actually sampled. tools/flicker_capture.py's ring-lag math
-                        // is built around that: it walks the ring forward from curIdx to find which
-                        // lag is safe, and separately checks which lag the pipeline's own raw read
-                        // (probeRaw, below) actually matches -- so it can tell "AMBIENT_SAMPLE_LAG is
-                        // active and reading a clean slot" apart from "still reading the risky one",
-                        // exactly the same way it already does for the AC3 menu capture. Recovering
-                        // curIdx from liveBufferAddr instead (i.e. reporting the already-safe slot as
-                        // if it were the raw one) would make every capture with the fix built in look
-                        // identical to lag 0 always being clean, and silently drop the comparison this
-                        // probe exists to make.
+                        // curIdx: the RAW slot the flip hook reported (displayBufferIndex), not the one this pass actually...
+                        // More: docs/code-comments.md (plugin/source/sample_thread.c:543)
                         uint8_t curIdx = (displayBufferIndex < 255u) ? (uint8_t)displayBufferIndex : 0xFF;
                         int32_t bc = g_bufferCount;
                         uint8_t bufCount = (uint8_t)(bc < 0 ? 0 : (bc > 255 ? 255 : bc));
@@ -604,73 +453,17 @@ void *ambient_sample_thread(void *args)
 #endif
 
 #if (__FINAL__) == 0
-                // v2.2.4: verified behind __FINAL__==0 (make DEBUG=1), same
-                // idiom frame_logger/force_1080p_display already use in
-                // this repo. As written through v2.2.3, this ran
-                // unconditionally on every real release build for every
-                // end user: 3 extra sampleZoneAverage calls plus a UDP
-                // send, on an ongoing basis for as long as HDR stayed
-                // active -- real, avoidable CPU and network cost that
-                // was still present in the exact build meant to REDUCE
-                // CPU cost after the WLED-timeout root cause was found.
-                // It has already served its purpose
-                // (it's what let root cause get found at all) and has
-                // no reason to ship active in a release build.
-                //
-                // v2.2.2: DIAGNOSTIC ONLY, no color-pipeline change --
-                // the format-diagnostic in v2.2.1 confirmed this game's
-                // HDR mode correctly registers as A2R10G10B10_BT2020_PQ
-                // (recognized=1), and the PQ decode math itself was
-                // hand-verified against neutral AND slightly-imbalanced
-                // near-black input with no red bias found either way.
-                // But the user's own physical observation is that MUCH
-                // of the strip goes red, not just the zone nearest a
-                // hypothetical red UI element -- which neither of those
-                // findings explains, and rules out "it's just real
-                // content in one corner". This sends the RAW pre-decode
-                // 32-bit pixel word for 3 zones spread across the strip
-                // (index 0, middle, last) alongside the already-decoded
-                // 8-bit RGB pipeline output, so the raw captured value
-                // itself -- not just the decoded interpretation of it --
-                // can be checked.
-                // Throttled to roughly every 3rd time this block runs
-                // (NOT scaled to update_frequency_hz=30 like the first
-                // attempt at this was) -- the color packets in the
-                // user's own capture arrive roughly once per SECOND,
-                // not 30x/sec, so gating on a 30-iteration threshold
-                // meant this would take ~30 seconds of real time to
-                // fire even once, and never showed up in a ~22-second
-                // capture. Whatever's behind that slower real cadence
-                // (dedup on unchanged color, or the loop genuinely not
-                // running at its configured rate) is a separate
-                // question from the one this packet exists to answer,
-                // so this just fires on a small fixed count instead of
-                // trying to match the real cadence.
+                // v2.2.4: verified behind __FINAL__==0 (make DEBUG=1), same idiom frame_logger/force_1080p_display...
+                // More: docs/code-comments.md (plugin/source/sample_thread.c:607)
                 if (++s_rawDiagFrameCounter >= 3) {
                     s_rawDiagFrameCounter = 0;
                     uint32_t diagZones[3] = { 0, g_numZones / 2, g_numZones - 1 };
-                    // v2.2.3: entry grew from 12 to 16 bytes -- ADDS the
-                    // TRUE zone average (calling the real
-                    // sampleZoneAverage, the exact same function/inputs
-                    // the real color pipeline uses) alongside the single-
-                    // center-pixel peek v2.2.2 already had. This is not
-                    // a guess or a proxy: it's the literal value that
-                    // gets handed to applyColorProcessing for these
-                    // zones. Needed because hand-modeling a uniform raw
-                    // input through gamma=2.4/saturation=175/black_level=
-                    // 17 shows NO input value reproduces "default clean,
-                    // tuned strongly red" -- gamma/saturation/levels are
-                    // all zero-preserving and gamma=2.4 crushes small
-                    // values further, not less, so guessing at the real
-                    // average's magnitude isn't getting this further.
+                    // v2.2.3: entry grew from 12 to 16 bytes -- ADDS the TRUE zone average (calling the real...
+                    // More: docs/code-comments.md (plugin/source/sample_thread.c:652)
                     uint8_t diagPacket[4 + 3 * 16];
                     uint32_t formatSnapshot = g_activeFormat; // copy out of the volatile
-                                                               // once here so memcpy below
-                                                               // gets a plain uint32_t*, not
-                                                               // a volatile-qualified one
-                                                               // (was a harmless but real
-                                                               // -Wincompatible-pointer-types
-                                                               // -discards-qualifiers warning)
+                                                               // once here so memcpy below gets a plain uint32_t*, not a volatile-qualified one (was a harmless but...
+                                                               // More: docs/code-comments.md (plugin/source/sample_thread.c:668)
                     memcpy(diagPacket, &formatSnapshot, 4);
                     for (int k = 0; k < 3; k++) {
                         uint32_t zi = diagZones[k];
@@ -694,36 +487,21 @@ void *ambient_sample_thread(void *args)
                 }
 #endif
             } else {
-                // v2.8: unpack == NULL -- format went unknown between the
-                // outer check and here. Still no guessing at a color;
-                // just keep WLED's realtime override alive with the last
-                // verified one instead of going silent.
+                // v2.8: unpack == NULL -- format went unknown between the outer check and here.
+                // More: docs/code-comments.md (plugin/source/sample_thread.c:697)
                 wled_send_keepalive_if_stale(t0, tscFreq);
             }
         } else {
-            // v2.8: liveBufferAddr == 0 or g_haveValidFormat == 0. Same
-            // reasoning as above -- we're foregrounded (the
-            // g_isBackgrounded branch already `continue`d otherwise) but
-            // have no valid frame to sample this tick.
+            // v2.8: liveBufferAddr == 0 or g_haveValidFormat == 0.
+            // More: docs/code-comments.md (plugin/source/sample_thread.c:704)
             wled_send_keepalive_if_stale(t0, tscFreq);
         }
-        // If g_haveValidFormat is 0 (unknown/unconfirmed format), we
-        // deliberately send nothing NEW rather than guess -- this is the
-        // direct fix for how the original bug happened in the
-        // first place: an unverified format assumption silently
-        // producing wrong color instead of visibly doing nothing. The
-        // heartbeat above only ever repeats a color the real pipeline
-        // already verified, on the cases above where new/unknown/no-frame
-        // states would otherwise mean total silence long enough to trip
-        // WLED's own realtime-timeout fallback (see v2.8 changelog entry).
+        // With an unknown format, send nothing new rather than guess (the original wrong-colour bug); the heartbeat only
+        // repeats an already verified colour so WLED's realtime timeout does not fire. [docs/code-comments.md]
 
 #if TIMING_ENABLED
-        // Measured window intentionally covers the buffer-resolve +
-        // sampling + color processing + UDP send above -- i.e.
-        // everything this thread does per iteration except the sleep
-        // itself. That's the number / actually cares about: is
-        // the real work fast enough to comfortably fit inside
-        // sampleIntervalUs, not how precisely usleep() is honored.
+        // Measured window intentionally covers the buffer-resolve + sampling + color processing + UDP send...
+        // More: docs/code-comments.md (plugin/source/sample_thread.c:721)
         uint64_t t1 = sceKernelGetProcessTimeCounter();
         uint64_t elapsedTicks = t1 - t0;
         if (elapsedTicks < minTicks) minTicks = elapsedTicks;

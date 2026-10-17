@@ -1,19 +1,5 @@
 // payload_ini.h -- read and flip ONE entry in GoldHEN's payload AutoRun list, touching nothing else.
-//
-//   [AutoRun]
-//   /user/data/payloads/ps4-ambilight.bin = 1
-//
-// "= 1" runs the payload when GoldHEN loads, "= 0" keeps the entry but doesn't run it
-// (confirmed on a console). The file belongs to GoldHEN and is shared with every other
-// payload the person has, so this is text surgery, not the app's ini_table: that generic
-// parser drops comments and would rewrite lines it doesn't understand (see the long comment
-// above ensure_plugin_registered_in_goldhen() in main.c, which hit exactly that on plugins.ini).
-// Everything outside the one line this changes is copied through byte for byte.
-//
-// Entries are matched by FILE NAME, not by the whole path, because the same file shows up as
-// /data/payloads/x.bin or /user/data/payloads/x.bin depending on who added the line.
-//
-// Header-only and free of console calls so tests/test_payload_ini.c can run it on a PC.
+// More: docs/code-comments.md (companion-app/include/payload_ini.h:1)
 #ifndef PAYLOAD_INI_H
 #define PAYLOAD_INI_H
 
@@ -129,16 +115,8 @@ static inline void pi_put(PiBuf *b, const char *s, size_t n)
     b->p[b->n] = '\0';
 }
 
-// Returns a malloc'd, NUL-terminated copy of the file with the entry for `fileName` set to
-// on (1) or off (0); the caller frees it. *outLen is its length, *changed whether it differs
-// from the input.
-//  * An existing entry (every one, if there are duplicates) has only its value rewritten --
-//    path text, spacing and any trailing comment stay as they were.
-//  * No entry and on=true: `entryPath = 1` is added at the end of [AutoRun] (the section is
-//    created at the end of the file if there is none).
-//  * No entry and on=false: nothing to turn off, the text is returned unchanged.
-//  * Line endings of the file (LF or CRLF) are kept for inserted lines.
-// Returns NULL only if out of memory.
+// Returns a malloc'd, NUL-terminated copy of the file with the entry for `fileName` set to on (1) or...
+// More: docs/code-comments.md (companion-app/include/payload_ini.h:132)
 static inline char *payload_autoload_apply(const char *buf, size_t len, const char *entryPath,
                                            const char *fileName, bool on, size_t *outLen, bool *changed)
 {

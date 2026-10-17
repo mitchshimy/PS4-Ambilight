@@ -1,15 +1,5 @@
-// fw_support.h -- firmware status for the current standalone shell-feed loader (payloads/ps4-ambilight.bin).
-// Informational only, never a block: the app warns, the payload decides at runtime.
-//
-// Three states, because the loader has a per-firmware table:
-//   confirmed  -- run end to end on a console (9.00, 12.52)
-//   untested   -- the loader has an entry for it, nobody has run it
-//   not listed -- no entry; the loader reports "unsupported firmware" and leaves the kernel alone
-// The table below is the init sections in the shipped binary (.text.init_<n>sdk, n = major*100+minor),
-// read from its section names, not from a disassembly. The loader's source is in a separate repo, so
-// when payloads/ps4-ambilight.bin is replaced, re-read the list and update kListed and the confirmed
-// versions by hand. The old bundled loader's offset table does not apply.
-// Keep common/fw_support.h and companion-app/include/fw_support.h identical.
+// fw_support.h -- firmware status for the current standalone shell-feed loader...
+// More: docs/code-comments.md (common/fw_support.h:1)
 #ifndef FW_SUPPORT_H
 #define FW_SUPPORT_H
 

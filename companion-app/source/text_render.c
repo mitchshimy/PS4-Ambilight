@@ -1,11 +1,5 @@
-// text_render.c -- see text_render.h for why this exists (SDL2_ttf was
-// never confirmed to link in this SDK; SceFreeType is).
-//
-// Real FreeType API used here, matching the upstream FreeType 2 docs:
-// FT_Init_FreeType / FT_New_Face / FT_Set_Pixel_Sizes / FT_Load_Char
-// (with FT_LOAD_RENDER, which rasterizes in the same call) /
-// FT_Done_Face / FT_Done_FreeType. Nothing PS4-specific here --
-// SceFreeType is Sony's packaged build of stock FreeType2, same API.
+// text_render.c -- see text_render.h for why this exists (SDL2_ttf was never confirmed to link in this...
+// More: docs/code-comments.md (companion-app/source/text_render.c:1)
 
 #include "text_render.h"
 
@@ -14,15 +8,8 @@
 
 #include <orbis/Sysmodule.h>
 
-// --- Workaround for this SDK snapshot's freetype2 headers ---
-// The headers here expose the FreeType typedefs/constants (FT_Library,
-// FT_Face, FT_GlyphSlot, FT_LOAD_RENDER, ...) and even declare
-// FT_Set_Pixel_Sizes, but leave the five base-API functions below
-// undeclared -- even though the compiled libSceFreeType.so we already
-// link (-lSceFreeType) exports the real, standard FreeType symbols
-// under these exact names. Redeclaring them here with FreeType's
-// stable public signatures is harmless (a duplicate extern decl isn't
-// an error in C) and lets the linker resolve them as normal.
+// --- Workaround for this SDK snapshot's freetype2 headers --- The headers here expose the FreeType...
+// More: docs/code-comments.md (companion-app/source/text_render.c:17)
 FT_Error FT_Init_FreeType(FT_Library *alibrary);
 FT_Error FT_Done_FreeType(FT_Library library);
 FT_Error FT_New_Memory_Face(FT_Library library, const FT_Byte *file_base, FT_Long file_size, FT_Long face_index, FT_Face *aface);
@@ -52,10 +39,8 @@ struct TextRenderer {
     int lineHeight;
 };
 
-// Reads the whole font file into memory so FT_New_Memory_Face can load
-// it without needing stdio path semantics to match FreeType's
-// expectations exactly -- matches the pattern the rest of this
-// codebase already uses for reading /app0-relative files in config.c.
+// Reads the whole font file into memory so FT_New_Memory_Face can load it without needing stdio path...
+// More: docs/code-comments.md (companion-app/source/text_render.c:55)
 static uint8_t *read_whole_file(const char *path, long *outSize)
 {
     FILE *f = fopen(path, "rb");
@@ -75,12 +60,8 @@ static uint8_t *read_whole_file(const char *path, long *outSize)
 
 TextRenderer *text_renderer_create(SDL_Renderer *renderer, const char *fontPath, int pixelHeight)
 {
-    // FreeType is a real sysmodule on PS4, separate from linking
-    // -lSceFreeType at build time -- confirmed against OpenOrbis's own
-    // samples/_common/graphics.cpp (Scene2D::Init), which loads this
-    // exact module before its first FT_Init_FreeType call. Without
-    // this, FT_Init_FreeType fails, text_renderer_create returns NULL,
-    // and every draw_text() call becomes a silent no-op.
+    // FreeType is a real sysmodule on PS4, separate from linking -lSceFreeType at build time -- confirmed...
+    // More: docs/code-comments.md (companion-app/source/text_render.c:78)
     if (sceSysmoduleLoadModule(ORBIS_SYSMODULE_FREETYPE_OL) < 0) {
         printf("[text] sceSysmoduleLoadModule(FREETYPE_OL) failed\n");
         return NULL;
@@ -101,9 +82,8 @@ TextRenderer *text_renderer_create(SDL_Renderer *renderer, const char *fontPath,
     }
 
     FT_Face face;
-    // FT_New_Memory_Face keeps fontData alive for the lifetime of the
-    // face -- freed further down once the atlas is baked and the face
-    // is no longer needed.
+    // FT_New_Memory_Face keeps fontData alive for the lifetime of the face -- freed further down once the...
+    // More: docs/code-comments.md (companion-app/source/text_render.c:104)
     if (FT_New_Memory_Face(ft, fontData, (FT_Long)fontDataSize, 0, &face) != 0) {
         printf("[text] FT_New_Memory_Face failed for: %s\n", fontPath);
         FT_Done_FreeType(ft);
@@ -135,9 +115,8 @@ TextRenderer *text_renderer_create(SDL_Renderer *renderer, const char *fontPath,
     int atlasW = ATLAS_COLUMNS * cellW;
     int atlasH = atlasRows * cellH;
 
-    // ARGB8888 surface: RGB channels stay white, alpha carries the
-    // glyph's actual AA coverage. Texture color-mod tints this per
-    // draw call so one atlas serves every label color in main.c.
+    // ARGB8888 surface: RGB channels stay white, alpha carries the glyph's actual AA coverage.
+    // More: docs/code-comments.md (companion-app/source/text_render.c:138)
     SDL_Surface *atlasSurface = SDL_CreateRGBSurfaceWithFormat(0, atlasW, atlasH, 32, SDL_PIXELFORMAT_ARGB8888);
     if (!atlasSurface) {
         printf("[text] SDL_CreateRGBSurfaceWithFormat failed: %s\n", SDL_GetError());
@@ -171,9 +150,8 @@ TextRenderer *text_renderer_create(SDL_Renderer *renderer, const char *fontPath,
         int destX = cellX + GLYPH_PADDING;
         int destY = cellY + GLYPH_PADDING;
 
-        // Copy FreeType's 8bpp grayscale bitmap into the ARGB atlas,
-        // pixel row by pixel row -- FreeType's pitch can differ from
-        // width (it's allowed to pad rows), so index with pitch, not width.
+        // Copy FreeType's 8bpp grayscale bitmap into the ARGB atlas, pixel row by pixel row -- FreeType's...
+        // More: docs/code-comments.md (companion-app/source/text_render.c:174)
         uint32_t *atlasPixels = (uint32_t *)atlasSurface->pixels;
         int atlasPixelsPerRow = atlasSurface->pitch / 4;
         for (int row_ = 0; row_ < gh; row_++) {
@@ -209,11 +187,8 @@ TextRenderer *text_renderer_create(SDL_Renderer *renderer, const char *fontPath,
     FT_Done_FreeType(ft);
     free(fontData);
 
-    // tr->lineHeight is repurposed here to hold ascent (top-of-line to
-    // baseline distance in px), which is what text_renderer_draw and
-    // text_renderer_measure actually need -- the font's full line
-    // height (ascent+descent+gap) isn't used anywhere in this UI since
-    // main.c positions each line manually.
+    // tr->lineHeight is repurposed here to hold ascent (top-of-line to baseline distance in px), which is...
+    // More: docs/code-comments.md (companion-app/source/text_render.c:212)
     tr->lineHeight = ascent;
     return tr;
 }
@@ -237,10 +212,8 @@ void text_renderer_draw(SDL_Renderer *renderer, TextRenderer *tr, int x, int y, 
     for (const char *p = text; *p; p++) {
         const Glyph *g = glyph_for(tr, *p);
         if (!g || g->atlasRect.w == 0) {
-            // Unrenderable / space-like character: still advance the
-            // pen using the font's average advance so layout doesn't
-            // collapse. Fall back to a quarter of lineHeight if we
-            // have nothing better.
+            // Unrenderable / space-like character: still advance the pen using the font's average advance so...
+            // More: docs/code-comments.md (companion-app/source/text_render.c:240)
             penX += tr->lineHeight / 3;
             continue;
         }

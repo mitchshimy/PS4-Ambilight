@@ -1,97 +1,13 @@
-// shell_probe v24: v23 plus the four Phase 3 leftovers (docs/integration_plan_v2.md): report file, [dev] UDP
-// mirror, self-heal, one log line per gate. Nothing about v23's behaviour changes; see this overlay's README.
-//  1. REPORT FILE. [compat] report_file=1 -> /data/ps4-ambilight/ps4_ambient_report_SHELL.txt, written by its own thread on
-//     start, on a change, and every 60 s. No WLED address, no ini values. Last line "end of report".
-//  2. [dev] MIRROR. [dev] dev_ip + dev_logging=true (both, like the sister) -> the 5 s status row and the stop,
-//     standby, resume, claim and self-heal events go to dev_ip:4048 as DDP-wrapped text starting "SHL1".
-//  3. SELF-HEAL. 30 bad buffer checks in a row (~1 s) -> map_scan(0); find_bufs();. At most one re-scan per
-//     10 s, doubling to 60 s while re-scans do not help.
-//  4. GATES. One "GATE:" line per compile-time gate at start (an undefined gate macro is now a compile error)
-//     and one "GATE (runtime ...)" line whenever the ini changes report_file / [dev].
-//
-// ---- v23 header, unchanged ----
-// shell_probe v23: runs until reboot; disable file and [shell] enabled= switch; no crash-loop guard.
-//
-// Basis (v22, hardware-verified, docs/2026-10-06_probe-v22_A.md + v22_B.md): ini read at start, live reload
-// confirmed (two edits, order 0->1->0, strip visibly rotated). What v22 did not do: run past 300 s, or
-// offer a way to silence the feed without a reboot.
-//
-// WHAT'S NEW (v23)
-//  1. RUN UNTIL REBOOT. The 300-second LIVE_SECONDS limit is gone. The send loop runs until the process
-//     exits (reboot), or until a clean stop fires (items 2-3 below). The LIVE: header says "until reboot"
-//     and the LIVE done line reports elapsed seconds.
-//  2. DISABLE FILE. If /data/ps4-ambilight/ps4_shell_feed_off exists (create over FTP or the app) the send loop exits
-//     cleanly with "DISABLED: disable file found". Delete the file to silence the feed until next reboot.
-//  3. [shell] enabled=false in the ini. Same effect as the disable file, picked up by the live-reload poll
-//     with no reboot. Default: true (absent key = enabled). "DISABLED: shell disabled in ini" is logged.
-//
-// NO CRASH-LOOP GUARD. v21 and v22 wrote /data/shell_probe_vXX_ran on first run and refused to re-run if
-// it existed; v23 drops this entirely. The guard never actually triggered during testing (v1-v22) because
-// the person always rebooted between sessions -- it only would have fired on a second injection in the same
-// boot without a reboot, which never happened. Recovery from a crash loop is the same as any other plugin:
-// remove the SPRX or disable AutoRun, exactly as a person would do for any bad GoldHEN plugin. The manual
-// delete-to-override step was complexity that worked against the automation goal.
-//
-// v22 note (kept for context): the shell feed runs on YOUR ini -- the same settings, the same zone geometry,
-// the same colour chain and the same [preset_game] the PS4-Ambilight plugin uses for a game.
-//
-// Basis (v21-A, hardware-verified, docs/2026-10-06_probe-v21_A.md): the claim gate, the 42-LED order fix and
-// the fast handoff work. What v21 did not do was follow the ini: its order was a hard-coded rotation, its
-// sampling was its own (four points per zone in a band), and its colours were raw. v22 replaces that.
-//
-// WHAT'S NEW
-//  1. INI. /data/ps4-ambilight/ps4_ambient_light.ini is read at start and re-checked every [timing]
-//     config_reload_check_seconds (the sister's own 2 s), by size AND content hash read through raw
-//     sceKernelOpen/Read (stat() is garbage on this filesystem, the sister's hardware-proven lesson). A change
-//     reloads the settings, rebuilds the zone geometry and restarts smoothing, with no reboot.
-//  2. PRESET. Settings that a preset owns come from [preset_game], whatever [presets] active= says, because
-//     active=movie would otherwise turn the shell into "movie" too. If the ini has no game preset the same
-//     fallbacks as the sister apply (the movie preset, then the old flat [layout]/[color]/[timing] keys).
-//  3. GEOMETRY. buildZoneGeometry() from the sister: led_count_*, led_start_corner, led_direction and
-//     led_offset decide where zone i sits and which LED it is. v21's hard-coded LED_ROT is no longer used by
-//     the live send (it only remains for the old scene previews).
-//  4. SAMPLING AND COLOUR. sampleZoneAverage() with scan_depth, the per-channel gamma, then
-//     applyColorProcessing() (gamma -> brightness -> contrast -> saturation -> levels -> colour order),
-//     applyDarkThreshold() and the sister's smoothing (settling_time_ms). update_frequency_hz sets the
-//     pace, wled_host/wled_port the destination (the compile-time host is only a fallback).
-//
-// HOW THE SISTER'S CODE GOT IN. Through v24 (shell_probe's own history, as a research-repo probe) it was
-// pasted, not rewritten: every region between a "sister-begin" and a "sister-end" marker was cut out of
-// the sister's own sources by function name (PS4-Ambilight 89199fe) by tools/make_probe_v22.py, and
-// tools/host_ini_check/run.sh cut the same regions out of that file and compared them to the sister's
-// files byte for byte. As of the PS4-Ambilight/ps4-shell-capture-research merge's Stage C, this plugin
-// (now living in the sister's own repo, as shell-feed/) instead compiles tiling.c, pixel_formats.c,
-// zones.c, gamma.c, color_processing.c, settings.c and config.c straight from ../plugin/source/ -- see
-// the comment above the real #include block further down for the rest of that story, and
-// shell-feed/README.md for the provenance of the one piece that is still local to this file (the
-// probe's own v17 tiling math). Stage D then moved the per-frame smoothing out of both this file and
-// sample_thread.c into plugin/include/smoothing.h, so there is no "sister-begin" paste left here.
-//
-// NOT PORTED, on purpose (these exist for a game's process or a game's pixels, not the shell's):
-//  - auto letterbox (the shell has no black bars; its margins stay 0), HDR/PQ format detection,
-//    the sample-lag buffer choice and read-verify (v21 samples the buffer the compositor just flipped),
-//  - [network] relay (the shell feed has its own opt-in relay signal, shell_relay.c), [dev] UDP logging, [compat], the report file,
-//  - writing a default ini: if the file is missing v22 keeps the sister's compiled defaults and says so.
-//  The values in an INI line in the log are therefore the sister's own, with the shell's choice of preset.
-//
-// Foreground-bit reader gate; the shell feed polls the state file at 10 Hz.
-//
-// ENTRY POINT: module_start.
-// CRASH-LOOP GUARD: marker /data/shell_probe_v22_ran (delete over FTP to rerun).
-// HOOKS STAY INSTALLED after the window and keep counting; never unhooked. Reboot to clear.
+// shell_probe v24: v23 plus the four Phase 3 leftovers (docs/integration_plan_v2.md): report file...
+// More: docs/code-comments.md (shell-feed/source/main.c:1)
 
-//
-// SOURCE LAYOUT. This file used to hold everything below; it is now split by job (map in
-// shell-feed/include/shell_internal.h): shell_modules.c, shell_hooks.c, shell_buffers.c, shell_config.c,
-// shell_frame.c, shell_state.c, shell_log.c, shell_report.c, shell_live.c, shell_thread.c, shell_shim.c and
-// the legacy shell_probe17.c. This file keeps the entry point only. The comment above is the module's
-// history; names in it such as live_send() and map_scan() now live in those files.
+// SOURCE LAYOUT. This file used to hold everything below; it is now split by job (map in...
+// More: docs/code-comments.md (shell-feed/source/main.c:83)
 
 #include "shell_internal.h"
 
-// [Stage D] Build identity. common/git_ver.h is written by the Makefile on every build (commit, branch,
-// commit count, date) and plugin_common.h includes it; plugin_common.h also defines BUILD_TYPE. The
-// fallbacks only matter for a PC test whose stand-in git_ver.h carries less than the real one.
+// [Stage D] Build identity. common/git_ver.h is written by the Makefile on every build (commit...
+// More: docs/code-comments.md (shell-feed/source/main.c:92)
 #ifndef GIT_COMMIT
 #define GIT_COMMIT "unknown"
 #endif
@@ -114,9 +30,8 @@ static void             *g_pFlipStatusFn = NULL;   // [v11] resolved in module_s
 static void             *g_pResStatusFn  = NULL;   // [v11] resolved in module_start, used by probe_thread
 static volatile int      g_statusCallDone = 0;     // [v11] one-shot latch
 
-// ---------------------------------------------------------------------
 // Entry point
-// ---------------------------------------------------------------------
+// More: docs/code-comments.md (shell-feed/source/main.c:117)
 
 s32 attr_module_hidden module_start(s64 argc, const void *args)
 {

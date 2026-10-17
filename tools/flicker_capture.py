@@ -401,9 +401,8 @@ def analyze(passes, others, csv_path=None, quiet=False):
                     lag0_bad_passes += 1
                     if bad_here[1] >= 3 or bad_here[2] >= 3:
                         both_bad += 1
-            # Which ring position did the PIPELINE actually read? Compare its raw read to each lag's buffer.
-            # (After a fix that samples an older slot, the plugin no longer reads lag 0 -- but the probe still
-            # measures every lag relative to the slot the hook reports.)
+            # Which ring position did the PIPELINE actually read?
+            # More: docs/code-comments.md (tools/flicker_capture.py:404)
             pm = [0, 0, 0]
             for p in passes:
                 cs = p["cur"]

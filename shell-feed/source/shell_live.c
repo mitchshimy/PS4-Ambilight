@@ -1,24 +1,13 @@
-// shell_live.c -- live_send(): the send loop. One socket, TSC-paced at update_frequency_hz, samples the
-// compositor's display buffer, sends DDP to WLED. Stops cleanly when the disable file appears or
-// [shell] enabled=false, and returns why. The caller (probe_thread) decides what happens next.
+// shell_live.c -- live_send(): the send loop.
+// More: docs/code-comments.md (shell-feed/source/shell_live.c:1)
 #include "shell_internal.h"
 
 static int      g_liveSendEverStarted = 0; // [v23-fix v44] set after live_send()'s first-ever config
-                                            // read; makes every later entry (i.e. every resume out of
-                                            // wait_for_reenable()) log as INI RELOAD and count toward
-                                            // g_cfgReloads/ini_reloads, instead of logging as a fresh
-                                            // LOAD that silently didn't increment the counter. Found in
-                                            // capture v23-B (2026-10-06): the resume's own config read
-                                            // printed "INI LOAD", not "INI RELOAD", so ini_reloads under-
-                                            // counted every resume.
+                                            // read; makes every later entry (i.e. every resume out of wait_for_reenable()) log as INI RELOAD and...
+                                            // More: docs/code-comments.md (shell-feed/source/shell_live.c:7)
 
-// [v18] Continuous live send: one socket, LIVE_HZ, TSC-paced. [v23] runs until reboot or clean stop.
-// [v23-fix] live_send() now returns why it stopped, so the caller can tell a user-triggered disable
-// (resumable) apart from a configuration/environment problem (not retried automatically):
-//   0 = never got to the loop at all (no buffers, no host configured, socket/address setup failed)
-//   1 = stopped because the disable file was present
-//   2 = stopped because [shell] enabled=false
-// ---------------------------------------------------------------------
+// [v18] Continuous live send: one socket, LIVE_HZ, TSC-paced.
+// More: docs/code-comments.md (shell-feed/source/shell_live.c:15)
 #if DO_LIVE_DDP
 
 int live_send(void)
@@ -30,10 +19,7 @@ int live_send(void)
     }
 
     // [v22] The ini first: it decides the destination, the pace, the zone count and every colour setting.
-    // A missing or unreadable file is not fatal: the sister's compiled defaults stand (WLED_HOST is empty, so with no wled_host the send loop does not start).
-    // [v23-fix v44] Only the very first call this process lifetime is a real LOAD; every later call is a
-    // resume out of wait_for_reenable() re-reading the same ini, which is a RELOAD in every sense that
-    // matters to a reader of the log (and should count toward g_cfgReloads, same as shell_cfg_poll()'s).
+    // More: docs/code-comments.md (shell-feed/source/shell_live.c:32)
     int resuming = g_liveSendEverStarted;
     g_liveSendEverStarted = 1;
     int cfgOk = shell_cfg_load();
@@ -114,18 +100,14 @@ int live_send(void)
             usleep(1000000 / hz); // [v18] fallback if TSC calibration failed: fixed-rate, will drift
         }
 
-        // [v22] The REST of the ini (brightness, zones, host, ...), re-checked on the sister's own schedule
-        // (config_reload_check_seconds, 2 s) -- [shell] enabled= no longer follows this cadence; see
-        // shell_enabled_poll() above, [v46]. Runs even
-        // while the sister plugin holds the claim, so an edit made during a game is already in effect afterwards.
-        // [v23] disable file: /data/ps4-ambilight/ps4_shell_feed_off -- create over FTP to stop cleanly.
+        // [v22] The REST of the ini (brightness, zones, host, ...), re-checked on the sister's own schedule...
+        // More: docs/code-comments.md (shell-feed/source/shell_live.c:117)
         {
             int32_t dfd = sceKernelOpen(DISABLE_FILE, 0 /* O_RDONLY */, 0);
             if (dfd >= 0) { sceKernelClose(dfd); printf(TAG " DISABLED: disable file found (" DISABLE_FILE ").\n"); sh_dev_send("DISABLED: disable file"); stopReason = 1; break; }
         }
-        // [v46] [shell] enabled= checked on its own 1 s cadence, independent of config_reload_check_seconds
-        // (see shell_enabled_poll()'s comment) -- was previously "picked up by the live-reload poll above",
-        // which meant config_reload_check_seconds=0 silently made this unreachable until the next fresh start.
+        // [v46] [shell] enabled= checked on its own 1 s cadence, independent of config_reload_check_seconds...
+        // More: docs/code-comments.md (shell-feed/source/shell_live.c:126)
         shell_enabled_poll(rdtsc17(), g_tscHz, &nextEnabledPollTsc);
         shell_relay_tick(rdtsc17(), g_tscHz); // wled-relay: repeat "on" while held (no-op unless relay_signal_enabled)
         shell_heartbeat(rdtsc17(), g_tscHz, &nextBeatTsc, ++beatCounter); // runs every tick, writes once a second, including while the game owns the strip
@@ -153,10 +135,8 @@ int live_send(void)
 
         int rowDue = (g_tscHz > 0 && rdtsc17() >= nextRowTsc);
 
-        // [v20] The sister plugin's claim, checked every tick (cheap: a TSC compare unless it's
-        // actually time to poll the file). While it's fresh, this tick is entirely skipped --
-        // no buffer read, no send -- and counted separately from both sent and skipped (a claim
-        // deferral is not a failure of anything on this side).
+        // [v20] The sister plugin's claim, checked every tick (cheap: a TSC compare unless it's actually time...
+        // More: docs/code-comments.md (shell-feed/source/shell_live.c:156)
         if (claim_poll(rdtsc17(), g_tscHz)) {
             gameOwned++;
             if (rowDue) {

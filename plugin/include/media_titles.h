@@ -1,18 +1,5 @@
 // media_titles.h -- title IDs that always run the Movie preset.
-//
-// Anything not listed runs whichever preset [presets] active= names (game by
-// default). Add an ID here, rebuild, and that app switches to Movie by itself
-// with no trip to the companion app. The ID is the one GoldHEN reports for
-// the running process (sys_sdk_proc_info's titleid), CUSA plus five digits.
-//
-// Only IDs confirmed against independent sources belong here. A listed ID
-// forces Movie (sampling depth 4, 200 ms smoothing) on whatever runs under
-// it, so one that turns out to be a game is worse than a missing one --
-// CUSA05682, for example, looks like a YouTube ID in some lists and is
-// Horizon Zero Dawn. tools/test_plugin_config.c guards that one by name.
-//
-// Known but NOT listed, unconfirmed: YouTube TV (one catalogue gives CUSA18680).
-// A YouTube beta build, CUSA06021, also exists and is left out.
+// More: docs/code-comments.md (plugin/include/media_titles.h:1)
 #ifndef MEDIA_TITLES_H
 #define MEDIA_TITLES_H
 

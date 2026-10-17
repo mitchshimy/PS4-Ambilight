@@ -1,13 +1,5 @@
 // ui_icons.h -- the blueprint's line icons.
-//
-// Every icon in this file is a literal transcription of the SVG
-// markup in home.html / setup.html / customization.html: same 24x24
-// viewBox, same `d` strings, same stroke width, same caps. Rather
-// than redrawing each one by hand out of rects and circles (which is
-// what the old UI did, and why its "icons" were three bars and a
-// filled disc), ui_icons.c contains a small SVG path parser -- M/L/H/
-// V/C/S/A/Z, absolute and relative -- so the shapes come out as
-// drawn.
+// More: docs/code-comments.md (companion-app/source/ui_icons.h:1)
 
 #ifndef UI_ICONS_H
 #define UI_ICONS_H
@@ -56,9 +48,8 @@ typedef enum {
     ICON_COUNT
 } UiIconId;
 
-// Draws the icon scaled from its 24x24 viewBox into a size x size box
-// with its top-left at (x, y). Stroke width scales with the icon, the
-// same way an SVG's does.
+// Draws the icon scaled from its 24x24 viewBox into a size x size box with its top-left at (x, y).
+// More: docs/code-comments.md (companion-app/source/ui_icons.h:59)
 void ui_icon_draw(UiCanvas *c, UiIconId id, float x, float y, float size, UiColor color);
 
 #endif // UI_ICONS_H

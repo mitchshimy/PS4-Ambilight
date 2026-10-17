@@ -9,6 +9,8 @@ or [history](history.md) if you want to know how it got here.
 - [history](history.md): how the project evolved, version by version
 - [sampling-zones](sampling-zones.md): LED geometry and how pixels are chosen
 - [configuration-history](configuration-history.md): ini keys added, removed, changed
+- [code-comments](code-comments.md): the full text of every code comment that was longer than two
+  lines, moved out of the source; the code keeps a short note and a pointer.
 
 ## Debugging write-ups
 

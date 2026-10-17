@@ -1,9 +1,5 @@
-// GoldHEN plugin callbacks can be entered through a loader call path whose
-// x86-64 stack alignment is not guaranteed. The PS4 libc's vectorized
-// printf implementation uses MOVAPS and faults if a nested call inherits
-// that misalignment. Keep these exported entry shims tiny and assembly-only:
-// save the incoming frame, align RSP to 16 bytes, call the C implementation,
-// then restore the exact incoming stack before returning to the loader.
+// GoldHEN plugin callbacks can be entered through a loader call path whose x86-64 stack alignment is...
+// More: docs/code-comments.md (plugin/include/plugin_entry_alignment.h:1)
 #ifndef AMBIENT_PLUGIN_ENTRY_ALIGNMENT_H
 #define AMBIENT_PLUGIN_ENTRY_ALIGNMENT_H
 

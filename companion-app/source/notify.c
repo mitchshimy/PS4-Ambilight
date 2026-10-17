@@ -1,6 +1,5 @@
-// notify.c -- see notify.h. The request layout is the one the plugin's Notify() sends (GoldHEN SDK's
-// OrbisNotificationRequest, from OSM's PS4-Notify); this app is a plain title, not a GoldHEN plugin, so it
-// carries its own copy of the struct and calls the same libkernel function.
+// notify.c -- see notify.h. The request layout is the one the plugin's Notify() sends (GoldHEN SDK's...
+// More: docs/code-comments.md (companion-app/source/notify.c:1)
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>

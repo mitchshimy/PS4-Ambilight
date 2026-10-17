@@ -85,21 +85,15 @@ USAGE:
 import sys
 import struct
 
-# Paste captured payload_hex values here (from udp_ground_truth_listener.py's
-# "payload_hex=..." lines), one string per packet. Each should decode to
-# 11 bytes (22 hex chars) from the v2.1 probe, 10 bytes (20 hex chars)
-# from an older capture, or 32 bytes (64 hex chars) for a v2.2
-# registration packet. Order doesn't matter -- the script sorts by point
-# index / call index automatically.
+# Paste captured payload_hex values here (from udp_ground_truth_listener.py's "payload_hex=..."...
+# More: docs/code-comments.md (tools/decode_verification_dump.py:88)
 PAYLOADS = [
     # "00000000ff00..."  <- example placeholder, replace with real captures
 ]
 
 
-# ---------------------------------------------------------------------------
-# Per-format unpack functions. Each takes the raw 4 bytes (as read off the
-# wire, little-endian uint32) and returns (alpha_bits_or_None, (r8, g8, b8)).
-# ---------------------------------------------------------------------------
+# Per-format unpack functions.
+# More: docs/code-comments.md (tools/decode_verification_dump.py:99)
 
 def unpack_a2r10g10b10(raw4: bytes):
     """A2R10G10B10 / A2R10G10B10_SRGB / A2R10G10B10_BT2020_PQ.
@@ -153,32 +147,8 @@ def unpack_a8b8g8r8(raw4: bytes):
     return a8, (r8, g8, b8)
 
 
-# ---------------------------------------------------------------------------
-# HDR (A2R10G10B10_BT2020_PQ) decode -- added when HDR colors were reported
-# wrong. Root cause: this format was previously routed to the SAME plain
-# 10-bit truncation as SDR A2R10G10B10 (see unpack_a2r10g10b10 above) --
-# defensible for gamma-encoded SDR content per that function's own
-# docstring, but PQ (SMPTE ST 2084) is a fundamentally different, much
-# steeper curve. Truncating raw PQ code values straight to 8-bit RGB has
-# no meaningful relationship to the actual displayed color.
-#
-# Pipeline: PQ code value -> linear light (nits) -> tone-map down from
-# PQ's 10,000-nit range -> BT.2020 -> BT.709/sRGB primaries -> sRGB gamma
-# encode -> 8-bit. Bit LAYOUT (which 10 bits are R/G/B/A, MSB-first,
-# blue at LSB) is unchanged from unpack_a2r10g10b10 -- HDR doesn't change
-# how the tiling/channel packing works, only how the numbers should be
-# interpreted once unpacked.
-#
-# PQ_REFERENCE_WHITE_NITS / PQ_TONE_MAP_MAX_NITS below are ASSUMPTIONS,
-# not measured constants. The PQ EOTF and BT.2020->BT.709 matrix are
-# fixed standards (SMPTE ST 2084 / ITU-R BT.2087) and shouldn't need
-# tuning, but where to set "reference white" and how hard to roll off
-# highlights depends on what THIS console/title is actually doing with
-# the format, which nothing here has measured yet -- tune these against
-# a real capture + known on-screen color, the exact same empirical method
-# that settled base vs Neo. main() also prints the OLD naive
-# truncation next to this decode when this format is active, so you can
-# compare both against the screen the same way base vs Neo were compared.
+# HDR (A2R10G10B10_BT2020_PQ) decode -- added when HDR colors were reported wrong.
+# More: docs/code-comments.md (tools/decode_verification_dump.py:156)
 PQ_REFERENCE_WHITE_NITS = 203.0  # ITU-R BT.2408 HDR reference white -- a reasonable starting point, not measured
 PQ_TONE_MAP_MAX_NITS = 1000.0    # assumed content/display peak for the soft-rolloff below -- not measured
 
@@ -266,10 +236,8 @@ def unpack_a2r10g10b10_bt2020_pq(raw4: bytes):
     return a2, (r8, g8, b8)
 
 
-# Maps the raw format enum value (as read off the wire, masked to 32 bits)
-# to (display name, unpack function). Formats with no unpack function are
-# known/named but not yet supported for auto-decode (e.g. float formats
-# need a different raw4 size / decode path entirely).
+# Maps the raw format enum value (as read off the wire, masked to 32 bits) to (display name, unpack...
+# More: docs/code-comments.md (tools/decode_verification_dump.py:269)
 FORMAT_TABLE = {
     0x88000000: ("A2R10G10B10_SRGB", unpack_a2r10g10b10),
     0x88060000: ("A2R10G10B10", unpack_a2r10g10b10),
@@ -282,34 +250,8 @@ FORMAT_TABLE = {
 DEFAULT_FALLBACK_FORMAT = 0x88000000  # A2R10G10B10_SRGB -- old script's hardcoded assumption
 
 
-# v3.2: runtime format auto-detection via decode smoothness, added after
-# a real, confirmed dead end trying to detect HDR state directly. The
-# obvious approach -- hook sceVideoOutAddBufferHdrPrivilege, the PS4
-# API a game presumably calls when HDR engages -- turned out to have
-# no real reference implementation anywhere: not in this repo's own
-# probe/plugin history, not in fpPS4 (checked its full, real
-# ps4_libscevideoout.pas -- the function isn't implemented there at
-# all, only present as a bare name-to-NID lookup entry with zero type
-# info). Guessing a signature for a hook GoldHEN's HOOK_CONTINUE would
-# need to forward calls through exactly right is a real crash risk
-# with no way to verify it beforehand, so that path was dropped.
-#
-# This sidesteps detection entirely: since both real formats seen on
-# this title are now independently confirmed correct decoders (SDR:
-# A8B8G8R8_SRGB with R/B swapped, confirmed against a real screenshot
-# and independently against fpPS4's own enum comment; HDR:
-# A2R10G10B10_BT2020_PQ, confirmed against a real screenshot at all 5
-# points), the two candidate decodes can just be tried against each
-# other and scored by which one looks more like real image content.
-#
-# The scoring signal: real photographic/rendered content is spatially
-# coherent -- neighboring pixels are usually close in value, even
-# across hard edges the change is bounded. Decoding the WRONG bit
-# layout effectively randomizes the bit pattern, which tends to
-# produce much larger, noisier swings between adjacent samples. Each
-# capture already includes 4 consecutive 32bpp words per test point
-# (RAW_DUMP_BYTES=16, from v2.9) -- exactly the adjacent-sample data
-# this needs, with no probe/firmware changes required at all.
+# v3.2: runtime format auto-detection via decode smoothness, added after a real, confirmed dead end...
+# More: docs/code-comments.md (tools/decode_verification_dump.py:285)
 def _total_variation(rgb_list):
     """Sum of per-channel absolute differences between consecutive
     RGB triples -- lower means smoother/more coherent."""
@@ -394,11 +336,8 @@ def decode_pixel_packet_raw(data: bytes):
     x = struct.unpack("<H", data[2:4])[0]
     y = struct.unpack("<H", data[4:6])[0]
     if len(data) == 10:
-        # Legacy case this script's error message still allows for --
-        # no real packet from this probe has ever actually been this
-        # short (main.c always sends the trailing displayBufferIndex
-        # byte), but keep the old fixed-4-byte behavior here rather
-        # than let data[-1] silently eat a real raw byte.
+        # Legacy case this script's error message still allows for -- no real packet from this probe has ever...
+        # More: docs/code-comments.md (tools/decode_verification_dump.py:397)
         raw = data[6:10]
         display_buffer_index = None
     else:
@@ -674,15 +613,8 @@ def main(payloads):
     if not results:
         return
 
-    # v3.2: format 0x80002200 is now a known special case for this title --
-    # confirmed to mean two DIFFERENT real byte layouts depending on HDR
-    # state (SDR: A8B8G8R8_SRGB swapped; HDR: A2R10G10B10_BT2020_PQ), with
-    # no reliable way to tell which from the registration event alone (see
-    # this script's own v3.2 comment above detect_format_via_smoothness for
-    # why a direct HDR-state hook was ruled out). When the registration-
-    # based pick lands on this format, run the smoothness heuristic and let
-    # it override the choice for the table below, rather than trusting the
-    # ambiguous format ID at face value.
+    # v3.2: format 0x80002200 is now a known special case for this title -- confirmed to mean two...
+    # More: docs/code-comments.md (tools/decode_verification_dump.py:677)
     if active_fmt == 0x80002200:
         winner, detail, sdr_total, hdr_total = detect_format_via_smoothness(results)
         if winner is not None:
@@ -701,12 +633,8 @@ def main(payloads):
                 fmt_name, unpack_fn = FORMAT_TABLE[active_fmt]
             # else: SDR already the current active_fmt/unpack_fn, nothing to change.
 
-    # When the active format is the HDR PQ format, also show the OLD naive
-    # truncation decode side by side -- this is what "colors weren't
-    # accurate" was actually looking at before this fix, and printing both
-    # lets you visually confirm the PQ decode is the one that now matches
-    # the real screen, the same empirical comparison method that settled
-    # base vs Neo.
+    # When the active format is the HDR PQ format, also show the OLD naive truncation decode side by side...
+    # More: docs/code-comments.md (tools/decode_verification_dump.py:704)
     show_naive_compare = (active_fmt == 0x88740000)
 
     print(f"Decoding pixel packets as: {fmt_name}")
@@ -738,14 +666,8 @@ def main(payloads):
         else:
             print(f"{r['point_idx']:>2} {r['x']:>5} {r['y']:>5} {r['paramset']:>5} "
                   f"{raw_display:<34} {rgb_str:>16} {buf_str:>6}")
-        # v2.9: if more than 4 raw bytes came through, also show what
-        # each following 4-byte word would decode to as its own pixel
-        # -- if this really is contiguous 32bpp pixel data, these
-        # should look like a plausible, smoothly-varying continuation
-        # of whatever's actually next to that point on screen. If they
-        # look like noise or don't relate to nearby real colors at
-        # all, that's evidence against "this memory is 32bpp pixels"
-        # entirely, not just against the current offset formula.
+        # v2.9: if more than 4 raw bytes came through, also show what each following 4-byte word would decode...
+        # More: docs/code-comments.md (tools/decode_verification_dump.py:741)
         if unpack_fn is not None and len(r.get("raw_full", b"")) > 4:
             extra = r["raw_full"][4:]
             words = [extra[i:i+4] for i in range(0, len(extra) - 3, 4)]
@@ -766,12 +688,8 @@ def main(payloads):
         print("adjust -- the PQ EOTF and BT.2020->BT.709 matrix are fixed standards")
         print("and shouldn't need touching.")
 
-    # Sanity check for the v2.1 probe fix: every REAL test point in one
-    # dump should share the same displayBufferIndex, since one capture
-    # = one live frame = one buffer. v2.7's dump_buffer_scan() rows
-    # (point_idx 254) are deliberately excluded -- they're tagged with
-    # their own slot index on purpose, always differing from each
-    # other and often from the live points, and that's not a bug.
+    # Sanity check for the v2.1 probe fix: every REAL test point in one dump should share the same...
+    # More: docs/code-comments.md (tools/decode_verification_dump.py:769)
     real_points = [r for r in results if r["point_idx"] not in (253, 254)]
     buf_indices = {r["display_buffer_index"] for r in real_points}
     buf_indices.discard(None)

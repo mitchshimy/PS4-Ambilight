@@ -6,16 +6,13 @@
 #include "data_dir.h"
 #include "net_http.h"   // GITHUB_REPO_OWNER / GITHUB_REPO_NAME, used by PLUGIN_UPDATE_URL
 
-// Every file of ours lives in APP_DATA_DIR (data_dir.h); only /data/GoldHEN and /data/payloads, which
-// belong to GoldHEN, are outside it.
-// Same path the plugin itself reads -- this app edits that exact
-// file, not a copy, so there's only ever one source of truth.
+// Every file of ours lives in APP_DATA_DIR (data_dir.h); only /data/GoldHEN and /data/payloads, which...
+// More: docs/code-comments.md (companion-app/include/app_paths.h:9)
 #define AMBIENT_CONFIG_PATH APP_DATA_DIR "/ps4_ambient_light.ini"
 #define FONT_DIR "/app0/assets/fonts"
 
 // Where the plugin binary and GoldHEN's own plugin registry live.
-// Confirmed via GOLDHEN_PATH in the plugin repo's own common/
-// plugin_common.h and multiple independent install-guide sources.
+// More: docs/code-comments.md (companion-app/include/app_paths.h:16)
 #define GOLDHEN_PLUGINS_DIR "/data/GoldHEN/plugins"
 #define GOLDHEN_PLUGINS_INI "/data/GoldHEN/plugins.ini"
 #define PLUGIN_PRX_PATH GOLDHEN_PLUGINS_DIR "/ps4_ambient_light.prx"
@@ -29,46 +26,17 @@
 
 #define PLUGIN_ASSET_NAME "ps4_ambient_light.prx"
 
-// Companion checksum asset -- must be uploaded to the SAME GitHub
-// release as the .prx above, named by appending ".sha256" to the prx
-// filename. Its contents are expected to be (or at least start with)
-// 64 lowercase/uppercase hex chars: the plain output of
-// `sha256sum ps4_ambient_light.prx` is exactly this, including its
-// trailing "  ps4_ambient_light.prx" -- sha256_hex_matches() only
-// reads the first 64 hex chars, so that suffix is fine as-is. A
-// release build's CI should run that command and upload the result
-// as this exact filename alongside the .prx.
-//
-// This catches a corrupted or tampered download (the two things
-// flagged about this path: no integrity check on what gets installed,
-// and the SSL callback below accepts any certificate). It is NOT a
-// substitute for real certificate validation -- an attacker able to
-// MITM the .prx download can equally serve a fake checksum file next
-// to it. Real protection against that would mean signing releases
-// with a keypair and embedding the public key here instead of
-// fetching a hash from the same untrusted connection; this is the
-// lighter-weight step that at least catches corruption and
-// accidental/incidental tampering, and is worth doing regardless of
-// whether signing is added later.
+// Companion checksum asset -- must be uploaded to the SAME GitHub release as the .prx above, named by...
+// More: docs/code-comments.md (companion-app/include/app_paths.h:32)
 #define PLUGIN_CHECKSUM_ASSET_NAME PLUGIN_ASSET_NAME ".sha256"
 #define PLUGIN_CHECKSUM_URL PLUGIN_UPDATE_URL ".sha256"
 
-// Local sidecar recording the checksum of whatever build this app
-// itself last installed at PLUGIN_PRX_PATH -- written by
-// do_plugin_update() right after a successful install (see
-// write_installed_checksum() below). check_for_plugin_update() only
-// falls back to this when it can't hash PLUGIN_PRX_PATH directly --
-// this sidecar isn't touched by anything outside this app, so it goes
-// stale the moment someone replaces the .prx by hand (FTP, a manual
-// GoldHEN plugins folder edit, ...) and can't be trusted as the
-// primary source of "what's actually installed right now."
+// Local sidecar recording the checksum of whatever build this app itself last installed at...
+// More: docs/code-comments.md (companion-app/include/app_paths.h:56)
 #define PLUGIN_INSTALLED_CHECKSUM_PATH PLUGIN_PRX_PATH ".sha256"
 
-// ---- Shell feed files (shell-feed/) ----
-// Three files make up an install: the plugin above, the shell feed's own .prx, and the small
-// Ambilight payload that puts that .prx into the console's compositor. The payload finds the .prx
-// at SHELL_PRX_PATH (shell-feed/docs/loading.md). Nothing in this block is touched while the
-// "Shell feed" switch in Set up is off.
+// Shell feed files (shell-feed/) Three files make up an install: the plugin above, the shell feed's...
+// More: docs/code-comments.md (companion-app/include/app_paths.h:67)
 #define SHELL_DIR             APP_DATA_DIR
 #define SHELL_PRX_ASSET_NAME  "ps4_shell_feed.prx"
 #define SHELL_PRX_PATH        SHELL_DIR "/" SHELL_PRX_ASSET_NAME

@@ -1,14 +1,9 @@
-// shell_thread.c -- probe_thread(): the start-up sequence (calibrate, read the aux ini keys, find the display
-// buffers) and the loop around live_send(), plus the two standby waits it uses: one for a clean stop (disable
-// file / [shell] enabled=false), one for a missing or unusable wled_host.
+// shell_thread.c -- probe_thread(): the start-up sequence (calibrate, read the aux ini keys, find the...
+// More: docs/code-comments.md (shell-feed/source/shell_thread.c:1)
 #include "shell_internal.h"
 
-// ---------------------------------------------------------------------
-// Reporter thread (probe_thread)
-// [v23] The CUE table and the timed reporter loop have been removed: live_send() now runs until the
-// process exits and never returns, so the post-send loop was dead code. Status rows (LIVE t=Xs ...) are
-// printed by the send loop itself every 5 s and carry all the progress information that was in the CUEs.
-// ---------------------------------------------------------------------
+// Reporter thread (probe_thread) [v23] The CUE table and the timed reporter loop have been removed...
+// More: docs/code-comments.md (shell-feed/source/shell_thread.c:6)
 
 #if DO_LIVE_DDP
 
@@ -37,40 +32,17 @@ void sh_runtime_gates_note(void)
                 heal ? "ON" : "OFF (compiled out)");
 }
 
-// [v23-fix] Entered only after a clean, user-triggered stop (live_send() returned 1 or 2), never after a
-// configuration/environment failure (0). Polls for both kill-switches to clear -- the disable file gone AND
-// [shell] enabled= back to true -- then returns so probe_thread() can call live_send() again. Does not touch
-// hooks, map_scan() or find_bufs(): the buffers already found stay as they are, same as a running live_send()
-// never re-scans them either. The disable file is checked every poll regardless of the ini's own cadence,
-// since it carries no cadence of its own.
-//
-// [v45] The ini itself used to be re-read on the SAME cadence as live_send()'s own reload poll
-// (config_reload_check_seconds) -- which meant a value of 0 (meaning "never poll" while actively
-// sending, a deliberate way to skip the file-stat overhead at 30 Hz) also meant "never poll" here,
-// where nothing is being sent and there is no overhead to avoid. The result, confirmed on hardware
-// (HANDOFF v44): a permanent deadlock -- `[shell] enabled=false` with `config_reload_check_seconds=0`
-// could not be cleared by `enabled=true`, nor by raising `config_reload_check_seconds` itself, since
-// that value can only be learned by a read this never performed. Only a reboot cleared it.
-//
-// Fixed by giving standby its own cadence, independent of config_reload_check_seconds: the ini is now
-// re-read every STANDBY_RELOAD_MS regardless of that setting. config_reload_check_seconds still governs
-// how often live_send() re-reads the ini WHILE SENDING (unchanged, 0 still means "never poll" there,
-// same deliberate opt-out as before) -- this only changes the no-cost, not-sending-anything wait here.
+// Standby re-reads the ini every second regardless of config_reload_check_seconds: with 0 it used to deadlock
+// (enabled=false could never be cleared without a reboot). [docs/code-comments.md]
 #define STANDBY_POLL_MS   1000u
 #define STANDBY_RELOAD_MS 1000u // [v45] fixed cadence for standby's own ini re-read; does not read
-                                 // config_reload_check_seconds, so a value of 0 there can no longer
-                                 // block recovery. Deliberately == STANDBY_POLL_MS (checked every
-                                 // wake): standby already wakes once a second to poll the disable
-                                 // file, and sceKernelOpen+a config_size_and_hash stat/read is cheap
-                                 // next to that, so there is no reason to wait any longer than this
-                                 // loop already does.
+                                 // config_reload_check_seconds, so a value of 0 there can no longer block recovery.
+                                 // More: docs/code-comments.md (shell-feed/source/shell_thread.c:61)
 static void wait_for_reenable(int stopReason)
 {
     g_shState = SH_STANDBY; // [v24]
-    // [v47] Told once per pause (this function is entered once per clean stop, not per poll). The disable
-    // file is always worth saying: forgotten, it leaves a dark strip with no explanation. [shell] enabled=false
-    // is a setting the person chose, so it is only announced when the feed was already running and just got
-    // turned off -- not at every boot of a console where it has simply been off all along.
+    // [v47] Told once per pause (this function is entered once per clean stop, not per poll).
+    // More: docs/code-comments.md (shell-feed/source/shell_thread.c:70)
     if (stopReason == 1)
         sh_notify(false, "shell feed is paused: " DISABLE_FILE " exists. Delete it to resume.");
     else if (g_shLiveSessions > 0)
@@ -102,12 +74,8 @@ static void wait_for_reenable(int stopReason)
     }
 }
 
-// Standby for a missing or unusable wled_host. With no compiled-in fallback address, a first-run shell feed has
-// nowhere to send; this used to stop the thread for good (a console restart to recover). Instead wait here, re-reading
-// the ini once a second (the same cadence wait_for_reenable() uses), and return as soon as wled_host holds something
-// other than the value that failed, so setting it in the ini or the companion app starts the feed on its own, the same
-// way a destination change is already followed live once the feed is running. No heartbeat is written while waiting
-// (there is no loop), so the game plugin correctly treats the shell feed as not running.
+// Standby for a missing or unusable wled_host.
+// More: docs/code-comments.md (shell-feed/source/shell_thread.c:105)
 static void wait_for_destination(void)
 {
     char failedHost[sizeof(g_config.wledHost)];
@@ -147,20 +115,12 @@ void *probe_thread(void *args)
 #if DO_LIVE_DDP
     sh_early_flags_load();   // [v24] report_file / [dev] known before the first live_send(), even if it returns at once
     sh_runtime_gates_note(); // [v24]
-    // [v19] FIX 2: g_nBuf is only ever set by find_bufs(), which v17 reached through scene_run(1,..).
-    // v18 stopped calling scene_run, so g_nBuf stayed 0 and live_send() would have returned
-    // "no display buffers found". Scan and match the buffers here, then send.
+    // [v19] FIX 2: g_nBuf is only ever set by find_bufs(), which v17 reached through scene_run(1,..). v18...
+    // More: docs/code-comments.md (shell-feed/source/shell_thread.c:150)
     map_scan(0);
     find_bufs();
-    // [v23] live_send() runs until a clean stop fires (disable file, [shell] enabled=false) or a
-    // configuration/environment problem stops it before it ever starts sending. The post-send reporter
-    // and watch loops that followed here in v22 are removed: they were dead code from v18 onward
-    // (live_send already ran for LIVE_SECONDS, leaving no time) and are doubly dead now.
-    // [v23-fix] A clean stop used to end probe_thread() for good ("Reboot to clear"), which meant
-    // [shell] enabled=true back in the ini, or removing the disable file, did not actually resume
-    // anything -- found on hardware in capture v23-A. Loop here instead: wait in wait_for_reenable()
-    // for both kill-switches to clear, then call live_send() again. Buffers found earlier are not
-    // re-scanned; a stop with reason 0 (buffers/socket) is not retried automatically (a missing or unusable host now waits in wait_for_destination()).
+    // [v23] live_send() runs until a clean stop fires (disable file, [shell] enabled=false) or a...
+    // More: docs/code-comments.md (shell-feed/source/shell_thread.c:155)
     for (;;) {
         int stopReason = live_send();
         if (stopReason == 0 && (strcmp(g_shNotStartedWhy, "no destination host") == 0 ||

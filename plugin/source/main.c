@@ -1,52 +1,5 @@
-// ps4_ambient_light: the real per-frame pipeline. Everything here is
-// proven infrastructure lifted directly from detile_verify_probe.prx
-// (v2.2) -- the hooks, the buffer/format tracking, and the tiling
-// math are unchanged from what was verified against a real
-// screenshot. This file's only new job is to run that pipeline every
-// frame instead of once on a button press, and turn the result into
-// a live WLED signal instead of a debug dump.
-//
-// SCOPE (v2.0; the worker-thread architecture described below is
-// unchanged by v2.0):
-//   - Samples a fixed set of 229 screen zones per frame (not a full
-//     frame detile), matching the real measured LED strip layout
-//     (42/73/41/73, see buildZoneGeometry below) using ONLY the
-//     confirmed-correct base tiling params. The Neo path
-//     is dropped here; it served its purpose settling that question in
-//     the probe and has no reason to run in the hot path.
-//   - Pixel format is read live from sceVideoOutRegisterBuffers, not
-//     assumed at compile time -- this fixed a real bug where
-//     A2R10G10B10 math was applied to A8R8G8B8 data. If an
-//     unknown format shows up, this plugin explicitly stops sending
-//     color rather than guessing.
-//   - v1.1: the actual zone-sampling + UDP send no longer runs inside
-//     the flip hook. It's been moved to a dedicated worker thread
-//     (ambient_sample_thread, same pattern as detile_verify_probe's
-//     pad_poll_thread) so a ~2000-sample pass can never stall the
-//     game's render/submission thread. The flip hook now only records
-//     displayBufferIndex -- see the thread's own comment block for the
-//     staleness tradeoff this introduces.
-//   - v1.1: sampleZoneAverage now bounds-checks the computed tiled
-//     offset against the real padded-buffer size before reading, and
-//     skips (treats as black) any sample that would land outside it,
-//     instead of trusting the offset formula unconditionally.
-//   - v1.2: ambient_sample_thread now measures its own loop time
-//     (buffer-resolve + 229-zone sampling + UDP send, i.e. everything
-//     except usleep) and reports per-window min/max/avg microseconds
-//     plus an over-budget count to DEBUG_IP every ~1s, turning "barely
-//     noticeable" into an actual number. Gated behind TIMING_ENABLED so
-//     it can be compiled out later. Decode with decode_verification_dump.py
-//     v3+ (24-byte packets).
-//
-// STILL OPEN (do not treat this as fully validated):
-//   - The worker-thread decoupling in v1.1 has not yet been measured
-//     on real hardware for actual frame-time impact of the render-
-//     thread-side work that remains (a couple of volatile writes per
-//     flip). The v1.2 telemetry below measures the WORKER thread's own
-//     loop time, which answers "is 30Hz sampling fast enough to keep
-//     up" -- it does NOT measure render-thread-side cost, which is a
-//     separate, still-open question if zone count or sample radius
-//     increases later.
+// ps4_ambient_light: the real per-frame pipeline.
+// More: docs/code-comments.md (plugin/source/main.c:1)
 
 #include <stdio.h>
 #include <stdint.h>
@@ -67,16 +20,8 @@
 #include "config.h"
 
 
-// SPLIT NOTE: this file used to contain the entire pipeline above
-// (~3240 lines, one translation unit). It's now split into
-// gamma.c, settings.c, network.c, tiling.c, pixel_formats.c, zones.c,
-// color_processing.c, hooks.c, and sample_thread.c -- purely a file
-// reorganization, no logic changed. main.c now only owns plugin
-// lifecycle (plugin_load/plugin_unload/module_start/module_stop),
-// which is what actually has to live at a fixed, GoldHEN-visible
-// entry point. See ambient_internal.h for the shared types/externs
-// tying the split files together, and each file's own top comment
-// for what moved there.
+// SPLIT NOTE: this file used to contain the entire pipeline above (~3240 lines, one translation unit).
+// More: docs/code-comments.md (plugin/source/main.c:70)
 
 #include <stdio.h>
 #include <stdint.h>
@@ -99,29 +44,8 @@
 
 static __attribute__((noinline, used)) int32_t plugin_load_impl(int32_t argc, const char* argv[])
 {
-    // v3.2: GoldHEN injects every plugin into every title's process,
-    // including this project's OWN companion app (titleid SHMY00091 --
-    // hardcoded here to match companion-app/build.bat's PKG_TITLE_ID and
-    // .github/workflows/CI.yml's TITLE_ID entry, both of which already
-    // hardcode this same literal rather than deriving it from one shared
-    // source; not worth adding cross-build-system config plumbing for a
-    // value that isn't expected to change -- if it ever does, update all
-    // three). Before this check, the v3.1 flip hooks fired on the
-    // companion app's own screen flips too: confirmed via a real crash
-    // report, thread "ambient_sample_thread", proc "eboot.bin", AppName
-    // "PS4 Ambilight", TitleID "SHMY00091", SIGSEGV in this plugin's own
-    // .prx applying game-buffer tiling math to the companion app's
-    // differently-shaped surface -- and, before that crash, the same
-    // root cause was already visibly sending the companion app's own
-    // screen colors to the strip, conflicting with whatever real
-    // testing/adjustment session was already running. Bailing out here,
-    // before ANY dlsym/hook/thread work, fixes both in one place rather
-    // than patching either symptom individually downstream.
-    // procInfo retrieved via sys_sdk_proc_info(). Fails safe: if
-    // sys_sdk_proc_info itself fails, this check is simply skipped
-    // rather than blocking plugin_load -- an unknown titleid is not
-    // evidence we're in the companion app, so proceeding normally is
-    // the safer default.
+    // Bail out before any hook or thread when running inside the companion app (SHMY00091): hooking its flips crashed
+    // it with game tiling math. Keep the id in sync with companion-app/build.bat and CI.yml. [docs/code-comments.md]
     struct proc_info procInfo = {0};
     if (sys_sdk_proc_info(&procInfo) == 0 && strcmp(procInfo.titleid, "SHMY00091") == 0) {
         return 0;
@@ -149,40 +73,24 @@ static __attribute__((noinline, used)) int32_t plugin_load_impl(int32_t argc, co
         return 0;
     }
 
-    // v3.1: two more real flip entrypoints -- see hooks.c's
-    // g_pluginVersion comment for why. Both resolved from the SAME
-    // sprx handles already loaded above (no new sys_dynlib_load_prx
-    // calls needed), and deliberately NOT fatal if either fails to
-    // resolve: a title with no use for a given entrypoint just never
-    // triggers that hook, same reasoning as sceSystemServiceGetStatus
-    // below. g_submitFlipPtrResolved/g_gnmForWorkloadPtrResolved (set
-    // here, read by the diagnostic packet) exist specifically so a
-    // future capture can tell "never resolved" apart from "resolved,
-    // never called" instead of both reading as a flat 0.
+    // v3.1: two more real flip entrypoints -- see hooks.c's g_pluginVersion comment for why.
+    // More: docs/code-comments.md (plugin/source/main.c:152)
     sys_dynlib_dlsym(hVideoOut, "sceVideoOutSubmitFlip", (void**)&sceVideoOutSubmitFlipPtr);
     g_submitFlipPtrResolved = (sceVideoOutSubmitFlipPtr != NULL) ? 1 : 0;
     sys_dynlib_dlsym(hGnm, "sceGnmSubmitAndFlipCommandBuffersForWorkload",
                       (void**)&sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr);
     g_gnmForWorkloadPtrResolved = (sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr != NULL) ? 1 : 0;
 
-    // v2.4: resolved separately from the two required loads above, and
-    // deliberately NOT fatal if it fails -- foreground/background
-    // detection is additive. If this symbol can't be resolved (wrong
-    // firmware, sprx renamed, etc.), ambient_sample_thread's own check
-    // below just no-ops (sceSystemServiceGetStatusPtr stays NULL) and
-    // this plugin falls back to its pre-v2.4 behavior: freezes the
-    // strip on the last frame when suspended, per the known, pre-
-    // existing gap -- not a new regression, just not yet
-    // fixed on whatever system rejected this symbol.
+    // v2.4: resolved separately from the two required loads above, and deliberately NOT fatal if it fails...
+    // More: docs/code-comments.md (plugin/source/main.c:168)
     int32_t hSystemService = 0;
     sys_dynlib_load_prx("libSceSystemService.sprx", &hSystemService);
     if (hSystemService != 0) {
         sys_dynlib_dlsym(hSystemService, "sceSystemServiceGetStatus", (void**)&sceSystemServiceGetStatusPtr);
     }
 
-    // v3.9: resolve sceKernelVirtualQuery for the buffer readability guard
-    // (buffer_guard.c). Not fatal if it fails: the guard then fails open and
-    // the plugin behaves as v3.8 did.
+    // v3.9: resolve sceKernelVirtualQuery for the buffer readability guard (buffer_guard.c).
+    // More: docs/code-comments.md (plugin/source/main.c:183)
     {
         int32_t hKernel = 0;
         sys_dynlib_load_prx("libkernel.sprx", &hKernel);
@@ -197,11 +105,8 @@ static __attribute__((noinline, used)) int32_t plugin_load_impl(int32_t argc, co
         g_guardAvailable = (sceKernelVirtualQueryPtr != NULL) ? 1 : 0;
     }
 
-    // Same forwarding-stub guard as detile_verify_probe -- proven
-    // necessary, do not skip. v3.1: extended to the two new pointers,
-    // but only when they actually resolved above -- unlike the two
-    // required ones, a NULL here is an expected, harmless outcome, not
-    // a reason to abort plugin_load.
+    // Forwarding-stub guard: proven necessary, do not skip. The two optional hook pointers are guarded only if resolved.
+    // More: docs/code-comments.md (plugin/source/main.c:200)
     if (*((uint8_t*)sceVideoOutRegisterBuffersPtr) == 0xE9 ||
         *((uint8_t*)sceGnmSubmitAndFlipCommandBuffersPtr) == 0xE9 ||
         (sceVideoOutSubmitFlipPtr != NULL && *((uint8_t*)sceVideoOutSubmitFlipPtr) == 0xE9) ||
@@ -227,48 +132,11 @@ static __attribute__((noinline, used)) int32_t plugin_load_impl(int32_t argc, co
 
     OrbisPthread thread;
 
-    // --- Resource-isolation status: MEASURE, not guessed ---
-    // Confirmed real, from the same <orbis/libkernel.h> this file already
-    // includes:
-    //   scePthreadAttrInit(OrbisPthreadAttr*)
-    //   scePthreadAttrSetaffinity(OrbisPthreadAttr*, uint64_t mask)  -- must
-    //     be set on the attr BEFORE scePthreadCreate; the post-create
-    //     scePthreadSetaffinity() is declared with NO arguments in this
-    //     header (unresolved stub), so it is not a usable path.
-    //   scePthreadSetprio(OrbisPthread, int)                        -- set
-    //     AFTER create, on the returned handle.
-    //   sceKernelGetCurrentCpu(void)                                -- returns
-    //     the core index the CALLING thread is on right now.
-    //
-    // NOT yet known, and not fabricated here:
-    //   1) The uint64_t mask's bit-to-core mapping. The toolchain header's
-    //      own comment on this line says the real type ("OrbisKernelCpumask")
-    //      still needs porting -- i.e. even upstream hasn't confirmed
-    //      bit N == core N for this platform. Assumed elsewhere on other
-    //      platforms, not established here.
-    //   2) Which PS4 core(s) game threads actually run on / avoid. No public
-    //      source found documenting a game-vs-system core split for PS4,
-    //      the way e.g. Xbox 360 docs spell out reserved hardware threads.
-    //   3) scePthreadSetprio's number scale (does lower mean higher priority
-    //      here, and by how much) -- signature confirmed, semantics not.
-    //
-    // TIMING_ENABLED (already 1 by default) now also samples
-    // sceKernelGetCurrentCpu() once per telemetry window, so you can see,
-    // empirically, which core this thread actually lands on across a real
-    // session -- the same "measure it for real" approach as the loop-time
-    // work in. Once you've also logged sceKernelGetCurrentCpu
-    // from a thread you know is the game's own render/submission path (or
-    // found another reliable way to identify it), fill in CORE_MASK below to
-    // exclude that core, and verify with the same telemetry that the switch
-    // actually took effect, before trusting it.
+    // --- Resource-isolation status: MEASURE, not guessed --- Confirmed real, from the same...
+    // More: docs/code-comments.md (plugin/source/main.c:230)
 #if TIMING_ENABLED
-    // Leave unset until (1) and (2) above are resolved. Setting affinity
-    // with an unverified mask is a real risk here, not just a style
-    // preference -- verified-wrong is one of this project's exact
-    // recurring bug patterns (// format-mismatch bugs,
-    // scePadOpen frequency bug), all traced back to this same category of
-    // "looked plausible, wasn't checked."
-    // #define CORE_MASK (1ULL << N)   // fill in N once measured, not before
+    // Leave thread affinity and priority unset until the CPU mask is measured: an unverified mask is a real risk.
+    // More: docs/code-comments.md (plugin/source/main.c:265)
 #endif
 
     scePthreadCreate(&thread, NULL, ambient_sample_thread, NULL, "ambient_sample_thread");
@@ -276,27 +144,15 @@ static __attribute__((noinline, used)) int32_t plugin_load_impl(int32_t argc, co
     // the sampler's 33 ms budget. Always started; it does nothing unless [compat] report_file=1.
     OrbisPthread reportThread;
     scePthreadCreate(&reportThread, NULL, ambient_report_thread, NULL, "ambient_report_thread");
-    // v3.9.2: the cross-process state file (state.c), so a second, independent process -- a
-    // compositor-level feed over in the research repo -- can tell whether this plugin is
-    // actively driving the strip right now. Own thread for the same reason as reportThread.
-    // Always started, unlike reportThread: see state.c's header comment for why this one has
-    // no opt-in key.
+    // v3.9.2: the cross-process state file (state.c), so a second, independent process -- a...
+    // More: docs/code-comments.md (plugin/source/main.c:279)
     OrbisPthread stateThread;
     scePthreadCreate(&stateThread, NULL, ambient_state_thread, NULL, "ambient_state_thread");
-    // scePthreadAttrSetaffinity(&attr, CORE_MASK) + scePthreadCreate(&thread,
-    // &attr, ...) is the confirmed path once CORE_MASK is real. Same for
-    // scePthreadSetprio(thread, N) once N's semantics are confirmed against
-    // scePthreadGetprio()'s (also confirmed) default reading.
+    // scePthreadAttrSetaffinity(&attr, CORE_MASK) + scePthreadCreate(&thread, &attr, ...) is the confirmed...
+    // More: docs/code-comments.md (plugin/source/main.c:286)
 
-    // v2.3: only sent here, at the very end of a load that actually got
-    // this far (hooks installed, sample thread created) -- every early
-    // `return 0` above means this plugin never actually starts driving
-    // the strip, so telling the relay "on" from one of those paths
-    // would be a lie it has no way to detect or recover from on its
-    // own (nothing would ever send the matching "off").
-    // v2.6: explicit guard added now that relay_send_external_source()
-    // no longer gates itself internally -- a user who never opted in
-    // must not get a real send here.
+    // Tell the relay "on" only after a load that got all the way through, and only if relay_signal_enabled;
+    // an early return means this plugin never drives the strip and nothing would send the matching "off". [docs/code-comments.md]
     if (g_config.relaySignalEnabled) {
         relay_send_external_source(true);
     }
@@ -304,36 +160,14 @@ static __attribute__((noinline, used)) int32_t plugin_load_impl(int32_t argc, co
     return 0;
 }
 
-// GoldHEN is the external caller for these callbacks. The crash dump for
-// CUSA15090 recorded a SIGBUS at the first MOVAPS stack store in vfprintf,
-// with the destination 8 bytes off a 16-byte boundary. The implementation
-// above is ordinary compiler-generated C and assumes the SysV entry ABI;
-// this assembly-only shim repairs RSP before any C code or libc formatting
-// runs, without depending on how GoldHEN arrived at the export.
+// Entry thunk repairs RSP before any C runs: GoldHEN can enter with RSP 8 off 16-byte alignment, which crashed
+// vfprintf (SIGBUS on MOVAPS, CUSA15090). Do not call the implementation directly. [docs/code-comments.md]
 AMBIENT_DEFINE_ALIGNED_ENTRY(plugin_load, plugin_load_impl)
 
 static __attribute__((noinline, used)) int32_t plugin_unload_impl(int32_t argc, const char* argv[])
 {
-    // v2.3: sent first and unconditionally, before any of the teardown
-    // below -- this must fire even if plugin_load returned early above
-    // and never actually hooked anything, since the relay's own state
-    // has no other way to notice this plugin is gone. Harmless if the
-    // matching "on" was never sent (tv_state.external_source_active is
-    // idempotent either way -- see tv_external_source.handle_payload).
-    // v2.6: explicit guard added now that relay_send_external_source()
-    // no longer gates itself internally. Checking the CURRENT value of
-    // relaySignalEnabled here is deliberately fine even if it differs
-    // from whatever it was when "on" was last sent: if true now,
-    // sending "off" is correct and harmless whether or not an "on"
-    // actually preceded it (idempotent on the relay
-    // side). If false now, either it was never enabled
-    // (no real "on" was ever sent, so none is owed back either), or it
-    // WAS enabled and got disabled via a live reload -- which already
-    // sent its own "off" at the moment it changed (see
-    // ambient_check_config_reload's flip-handler), making a second
-    // one here redundant, not missing.
-    // The shell feed, if it is running, takes the strip over from here and keeps the relay stood down:
-    // relay_release_external_source() only sends "off" when it is not.
+    // Release the relay first in unload, even if load returned early, but only if relay_signal_enabled;
+    // relay_release_external_source() skips the "off" while the shell feed is running. [docs/code-comments.md]
     if (g_config.relaySignalEnabled) {
         relay_release_external_source();
     }
@@ -351,9 +185,8 @@ static __attribute__((noinline, used)) int32_t plugin_unload_impl(int32_t argc, 
     return 0;
 }
 
-// Keep teardown under the same explicit ABI contract as plugin_load: the
-// loader is outside this C translation unit, so neither callback may assume
-// its incoming RSP already satisfies the 16-byte SysV call-site alignment.
+// Keep teardown under the same explicit ABI contract as plugin_load: the loader is outside this C...
+// More: docs/code-comments.md (plugin/source/main.c:354)
 AMBIENT_DEFINE_ALIGNED_ENTRY(plugin_unload, plugin_unload_impl)
 
 s32 attr_module_hidden module_start(s64 argc, const void *args) { return 0; }

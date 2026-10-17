@@ -1,6 +1,5 @@
-// On-screen keyboard for the settings screens' numeric and string rows. See ime.h for the flow.
-// Split out of main.c; the code is otherwise as it ran on hardware, with main.c's globals
-// replaced by the ImeHost the caller passes in.
+// On-screen keyboard for the settings screens' numeric and string rows.
+// More: docs/code-comments.md (companion-app/source/ime.c:1)
 #include "ime.h"
 
 #include <stdio.h>
@@ -13,13 +12,8 @@
 #include <orbis/ImeDialog.h>
 #include <orbis/CommonDialog.h>
 
-// Real API surface pulled from orbis/ImeDialog.h, orbis/_types/
-// ime_dialog.h and orbis/CommonDialog.h -- see the extensive
-// verification notes this was ported from for exactly what's
-// confirmed vs. assumed (posx/posy units, whether NULL is a valid
-// second sceImeDialogInit argument, whether ORBIS_TYPE_NUMBER's layout
-// includes '-' for negative fields). None of that re-verified this
-// session; ported as-is.
+// Real API surface pulled from orbis/ImeDialog.h, orbis/_types/ ime_dialog.h and orbis/CommonDialog.h...
+// More: docs/code-comments.md (companion-app/source/ime.c:16)
 
 static bool g_imeDialogOpen = false;
 static wchar_t g_imeBuffer[64];
@@ -32,9 +26,8 @@ static void widen_ascii(wchar_t *dst, const char *src, size_t dstCount)
     dst[i] = L'\0';
 }
 
-// itemIndex must refer to a FIELD_STRING, FIELD_U32, FIELD_I32, or
-// FIELD_U16 item -- FIELD_ENUM/FIELD_BOOL are cycled/toggled directly
-// by Cross instead (see handle_settings_input()).
+// itemIndex must refer to a FIELD_STRING, FIELD_U32, FIELD_I32, or FIELD_U16 item...
+// More: docs/code-comments.md (companion-app/source/ime.c:35)
 void ime_open_field(int itemIndex, const ImeHost *host)
 {
     if (g_imeDialogOpen || sceCommonDialogIsUsed()) return;
@@ -125,20 +118,16 @@ bool ime_update(const ImeHost *host)
             snprintf(msg, sizeof(msg), "%s set to %s.", item->label, dst);
             host->status(msg, false);
         } else {
-            // strtol, not atoi: atoi can't distinguish "not a number"
-            // from a real 0, and silently writing 0 for garbage input
-            // is exactly the kind of accepted-but-wrong save
-            // settings_load()'s own hardening was written to prevent
-            // on the load side.
+            // strtol, not atoi: atoi can't distinguish "not a number" from a real 0, and silently writing 0 for...
+            // More: docs/code-comments.md (companion-app/source/ime.c:128)
             char *end = NULL;
             long v = strtol(typed, &end, 10);
             if (end == typed || *end != '\0') {
                 snprintf(msg, sizeof(msg), "\"%s\" isn't a number -- %s unchanged.", typed, item->label);
                 host->status(msg, true);
             } else {
-                // What was typed is in DISPLAY units (a percent for the
-                // percent-style rows); settings_from_display converts and
-                // clamps into [item->min, item->max].
+                // What was typed is in DISPLAY units (a percent for the percent-style rows); settings_from_display...
+                // More: docs/code-comments.md (companion-app/source/ime.c:139)
                 settings_set_i32(host->cfg, item, settings_from_display(item, (int32_t)v));
                 char vbuf[24];
                 settings_format_display(item, settings_to_display(item, settings_get_i32(host->cfg, item)), vbuf, sizeof(vbuf));

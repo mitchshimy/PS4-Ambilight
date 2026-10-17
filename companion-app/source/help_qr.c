@@ -1,19 +1,13 @@
-// help_qr.c -- wraps qrcodegen.c (vendored, see its own header) into
-// the one thing ui_screens.c's QR modal actually needs: "is module
-// (x, y) dark, in a grid that already includes the quiet-zone
-// border". Everything else -- picking an ECC level, a version range,
-// a mask, the quiet zone width -- is decided once, here, so the
-// renderer never has to know qrcodegen's API at all.
+// help_qr.c -- wraps qrcodegen.c (vendored, see its own header) into the one thing ui_screens.c's QR...
+// More: docs/code-comments.md (companion-app/source/help_qr.c:1)
 
 #include "help_qr.h"
 #include "qrcodegen.h"
 
 #include <string.h>
 
-// Standard-recommended quiet zone is 4 modules; anything less risks a
-// scanner that expects full margin failing to lock onto the finder
-// patterns, especially photographed off a TV/monitor rather than
-// printed.
+// Standard-recommended quiet zone is 4 modules; anything less risks a scanner that expects full margin...
+// More: docs/code-comments.md (companion-app/source/help_qr.c:13)
 #define QUIET_ZONE_MODULES 4
 
 static uint8_t s_qr[qrcodegen_BUFFER_LEN_MAX];
@@ -25,12 +19,8 @@ bool help_qr_init(void)
 {
     if (s_ready) return true; // HELP_QR_URL is a compile-time constant -- nothing to redo
 
-    // MEDIUM: matches this app's own on-console rendering (modules
-    // land on exact pixel-aligned rects, no photographic blur to fight,
-    // so LOW would scan fine too) while still tolerating a stray dead
-    // pixel or two and a phone camera at a shallow angle. boostEcl=true
-    // lets qrcodegen raise this further for free if the fixed version
-    // range below has spare capacity at MEDIUM already.
+    // MEDIUM: matches this app's own on-console rendering (modules land on exact pixel-aligned rects, no...
+    // More: docs/code-comments.md (companion-app/source/help_qr.c:28)
     bool ok = qrcodegen_encodeText(
         HELP_QR_URL,
         s_tempBuffer,

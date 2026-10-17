@@ -1,7 +1,5 @@
-// layout.c -- see layout.h. Ported from LedLayoutGeometry.kt
-// (calculateLedPositions + getEdgeOrder), kept as close to the
-// original edge-by-edge structure as C allows so the two can still be
-// compared side by side if the Android layout logic ever changes.
+// layout.c -- see layout.h. Ported from LedLayoutGeometry.kt (calculateLedPositions + getEdgeOrder)...
+// More: docs/code-comments.md (companion-app/source/layout.c:1)
 
 #include "layout.h"
 #include <string.h>
@@ -9,10 +7,8 @@
 typedef enum { EDGE_TOP_LR, EDGE_TOP_RL, EDGE_RIGHT_TB, EDGE_RIGHT_BT,
                EDGE_BOTTOM_RL, EDGE_BOTTOM_LR, EDGE_LEFT_BT, EDGE_LEFT_TB } Edge;
 
-// Direct port of getEdgeOrder(): which side is walked first, and in
-// which rotational direction, for each of the 4 physical start
-// corners x 2 directions. Order here IS wire order -- pixel 0 on the
-// real strip is the first LED of the first edge listed.
+// Direct port of getEdgeOrder(): which side is walked first, and in which rotational direction, for...
+// More: docs/code-comments.md (companion-app/source/layout.c:12)
 static int edge_order(StartCorner corner, LedDirection dir, Edge out[4])
 {
     static const Edge kTopLeftCW[4]     = { EDGE_TOP_LR, EDGE_RIGHT_TB, EDGE_BOTTOM_RL, EDGE_LEFT_BT };
@@ -132,12 +128,8 @@ int layout_build(const AmbientConfig *cfg, LedSlot *outSlots, int maxSlots,
         }
     }
 
-    // ledOffset rotation -- same as the Android preview's own
-    // "Apply same offset in visualization so the numbering matches"
-    // step, so outSlots[0] always corresponds to the pixel the real
-    // strip's controller treats as index 0, even if the user's strip
-    // physically starts partway around the frame from their chosen
-    // startCorner.
+    // ledOffset rotation -- same as the Android preview's own "Apply same offset in visualization so the...
+    // More: docs/code-comments.md (companion-app/source/layout.c:135)
     if (n > 0 && cfg->ledOffset != 0) {
         int offset = ((cfg->ledOffset % n) + n) % n;
         if (offset != 0) {

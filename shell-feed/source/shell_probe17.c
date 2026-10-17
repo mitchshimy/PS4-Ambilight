@@ -1,18 +1,9 @@
-// shell_probe17.c -- the probe's original v17 sampler: its own tiling math, a fixed 229-zone layout, and the
-// scene / burst / dump code built on them. LEGACY. v18 stopped calling scene_run(), and the live feed samples
-// with the plugin's shared zones.c / tiling.c instead (shell_frame.c). In this build the only function in
-// here that runs is build_points(), once, from probe_thread(), for its "SAMPLER ... points built" log line.
-// scene_run(), run_burst(), ddp_preview() and dump_bufs() are never called (the compiler says so for
-// scene_run and ddp_preview). They are kept as they were, together, so removing them later is removing
-// this one file and the build_points() call.
+// shell_probe17.c -- the probe's original v17 sampler: its own tiling math, a fixed 229-zone layout...
+// More: docs/code-comments.md (shell-feed/source/shell_probe17.c:1)
 #include "shell_internal.h"
 
-// =====================================================================
-// [v17] Sampler core. The block between the markers is plain C with no SDK
-// dependency: it is compiled and tested on a PC against the real v16-A dumps.
-// Tiling formulas: verbatim from the sister project's plugin/source/tiling.c
-// (BASE params only, paddedHeight 1088), which decoded all four v16-A buffers.
-// =====================================================================
+// [v17] Sampler core. The block between the markers is plain C with no SDK dependency: it is compiled...
+// More: docs/code-comments.md (shell-feed/source/shell_probe17.c:10)
 
 typedef struct {
     uint32_t pipeConfig, numPipes, bankWidth, bankHeight, numBanks;
@@ -93,9 +84,8 @@ static uint16_t g_scX[SC_PTS], g_scY[SC_PTS];
 
 int      g_badPts = 0;
 
-// Zone order: 0..72 top (left->right), 73..113 right (top->bottom),
-// 114..186 bottom (right->left), 187..228 left (bottom->top). Physical LED
-// mapping (start corner / direction / offset) is the sister project's config job.
+// Zone order: 0..72 top (left->right), 73..113 right (top->bottom), 114..186 bottom (right->left)...
+// More: docs/code-comments.md (shell-feed/source/shell_probe17.c:96)
 static void zone_rect(int z, int *x0, int *y0, int *x1, int *y1)
 {
     if (z < LED_TOP) {
