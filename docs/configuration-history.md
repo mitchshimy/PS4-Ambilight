@@ -14,6 +14,7 @@ one exception is a removed key, which is ignored, not migrated.
 |---|---|
 | v2.0 | Everything that had been a `#define` became a setting. `[network]`: `wled_host`, `wled_port`. `[layout]`: `led_count_top/right/bottom/left`, `led_start_corner`, `led_direction`, `led_offset`, `capture_margin_*`, `scan_depth`. `[color]`: `brightness`, `gamma`, `saturation`, `color_order`. `[timing]`: `update_frequency_hz`, `smoothing_enabled`, `settling_time_ms`. The file is created with a commented template if it doesn't exist. |
 | v2.1 | `black_level`, `white_level`, `dark_threshold` in `[color]`. `config_reload_check_seconds` in `[timing]` (live reload, on by default at 2 s). |
+| v3.9.x | `config_reload_check_seconds` default raised from 2 to 5, so the ini is read less often on a slow `/data`. An existing ini keeps the value it has. |
 | v2.1.1 | `saturation` cap raised from 100 to 300 (the integer math was checked for overflow first, the old cap was arbitrary). |
 | v2.2 | `contrast`, plus per-channel `brightness_r/g/b` and `gamma_r/g/b`. |
 | v2.2.5 | `[dev]` section for debug telemetry (`dev_ip`, `dev_logging`). Replaced a hardcoded debug address. Not in the shipped default ini. |

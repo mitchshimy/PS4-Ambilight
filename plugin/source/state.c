@@ -32,10 +32,15 @@ typedef struct {
 // O_WRONLY|O_CREAT, deliberately WITHOUT O_TRUNC. A fresh fd starts at offset zero.
 static int state_write_file(const char *text, size_t len)
 {
+    uint64_t t0 = sceKernelGetProcessTimeCounter();
     int32_t fd = sceKernelOpen(STATE_PATH, 0x0001 | 0x0200, 0777);
     if (fd < 0) return -1;
     ssize_t w = sceKernelWrite(fd, text, len);
     sceKernelClose(fd);
+    uint64_t hz = sceKernelGetProcessTimeCounterFrequency(), now = sceKernelGetProcessTimeCounter();
+    if (hz != 0 && (now - t0) * 1000ULL / hz >= 100ULL) // a slow write delays the hand-off: name it, like the other FS_SLOW lines
+        ambient_handoff_diag("HANDOFF_DIAG FS_SLOW op=state_write ms=%llu tsc=%llu hz=%llu",
+                             (unsigned long long)((now - t0) * 1000ULL / hz), (unsigned long long)now, (unsigned long long)hz);
     return (w == (ssize_t)len) ? 0 : -1;
 }
 

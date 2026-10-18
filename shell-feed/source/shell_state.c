@@ -5,6 +5,9 @@
 // Heartbeat for the game plugin: a fixed-width, ever-changing counter rewritten about once a second...
 // More: docs/code-comments.md (shell-feed/source/shell_state.c:6)
 #define SHELL_ALIVE_PATH AMBILIGHT_DATA_DIR "/ps4_shell_alive"
+static int32_t  g_hbFd = -1;
+static uint64_t g_hbOpenedTsc = 0;
+#define HB_REOPEN_SEC 10
 void shell_heartbeat(uint64_t nowTsc, uint64_t tscHz, uint64_t *nextBeatTsc, uint64_t counter)
 {
     if (tscHz == 0 || nowTsc < *nextBeatTsc) return;
@@ -12,23 +15,50 @@ void shell_heartbeat(uint64_t nowTsc, uint64_t tscHz, uint64_t *nextBeatTsc, uin
     char text[32];
     int len = snprintf(text, sizeof(text), "%020llu\n", (unsigned long long)counter);
     if (len <= 0) return;
-    int32_t fd = sceKernelOpen(SHELL_ALIVE_PATH, 0x0001 | 0x0200, 0777);
-    if (fd < 0) return;
-    (void)sceKernelWrite(fd, text, (size_t)len);
-    sceKernelClose(fd);
+    // The file stays open and is rewritten in place (same 21 bytes at offset 0), so a beat is one write and no directory lookup.
+    // It is reopened every HB_REOPEN_SEC so a deleted or replaced file is recreated, and after any failed write.
+    if (g_hbFd >= 0 && (nowTsc - g_hbOpenedTsc) > (uint64_t)HB_REOPEN_SEC * tscHz) { sceKernelClose(g_hbFd); g_hbFd = -1; }
+    if (g_hbFd < 0) {
+        g_hbFd = sceKernelOpen(SHELL_ALIVE_PATH, 0x0001 | 0x0200, 0777);
+        if (g_hbFd < 0) return;
+        g_hbOpenedTsc = nowTsc;
+    }
+    if (sceKernelLseek(g_hbFd, 0, 0 /* SEEK_SET */) < 0 || sceKernelWrite(g_hbFd, text, (size_t)len) != (ssize_t)len) {
+        sceKernelClose(g_hbFd); g_hbFd = -1;
+    }
 }
 
 // [v25] Simple foreground-bit gate.
 // More: docs/code-comments.md (shell-feed/source/shell_state.c:24)
 
+// The state file stays open and is re-read from offset 0 (the plugin rewrites it in place), so a poll is a seek and a read,
+// not an open and close 20 times a second. Reopened every ST_REOPEN_SEC and after any failed read, so a replaced file is picked up.
+static int32_t      g_stFd = -1;
+static uint64_t     g_stOpenedTsc = 0;
+static volatile char g_stBusy = 0;
+#define ST_REOPEN_SEC 2
+static int state_read_locked(int *fgOut, long *seqOut);
+// -2 = another thread is inside a read (a worker stuck on the disk while the loop restarts): skip, never share the descriptor.
 static int state_read_foreground(int *fgOut, long *seqOut)
 {
-    int32_t fd = sceKernelOpen(STATE_PATH, 0 /* O_RDONLY */, 0);
-    if (fd < 0) return -1;
+    if (__atomic_test_and_set(&g_stBusy, __ATOMIC_ACQUIRE)) return -2;
+    int rc = state_read_locked(fgOut, seqOut);
+    __atomic_clear(&g_stBusy, __ATOMIC_RELEASE);
+    return rc;
+}
+static int state_read_locked(int *fgOut, long *seqOut)
+{
+    uint64_t now = sceKernelGetProcessTimeCounter(), hz = sceKernelGetProcessTimeCounterFrequency();
+    if (g_stFd >= 0 && hz != 0 && (now - g_stOpenedTsc) > (uint64_t)ST_REOPEN_SEC * hz) { sceKernelClose(g_stFd); g_stFd = -1; }
+    if (g_stFd < 0) {
+        g_stFd = sceKernelOpen(STATE_PATH, 0 /* O_RDONLY */, 0);
+        if (g_stFd < 0) return -1;
+        g_stOpenedTsc = now;
+    }
     uint8_t buf[STATE_RECORD_LEN + 4];
-    int32_t n = sceKernelRead(fd, buf, sizeof(buf));
-    sceKernelClose(fd);
-    if (n < 8) return -1;
+    int32_t n = -1;
+    if (sceKernelLseek(g_stFd, 0, 0 /* SEEK_SET */) >= 0) n = sceKernelRead(g_stFd, buf, sizeof(buf));
+    if (n < 8) { sceKernelClose(g_stFd); g_stFd = -1; return -1; }
     if (buf[0] != 'v' || buf[1] != '1' || buf[2] != ' ' ||
         buf[3] != 'f' || buf[4] != 'g' || buf[5] != '=') return -1;
     int fg = buf[6] - '0';
@@ -68,6 +98,7 @@ void shell_state_io_poll(uint64_t nowTsc, uint64_t tscHz)
     uint64_t t0 = sceKernelGetProcessTimeCounter();
     int rc = state_read_foreground(&fg, &seq);
     shell_fs_slow_note("state_read", t0);
+    if (rc == -2) return; // another thread is reading: keep the last published sample
     uint64_t packed = (rc == 0) ? ((1ULL << 63) | ((uint64_t)(fg & 1) << 62) | (uint64_t)(uint32_t)(int32_t)seq) : 0;
     __atomic_store_n(&g_stSample, packed, __ATOMIC_RELEASE);
 }

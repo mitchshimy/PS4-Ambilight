@@ -64,7 +64,7 @@ AmbientConfig g_config = {
     .updateFrequencyHz = 30,
     .smoothingEnabled = 0, // off by default -- v1.3 had no smoothing, don't change behavior silently
     .settlingTimeMs = 200,
-    .configReloadCheckSeconds = 2, // matches the auto-generated template's default (2s) -- this is a
+    .configReloadCheckSeconds = 5, // matches the auto-generated template's default (5s) -- this is a
                                     // brand-new capability with no prior behavior to preserve, so unlike every other default above it does...
                                     // More: docs/code-comments.md (plugin/source/settings.c:80)
 };
@@ -576,6 +576,7 @@ bool ambient_shell_feed_expected(void)
     if (hz == 0) return true;
     if (firstCheckTsc == 0) firstCheckTsc = now;
 
+    uint64_t ioT = sceKernelGetProcessTimeCounter();
     int32_t dfd = sceKernelOpen(AMBILIGHT_DATA_DIR "/ps4_shell_feed_off", 0 /* O_RDONLY */, 0);
     if (dfd >= 0) { sceKernelClose(dfd); return false; }
 
@@ -596,6 +597,7 @@ bool ambient_shell_feed_expected(void)
         sceKernelClose(fd);
         if (r <= 0) cur[0] = '\0';
     }
+    fs_slow_note("shell_alive_checks", ioT); // the disable file, the ini's [shell] enabled and the heartbeat read together
     if (cur[0] != '\0' && strcmp(cur, lastText) != 0) {
         memcpy(lastText, cur, sizeof(lastText));
         // The first read after load is only a baseline, so it does not count as proof of life by itself.

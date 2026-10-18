@@ -6,6 +6,11 @@ companion app) are documented here, newest first.
 ## Plugin
 
 ### Unreleased
+- **Fewer file operations while a game runs.** `config_reload_check_seconds` now defaults to 5 (was 2); an existing ini keeps its
+  own value, and the app and the plugin's default ini agree. The shell feed holds its claim-state file and heartbeat file open
+  instead of opening them every poll or beat, reopening periodically so a replaced file is still picked up. The plugin logs
+  `FS_SLOW op=state_write` and `op=shell_alive_checks` when its own file work takes 100 ms or more. See
+  `docs/debugging/filesystem-stalls.md`. Checked on a PC only.
 - **A stuck filesystem no longer stops the strip.** Captures showed WLED falling back to its own color for 4-7 s while the
   game ran. The most likely cause is that both senders read files on the thread that sends frames (the plugin's 2 s ini check,
   the shell feed's disable-file, `[shell] enabled`, heartbeat, claim-state and ini polls), so one blocked filesystem stopped both. The plugin's

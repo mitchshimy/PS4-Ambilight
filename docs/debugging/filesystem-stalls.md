@@ -39,6 +39,19 @@ Neither process now touches the filesystem on the thread that sends frames.
   `HANDOFF_DIAG FS_SLOW op=<name> ms=<n>` when it returns. Ops: `cfg_read`, `state_read`, `disable_file`, `enabled_poll`,
   `heartbeat`. It goes over the opt-in `[dev]` channel like the other HOF1 lines.
 
+## Fewer file operations
+
+A third capture (`flicker-session2.flk`, 5.2 minutes, no color fallback) still had 59 slow file operations, up to 17.7 s, in both
+processes at once. They can't be stopped from here, so the shell feed and plugin now touch the disk less:
+
+- `config_reload_check_seconds` defaults to 5 (was 2). An existing ini keeps its own value.
+- The shell feed keeps the claim-state file open and re-reads it from offset 0, reopening it every 2 s (it was 20 opens a second).
+- The shell heartbeat keeps its file open and rewrites it in place, reopened every 10 s.
+- The plugin now times its own state write (`op=state_write`) and its shell-alive checks (`op=shell_alive_checks`) as `FS_SLOW`, so a
+  late hand-off during a stall shows up in the log.
+
+`[shell] enabled=` is still polled on its own 1 s cadence.
+
 ## What it does not fix
 
 A stalled filesystem can still delay a config edit, the foreground bit, or the heartbeat, but not the frames. The state

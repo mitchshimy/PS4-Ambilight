@@ -390,7 +390,7 @@ and `settling_time_ms` belong to a preset and sit in `[preset_game]` and `[prese
   Smooth) as a convenience over these two. It is a UI-only shortcut that writes canonical values
   into them (50/50/200/500 ms), not a separate ini key.
 - **`config_reload_check_seconds`**: how often, in seconds, the plugin re-reads the ini *while a
-  game is running* and applies changes live. `0` reverts to the original v2.0 behavior of reading
+  game is running* and applies changes live (default 5). `0` reverts to the original v2.0 behavior of reading
   the file once, at plugin load, only.
 
 ### Game and Movie presets

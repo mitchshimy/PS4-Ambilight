@@ -52,7 +52,7 @@
     "; RUNNING and apply them live -- no need to close/reopen the\n" \
     "; game. 0 = only read this file once, at plugin load (the\n" \
     "; original v2.0 behavior).\n" \
-    "config_reload_check_seconds=2\n" \
+    "config_reload_check_seconds=5\n" \
     "\n" \
     "[presets]\n" \
     "; Which preset runs: game or movie. The companion app changes\n" \

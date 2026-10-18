@@ -177,7 +177,7 @@ void settings_set_defaults(AmbientConfig *cfg)
     cfg->updateFrequencyHz = 30;
     cfg->smoothingEnabled = 0;
     cfg->settlingTimeMs = 200;
-    cfg->configReloadCheckSeconds = 2;
+    cfg->configReloadCheckSeconds = 5;
     cfg->notificationsEnabled = 1;   // on by default, as the plugin treats a missing [notifications] enabled
     // relayHost intentionally left blank (memset above) and relaySignalEnabled defaults off, same...
     // More: docs/code-comments.md (companion-app/source/settings.c:250)
