@@ -193,6 +193,7 @@ uint32_t shell_process_frame(uint64_t bufferAddr, uint32_t sampleIntervalUs, uin
 // shell_state.c
 extern int      g_claimEverSeen;
 extern int      g_claimActive;
+extern int      g_claimHolderApp;
 extern uint64_t g_liveStartTsc;
 int  claim_poll(uint64_t nowTsc, uint64_t tscHz);
 void shell_state_io_poll(uint64_t nowTsc, uint64_t tscHz); // the worker's half of claim_poll(): reads the state file, publishes it

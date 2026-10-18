@@ -29,7 +29,7 @@ static void *shell_io_thread(void *args)
             shell_enabled_poll(now, g_tscHz, &nextEnabledTsc);
             shell_fs_slow_note("enabled_poll", t0);
             t0 = sceKernelGetProcessTimeCounter();
-            if (!g_claimActive) { // no heartbeat writes while a game holds the strip: a file rewritten during play stalls /data (see the doc)
+            if (!g_claimActive || g_claimHolderApp) { // none while a GAME holds the strip (a file rewritten during play stalls /data); the app reads it
                 shell_heartbeat(now, g_tscHz, &nextBeatTsc, g_shLoopTicks); // the loop's tick count: it stops changing if the loop stalls
                 shell_fs_slow_note("heartbeat", t0);
             }
@@ -66,6 +66,6 @@ int shell_io_tick(uint64_t nowTsc, uint64_t tscHz, uint64_t *nextEnabledPollTsc,
     int32_t dfd = sceKernelOpen(DISABLE_FILE, 0 /* O_RDONLY */, 0);
     if (dfd >= 0) { sceKernelClose(dfd); return 1; }
     shell_enabled_poll(nowTsc, tscHz, nextEnabledPollTsc);
-    if (!g_claimActive) shell_heartbeat(nowTsc, tscHz, nextBeatTsc, ticks);
+    if (!g_claimActive || g_claimHolderApp) shell_heartbeat(nowTsc, tscHz, nextBeatTsc, ticks);
     return 0;
 }

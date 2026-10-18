@@ -37,16 +37,16 @@ static int32_t      g_stFd = -1;
 static uint64_t     g_stOpenedTsc = 0;
 static volatile char g_stBusy = 0;
 #define ST_REOPEN_SEC 2
-static int state_read_locked(int *fgOut, long *seqOut);
+static int state_read_locked(int *fgOut, long *seqOut, int *appOut);
 // -2 = another thread is inside a read (a worker stuck on the disk while the loop restarts): skip, never share the descriptor.
-static int state_read_foreground(int *fgOut, long *seqOut)
+static int state_read_foreground(int *fgOut, long *seqOut, int *appOut)
 {
     if (__atomic_test_and_set(&g_stBusy, __ATOMIC_ACQUIRE)) return -2;
-    int rc = state_read_locked(fgOut, seqOut);
+    int rc = state_read_locked(fgOut, seqOut, appOut);
     __atomic_clear(&g_stBusy, __ATOMIC_RELEASE);
     return rc;
 }
-static int state_read_locked(int *fgOut, long *seqOut)
+static int state_read_locked(int *fgOut, long *seqOut, int *appOut)
 {
     uint64_t now = sceKernelGetProcessTimeCounter(), hz = sceKernelGetProcessTimeCounterFrequency();
     if (g_stFd >= 0 && hz != 0 && (now - g_stOpenedTsc) > (uint64_t)ST_REOPEN_SEC * hz) { sceKernelClose(g_stFd); g_stFd = -1; }
@@ -70,21 +70,23 @@ static int state_read_locked(int *fgOut, long *seqOut)
         for (int i = 12; i < 18 && seq >= 0; i++) seq = (buf[i] >= '0' && buf[i] <= '9') ? seq * 10 + (buf[i] - '0') : -1;
     } else seq = -1;
     *seqOut = seq;
+    *appOut = (n >= 34 && memcmp(buf + 19, "title=COMPANION", 15) == 0); // the companion app, not a game, holds the strip
     return 0;
 }
 
 // With the I/O worker running (shell_io.c), the state file is read THERE and published here as one packed word, so the
 // send loop never waits on the filesystem for it. Without a worker, claim_poll() reads the file itself, as before.
 volatile int g_shIoRunning = 0;
-static uint64_t g_stSample = 0;              // bit 63 = valid read, bit 62 = fg, low 32 bits = seq (int32, -1 = none)
+static uint64_t g_stSample = 0;              // bit 63 = valid read, bit 62 = fg, bit 61 = held by the app, low 32 bits = seq (-1 = none)
 static uint64_t g_stNextIoPollTsc = 0;
 
-static int state_sample(int *fgOut, long *seqOut)
+static int state_sample(int *fgOut, long *seqOut, int *appOut)
 {
-    if (!g_shIoRunning) return state_read_foreground(fgOut, seqOut);
+    if (!g_shIoRunning) return state_read_foreground(fgOut, seqOut, appOut);
     uint64_t p = __atomic_load_n(&g_stSample, __ATOMIC_ACQUIRE);
     if (!(p >> 63)) return -1;
     *fgOut = (int)((p >> 62) & 1u);
+    *appOut = (int)((p >> 61) & 1u);
     *seqOut = (long)(int32_t)(uint32_t)p;
     return 0;
 }
@@ -94,18 +96,19 @@ void shell_state_io_poll(uint64_t nowTsc, uint64_t tscHz)
 {
     if (tscHz == 0 || nowTsc < g_stNextIoPollTsc) return;
     g_stNextIoPollTsc = nowTsc + tscHz * (STATE_POLL_MS / 2) / 1000;
-    int fg = 0; long seq = -1;
+    int fg = 0, app = 0; long seq = -1;
     uint64_t t0 = sceKernelGetProcessTimeCounter();
-    int rc = state_read_foreground(&fg, &seq);
+    int rc = state_read_foreground(&fg, &seq, &app);
     shell_fs_slow_note("state_read", t0);
     if (rc == -2) return; // another thread is reading: keep the last published sample
-    uint64_t packed = (rc == 0) ? ((1ULL << 63) | ((uint64_t)(fg & 1) << 62) | (uint64_t)(uint32_t)(int32_t)seq) : 0;
+    uint64_t packed = (rc == 0) ? ((1ULL << 63) | ((uint64_t)(fg & 1) << 62) | ((uint64_t)(app & 1) << 61) | (uint64_t)(uint32_t)(int32_t)seq) : 0;
     __atomic_store_n(&g_stSample, packed, __ATOMIC_RELEASE);
 }
 
 static uint64_t g_claimNextPollTsc = 0;
 int      g_claimEverSeen = 0;
 int      g_claimActive = 0;
+int      g_claimHolderApp = 0; // the claim is the companion app's, not a game's (the heartbeat keeps running for it)
 static int      g_stateForeground = 0;
 // A game that died or was killed while in front leaves fg=1 on /data, and a fresh shell feed would back off for
 // good. The first fg=1 seen after this load is treated as stale until its seq changes or fg=0 is read.
@@ -118,8 +121,8 @@ int claim_poll(uint64_t nowTsc, uint64_t tscHz)
 {
     if (nowTsc >= g_claimNextPollTsc) {
         g_claimNextPollTsc = nowTsc + (tscHz > 0 ? (tscHz * STATE_POLL_MS / 1000) : 0);
-        int fg; long seq;
-        if (state_sample(&fg, &seq) == 0) {
+        int fg, app; long seq;
+        if (state_sample(&fg, &seq, &app) == 0) {
             static int handoffDiagFirstState = 0;
             if (!handoffDiagFirstState) {
                 handoffDiagFirstState = 1;
@@ -139,6 +142,7 @@ int claim_poll(uint64_t nowTsc, uint64_t tscHz)
             }
             g_claimEverSeen = 1;
             g_stateForeground = fg;
+            g_claimHolderApp = fg && app;
         } else if (!g_claimEverSeen) {
             g_stateForeground = 0; // no valid state yet: shell feed is allowed
         }

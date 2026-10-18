@@ -81,7 +81,7 @@ v1 fg=1 seq=000123 title=CUSA00000
 
 The other direction, for one purpose: `/data/ps4-ambilight/ps4_shell_alive` is a single line, a 20-digit
 zero-padded counter and a newline, rewritten in place (no truncate) by the shell feed about once a second
-from its worker, **but not while a game holds the strip**: a file rewritten during play stalls `/data` (see
+from its worker, **but not while a game holds the strip** (it keeps beating when the companion app holds it, so the app's "payload is already running" check still works): a file rewritten during play stalls `/data` (see
 [filesystem-stalls](../debugging/filesystem-stalls.md#root-cause)). The plugin never trusts its value, only
 that it keeps changing: the state thread, from load until the plugin's first DDP send (or about one minute, if none ever comes), reads it about
 every 300 ms (`ambient_shell_feed_expected()` in `settings.c`) and treats the shell feed as gone when it

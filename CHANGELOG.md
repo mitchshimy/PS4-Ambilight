@@ -6,6 +6,9 @@ companion app) are documented here, newest first.
 ## Plugin
 
 ### Unreleased
+- **The app can see the payload is running again.** The no-heartbeat-in-game change stopped the heartbeat whenever anything
+  held the strip, including the companion app, whose "Launch Ambilight payload" check reads it. The shell feed now tells the
+  app's claim (`title=COMPANION`) from a game's and keeps the heartbeat going for the app. No extra disk writes during play.
 - **No heartbeat writes while a game holds the strip.** The long `/data` stalls (up to 40 s, 14 to 24% of the time during
   burnouts) were caused by the shell feed rewriting its heartbeat file once a second during play; the period did not matter
   (1, 3 and 10 s were the same) and only no writes removed them. The shell feed now writes the heartbeat only when no game

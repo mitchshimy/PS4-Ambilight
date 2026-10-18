@@ -66,7 +66,8 @@ Phased captures separated the shell feed's disk work (`session5` to `session8`, 
   busy game. Why a 21-byte rewrite blocks the rest of `/data` is not known; the best fit is write-back of a continually
   dirtied file on that cycle.
 
-The fix is to write no heartbeat while a game holds the strip (`shell_io.c`). The plugin keeps its last "shell feed alive" answer
+The fix is to write no heartbeat while a game holds the strip (`shell_io.c`). The companion app's claim (`title=COMPANION`) is not a game, so the heartbeat keeps
+running for it: the app reads that file to say the payload is already running. The plugin keeps its last "shell feed alive" answer
 while it holds the strip and re-arms the check when it backgrounds (`state.c`, `ambient_shell_feed_rearm()` in `settings.c`).
 With it, `session8` had 0 stalls in the burnouts (4.7 s stalled in 498 s, all of it at 38 s and just after a trip to Home,
 where the heartbeat had resumed).
