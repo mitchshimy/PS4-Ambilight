@@ -567,10 +567,11 @@ extern uint64_t sceKernelGetProcessTimeCounter(void);          // same declarati
 extern uint64_t sceKernelGetProcessTimeCounterFrequency(void);
 #define SHELL_ALIVE_PATH     AMBILIGHT_DATA_DIR "/ps4_shell_alive"
 #define SHELL_ALIVE_STALE_MS 3000ULL
+static char     lastText[32];
+static uint64_t firstCheckTsc = 0, lastChangeTsc = 0;
+void ambient_shell_feed_rearm(void) { lastText[0] = '\0'; firstCheckTsc = 0; lastChangeTsc = 0; }
 bool ambient_shell_feed_expected(void)
 {
-    static char     lastText[32];
-    static uint64_t firstCheckTsc = 0, lastChangeTsc = 0;
     uint64_t now = sceKernelGetProcessTimeCounter();
     uint64_t hz  = sceKernelGetProcessTimeCounterFrequency();
     if (hz == 0) return true;

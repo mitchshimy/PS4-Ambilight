@@ -6,6 +6,11 @@ companion app) are documented here, newest first.
 ## Plugin
 
 ### Unreleased
+- **No heartbeat writes while a game holds the strip.** The long `/data` stalls (up to 40 s, 14 to 24% of the time during
+  burnouts) were caused by the shell feed rewriting its heartbeat file once a second during play; the period did not matter
+  (1, 3 and 10 s were the same) and only no writes removed them. The shell feed now writes the heartbeat only when no game
+  holds the strip. The plugin keeps its last "shell feed alive" answer while it holds the strip and re-arms the check when it
+  backgrounds. Checked on the console: `session8`, burnouts, 0 stalls. See `docs/debugging/filesystem-stalls.md`.
 - **Fewer file operations while a game runs.** `config_reload_check_seconds` now defaults to 5 (was 2); an existing ini keeps its
   own value, and the app and the plugin's default ini agree. The shell feed holds its claim-state file and heartbeat file open
   instead of opening them every poll or beat, reopening periodically so a replaced file is still picked up. The plugin logs

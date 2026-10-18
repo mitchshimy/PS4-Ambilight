@@ -52,6 +52,25 @@ processes at once. They can't be stopped from here, so the shell feed and plugin
 
 `[shell] enabled=` is still polled on its own 1 s cadence.
 
+## Root cause
+
+Phased captures separated the shell feed's disk work (`session5` to `session8`, 2026-10-18):
+
+- With the shell feed running, 14 to 24% of the time was stalled in NFS Heat burnouts, in both processes at once. With the
+  shell feed absent (`session4`), or with only its heartbeat write switched off, there were no stalls in over 25 minutes
+  across four separate phases. The claim-state read, the directory and ini opens, the disable file and the `enabled` poll made
+  no difference when switched off.
+- The heartbeat period made no difference either: 1 s, 3 s and 10 s all stalled at about 2 per minute, the console's roughly 30 s
+  flush cadence. Only no writes at all removed the stalls.
+- The 3 minutes of driving before the burnouts had no stalls with the heartbeat at 1 s, so it takes the heartbeat writes plus a
+  busy game. Why a 21-byte rewrite blocks the rest of `/data` is not known; the best fit is write-back of a continually
+  dirtied file on that cycle.
+
+The fix is to write no heartbeat while a game holds the strip (`shell_io.c`). The plugin keeps its last "shell feed alive" answer
+while it holds the strip and re-arms the check when it backgrounds (`state.c`, `ambient_shell_feed_rearm()` in `settings.c`).
+With it, `session8` had 0 stalls in the burnouts (4.7 s stalled in 498 s, all of it at 38 s and just after a trip to Home,
+where the heartbeat had resumed).
+
 ## What it does not fix
 
 A stalled filesystem can still delay a config edit, the foreground bit, or the heartbeat, but not the frames. The state
