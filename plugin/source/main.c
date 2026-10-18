@@ -139,6 +139,12 @@ static __attribute__((noinline, used)) int32_t plugin_load_impl(int32_t argc, co
     // More: docs/code-comments.md (plugin/source/main.c:265)
 #endif
 
+    // The live-reload file reads run on their own thread, started first so the sampler already knows it exists. If it
+    // cannot start, the sampler falls back to checking inline. [docs/debugging/filesystem-stalls.md]
+    OrbisPthread configThread;
+    if (scePthreadCreate(&configThread, NULL, ambient_config_thread, NULL, "ambient_config_thread") == 0)
+        g_cfgWatcherRunning = 1;
+
     scePthreadCreate(&thread, NULL, ambient_sample_thread, NULL, "ambient_sample_thread");
     // v3.9.1: the report file writer (report.c). Its own thread so a disk write never lands in
     // the sampler's 33 ms budget. Always started; it does nothing unless [compat] report_file=1.

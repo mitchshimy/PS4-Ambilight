@@ -26,6 +26,8 @@ Investigations with the evidence and the wrong turns left in.
   that never lit up
 - [wled-heartbeat](debugging/wled-heartbeat.md): WLED's realtime timeout and the
   once-a-second resend
+- [filesystem-stalls](debugging/filesystem-stalls.md): why a stuck filesystem made WLED fall back to its own color, and how
+  the senders no longer wait on it.
 - [launch-gap-test](debugging/launch-gap-test.md): the 3.2 s of silence after a game's launch
   screen, how it was measured, and the `fg=1` latch that closed it
 - [foreground-handoff-measurement](debugging/foreground-handoff-measurement.md): the handoff

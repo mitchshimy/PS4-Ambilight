@@ -81,10 +81,11 @@ int live_send(void)
     uint64_t nextRowTsc = nextTick + 5 * g_tscHz, rows = 0;
     uint64_t nextEnabledPollTsc = nextTick; // [v46] due immediately on the first tick
     uint64_t nextBeatTsc = nextTick;        // heartbeat for the game plugin, due immediately
-    uint64_t beatCounter = 0;
     uint64_t k = 0, sent = 0, skipped = 0, buf0 = 0, buf1 = 0, gameOwned = 0;
     uint64_t sumUs = 0, maxUs = 0, minUs = 0xFFFFFFFFu, rowTicks = 0;
     int stopReason = 0; // [v23-fix] set just before each break below; 0 here only guards against a logic error
+
+    shell_io_begin(); // every file the loop used to touch is now read by the I/O worker; the loop only reads what it publishes
 
     for (;; k++) {
 
@@ -94,23 +95,24 @@ int live_send(void)
                 uint64_t waitTsc = nextTick - now;
                 uint32_t waitUs = (uint32_t)(waitTsc * 1000000ULL / g_tscHz);
                 if (waitUs > 0 && waitUs < 1000000) usleep(waitUs);
+            } else if (now - nextTick > 2 * periodTsc) {
+                // More than two frames late (a stalled call): skip the missed ticks and resume from now, instead of
+                // replaying all of them back to back. [docs/debugging/filesystem-stalls.md]
+                uint64_t lateMs = (now - nextTick) * 1000ULL / g_tscHz;
+                if (lateMs >= 250) shell_event("SCHED_RESYNC late_ms=%llu (missed ticks skipped, not replayed)", (unsigned long long)lateMs);
+                nextTick = now;
             }
             nextTick += periodTsc;
         } else {
             usleep(1000000 / hz); // [v18] fallback if TSC calibration failed: fixed-rate, will drift
         }
 
-        // [v22] The REST of the ini (brightness, zones, host, ...), re-checked on the sister's own schedule...
-        // More: docs/code-comments.md (shell-feed/source/shell_live.c:117)
-        {
-            int32_t dfd = sceKernelOpen(DISABLE_FILE, 0 /* O_RDONLY */, 0);
-            if (dfd >= 0) { sceKernelClose(dfd); printf(TAG " DISABLED: disable file found (" DISABLE_FILE ").\n"); sh_dev_send("DISABLED: disable file"); stopReason = 1; break; }
+        // The disable file, [shell] enabled= and the heartbeat are polled by the I/O worker (shell_io.c) and only counted here;
+        // with no worker, shell_io_tick() does them inline. [docs/debugging/filesystem-stalls.md]
+        if (shell_io_tick(rdtsc17(), g_tscHz, &nextEnabledPollTsc, &nextBeatTsc)) {
+            printf(TAG " DISABLED: disable file found (" DISABLE_FILE ").\n"); sh_dev_send("DISABLED: disable file"); stopReason = 1; break;
         }
-        // [v46] [shell] enabled= checked on its own 1 s cadence, independent of config_reload_check_seconds...
-        // More: docs/code-comments.md (shell-feed/source/shell_live.c:126)
-        shell_enabled_poll(rdtsc17(), g_tscHz, &nextEnabledPollTsc);
         shell_relay_tick(rdtsc17(), g_tscHz); // wled-relay: repeat "on" while held (no-op unless relay_signal_enabled)
-        shell_heartbeat(rdtsc17(), g_tscHz, &nextBeatTsc, ++beatCounter); // runs every tick, writes once a second, including while the game owns the strip
         if (!g_shellEnabled) { printf(TAG " DISABLED: shell disabled in ini ([shell] enabled=false).\n"); sh_dev_send("DISABLED: [shell] enabled=false"); stopReason = 2; break; }
 
         if (shell_cfg_poll(rdtsc17(), g_tscHz)) {
@@ -220,6 +222,7 @@ int live_send(void)
         }
     }
 
+    shell_io_end();
     close(sock);
     shell_relay_update(0); // wled-relay: this feed lets go; "off" only if no game holds the strip
     sh_publish(sent, skipped, gameOwned); // [v24]

@@ -178,11 +178,13 @@ extern uint32_t     g_cfgLastHash;
 extern int          g_cfgLastReadOk;
 extern uint32_t     g_cfgReloads;
 extern volatile int g_shReportOn;
-extern int          g_shellEnabled;
+extern volatile int g_shellEnabled; // written by the I/O worker (enabled poll) and by reloads
 void sh_parse_aux(ini_table_s *table);
 int  shell_cfg_load(void);
 void shell_cfg_log(const char *why, int64_t bytes, uint32_t hash);
-int  shell_cfg_poll(uint64_t nowTsc, uint64_t tscHz);
+int  shell_cfg_poll(uint64_t nowTsc, uint64_t tscHz);   // send loop: applies a parked ini copy (and, with no worker, reads the file first)
+void shell_cfg_watch(uint64_t nowTsc, uint64_t tscHz);  // the file half: read + hash every config_reload_check_seconds, parks a changed ini
+void shell_cfg_drop_pending(void);
 void shell_enabled_poll(uint64_t nowTsc, uint64_t tscHz, uint64_t *nextPollTsc);
 
 // shell_frame.c
@@ -193,7 +195,17 @@ extern int      g_claimEverSeen;
 extern int      g_claimActive;
 extern uint64_t g_liveStartTsc;
 int  claim_poll(uint64_t nowTsc, uint64_t tscHz);
+void shell_state_io_poll(uint64_t nowTsc, uint64_t tscHz); // the worker's half of claim_poll(): reads the state file, publishes it
+extern volatile int g_shIoRunning;                         // 1 once the I/O worker exists; 0 = every poll runs inline on the send loop
 void shell_heartbeat(uint64_t nowTsc, uint64_t tscHz, uint64_t *nextBeatTsc, uint64_t counter);
+
+// shell_io.c -- the I/O worker: every file the send loop used to touch (disable file, [shell] enabled, heartbeat, claim
+// state, ini watch) is read or written there, so a stuck filesystem cannot stop frames. [docs/debugging/filesystem-stalls.md]
+extern volatile uint64_t g_shLoopTicks;   // advanced by the send loop; the heartbeat file carries it, so it stops changing if the loop stalls
+extern volatile int      g_shDisableSeen; // the worker saw DISABLE_FILE
+void shell_io_begin(void);                // live_send() start: first state read inline, then the worker polls
+void shell_io_end(void);                  // live_send() end: the worker goes idle
+int  shell_io_tick(uint64_t nowTsc, uint64_t tscHz, uint64_t *nextEnabledPollTsc, uint64_t *nextBeatTsc); // send loop, every tick; 1 = disable file present
 
 // shell_relay.c
 void shell_relay_update(int shellActive);
@@ -206,6 +218,20 @@ int  sh_dev_active(int devLogging, const char *devIp);
 void sh_dev_send(const char *text);
 void shell_event(const char *fmt, ...);
 void sh_notify(bool essential, const char *fmt, ...);
+
+// A file operation that took 100 ms or more is reported when it returns (HOF1-style FS_SLOW line over the klog and [dev] mirror).
+#define SHELL_FS_SLOW_MS 100ULL
+// The two time calls come from <orbis/libkernel.h>. Do not redeclare them here: this block is hidden-visibility, which
+// makes the linker refuse to bind them to libkernel.
+static inline void shell_fs_slow_note(const char *op, uint64_t startTsc)
+{
+    uint64_t hz = sceKernelGetProcessTimeCounterFrequency(), now = sceKernelGetProcessTimeCounter();
+    if (hz == 0) return;
+    uint64_t ms = (now - startTsc) * 1000ULL / hz;
+    if (ms >= SHELL_FS_SLOW_MS)
+        shell_event("HANDOFF_DIAG FS_SLOW op=%s ms=%llu tsc=%llu hz=%llu", op,
+                    (unsigned long long)ms, (unsigned long long)now, (unsigned long long)hz);
+}
 
 // shell_report.c
 extern volatile int      g_shState;

@@ -75,6 +75,23 @@ static bool ambient_file_exists(const char *filename)
     return stat(filename, &buff) == 0;
 }
 
+// While a watcher thread's copy of the ini is being applied, the loaders parse that copy and never open the file.
+// Set only around ambient_load_config(), on the applying thread. [docs/debugging/filesystem-stalls.md]
+static const char *g_cfgSnapData = NULL;
+static size_t      g_cfgSnapLen = 0;
+
+void ambient_config_snapshot_set(const char *data, size_t len) // NULL clears it; both loaders then read the file again
+{
+    g_cfgSnapData = data;
+    g_cfgSnapLen = len;
+}
+
+bool ambient_config_read_table(ini_table_s *table)
+{
+    if (g_cfgSnapData != NULL) return ini_table_read_from_buffer(table, g_cfgSnapData, g_cfgSnapLen);
+    return ini_table_read_from_file(table, AMBIENT_CONFIG_PATH);
+}
+
 // What the last ambient_load_config() found, for the plugin's notifications (notices.c).
 // More: docs/code-comments.md (plugin/source/settings.c:92)
 volatile uint32_t g_configLoadCount = 0;        // bumped at the end of every ambient_load_config() call
@@ -180,7 +197,7 @@ void ambient_load_config(void)
     g_configParseFailed = 0;
     g_configBadCount = 0;
     g_configBadKey[0] = '\0';
-    if (!ambient_file_exists(AMBIENT_CONFIG_PATH)) {
+    if (g_cfgSnapData == NULL && !ambient_file_exists(AMBIENT_CONFIG_PATH)) {
         ambient_create_default_config();
         g_configDefaultCreated = ambient_file_exists(AMBIENT_CONFIG_PATH) ? 1 : 0;
         ambient_rebuild_perchannel_gamma_luts(); // g_gammaLut{R,G,B} are static, zero-init by
@@ -191,7 +208,7 @@ void ambient_load_config(void)
     }
 
     ini_table_s *table = ini_table_create();
-    if (table == NULL || !ini_table_read_from_file(table, AMBIENT_CONFIG_PATH)) {
+    if (table == NULL || !ambient_config_read_table(table)) {
         if (table) ini_table_destroy(table);
         g_configParseFailed = 1;
         g_configLoadCount++;
@@ -346,7 +363,7 @@ static uint32_t ambient_fnv1a32(const uint8_t *data, size_t len)
 
 // Replaces v2.1.4's ambient_get_real_config_size: still gets size the same proven way (sceKernelOpen +...
 // More: docs/code-comments.md (plugin/source/settings.c:440)
-bool ambient_get_real_config_size_and_hash(int64_t *outSize, uint32_t *outHash)
+bool ambient_read_config_snapshot(int64_t *outSize, uint32_t *outHash, uint8_t **outData, size_t *outLen)
 {
     int32_t fd = sceKernelOpen(AMBIENT_CONFIG_PATH, 0 /* O_RDONLY */, 0777);
     if (fd < 0) {
@@ -391,8 +408,14 @@ bool ambient_get_real_config_size_and_hash(int64_t *outSize, uint32_t *outHash)
 
     *outSize = sz;
     *outHash = ambient_fnv1a32(buf, (size_t)nread);
-    free(buf);
+    if (outData != NULL) { *outData = buf; *outLen = (size_t)nread; } // the caller frees it; buf is NULL for an empty file
+    else free(buf);
     return true;
+}
+
+bool ambient_get_real_config_size_and_hash(int64_t *outSize, uint32_t *outHash)
+{
+    return ambient_read_config_snapshot(outSize, outHash, NULL, NULL);
 }
 
 // mtime is kept in the struct/packet purely for backward-compatible layout with the v2.1.2/v2.1.3...
@@ -406,7 +429,28 @@ static uint32_t g_configLastHash = 0;
 // send_config_reload_debug_packet's check_count field above for why.
 static uint32_t g_configCheckCount = 0;
 
-void ambient_check_config_reload(void)
+// Slow file operations are logged (HOF1 FS_SLOW) when they finish, so a capture names the call that was stuck and for how long.
+#define FS_SLOW_MS 100ULL
+extern uint64_t sceKernelGetProcessTimeCounter(void);          // same declarations further down; harmless if the SDK header already has them
+extern uint64_t sceKernelGetProcessTimeCounterFrequency(void);
+static void fs_slow_note(const char *op, uint64_t startTsc)
+{
+    uint64_t hz = sceKernelGetProcessTimeCounterFrequency(), now = sceKernelGetProcessTimeCounter();
+    if (hz == 0) return;
+    uint64_t ms = (now - startTsc) * 1000ULL / hz;
+    if (ms >= FS_SLOW_MS)
+        ambient_handoff_diag("HANDOFF_DIAG FS_SLOW op=%s ms=%llu tsc=%llu hz=%llu", op,
+                             (unsigned long long)ms, (unsigned long long)now, (unsigned long long)hz);
+}
+
+// Live reload is split in two. The watcher thread does ALL the file I/O (read, hash, diagnostic) and parks a copy of a
+// changed ini here; the sampler only applies it from memory, so a stuck filesystem cannot stop frames. [docs/debugging/filesystem-stalls.md]
+typedef struct { uint8_t *data; size_t len; } CfgSnap;
+static CfgSnap *volatile g_cfgPending = NULL;
+volatile int g_cfgWatcherRunning = 0; // set by main.c once the watcher thread exists; 0 = the sampler checks inline, as before
+
+// The file half: one read per check (hash, preview and the copy all come from it). Watcher thread only.
+void ambient_config_watch_tick(void)
 {
     g_configCheckCount++;
 
@@ -421,7 +465,12 @@ void ambient_check_config_reload(void)
 
     int64_t realSize;
     uint32_t realHash;
-    if (!ambient_get_real_config_size_and_hash(&realSize, &realHash)) {
+    uint8_t *data = NULL;
+    size_t dataLen = 0;
+    uint64_t ioStart = sceKernelGetProcessTimeCounter();
+    bool readOk = ambient_read_config_snapshot(&realSize, &realHash, &data, &dataLen);
+    fs_slow_note("cfg_read", ioStart);
+    if (!readOk) {
         uint8_t preview[CONFIG_DEBUG_PREVIEW_LEN];
         ambient_read_content_preview(preview, sizeof(preview));
         send_config_reload_debug_packet(1, (uint32_t)(-realSize), 0, 0,
@@ -431,7 +480,8 @@ void ambient_check_config_reload(void)
     }
 
     uint8_t preview[CONFIG_DEBUG_PREVIEW_LEN];
-    ambient_read_content_preview(preview, sizeof(preview));
+    memset(preview, 0, sizeof(preview));
+    if (data != NULL) memcpy(preview, data, dataLen < sizeof(preview) ? dataLen : sizeof(preview));
 
     if (!g_haveConfigBaseline) {
         send_config_reload_debug_packet(2, 0, 0, 0,
@@ -440,12 +490,14 @@ void ambient_check_config_reload(void)
         g_configLastSize = (off_t)realSize;
         g_configLastHash = realHash;
         g_haveConfigBaseline = true;
+        free(data);
         return; // first check just establishes a baseline, nothing to compare against yet
     }
     if ((off_t)realSize == g_configLastSize && realHash == g_configLastHash) {
         send_config_reload_debug_packet(3, 0, 0, 0,
                                          (uint64_t)realSize, (uint64_t)g_configLastSize, g_configCheckCount, preview,
                                          realHash, g_configLastHash);
+        free(data);
         return; // unchanged -- same size AND same content hash
     }
 
@@ -453,20 +505,60 @@ void ambient_check_config_reload(void)
                                      (uint64_t)realSize, (uint64_t)g_configLastSize, g_configCheckCount, preview,
                                      realHash, g_configLastHash);
 
+    CfgSnap *snap = (CfgSnap *)malloc(sizeof(*snap));
+    if (snap == NULL) { free(data); return; } // baseline not advanced: the next check sees the change again
+    snap->data = data;
+    snap->len = dataLen;
     g_configLastSize = (off_t)realSize;
     g_configLastHash = realHash;
+    CfgSnap *older = __atomic_exchange_n(&g_cfgPending, snap, __ATOMIC_ACQ_REL); // a newer edit replaces one nobody applied yet
+    if (older != NULL) { free(older->data); free(older); }
+}
+
+// The memory half, on the sampler: applies a copy the watcher parked. Returns true when a reload happened.
+bool ambient_apply_pending_config(void)
+{
+    CfgSnap *snap = __atomic_exchange_n(&g_cfgPending, NULL, __ATOMIC_ACQ_REL);
+    if (snap == NULL) return false;
+
     // On a live relay_signal_enabled edit, send "on" or release the relay once (not while backgrounded), so the relay
     // is never left waiting on a flag this plugin no longer touches. [docs/code-comments.md]
     bool wasRelaySignalEnabled = g_config.relaySignalEnabled;
-    ambient_load_config();  // re-reads the file; unset/removed keys keep their CURRENT g_config value, not the compiled default (see note below)
+    static const char kEmpty[1] = "";
+    ambient_config_snapshot_set(snap->data != NULL ? (const char *)snap->data : kEmpty, snap->len);
+    ambient_load_config();  // parses the copy; unset/removed keys keep their CURRENT g_config value, not the compiled default
+    ambient_config_snapshot_set(NULL, 0);
+    free(snap->data);
+    free(snap);
     if (g_config.relaySignalEnabled != wasRelaySignalEnabled && !g_isBackgrounded) {
         if (g_config.relaySignalEnabled) relay_send_external_source(true);
         else                             relay_release_external_source(); // not while the shell feed holds the strip
     }
     buildZoneGeometry();    // layout settings may have changed -- rebuild g_zoneX/g_zoneY/g_numZones
     g_smoothedRgbValid = false; // avoid smoothing a hard cut between old and new zone counts/positions
+    return true;
 }
 
+// Inline check, the old behaviour: only used while no watcher thread is running (main.c could not start one).
+void ambient_check_config_reload(void)
+{
+    ambient_config_watch_tick();
+    ambient_apply_pending_config();
+}
+
+// The watcher thread: every configReloadCheckSeconds it reads and hashes the ini, off the sampler.
+void *ambient_config_thread(void *args)
+{
+    (void)args;
+    for (;;) {
+        uint32_t secs = (uint32_t)g_config.configReloadCheckSeconds;
+        if (secs == 0) { usleep(500000); continue; } // reload off; look again in case it is switched on
+        ambient_config_watch_tick();
+        // Sleep in 100 ms steps so a live edit of the interval takes effect within a tenth of a second.
+        for (uint32_t i = 0; i < secs * 10u && (uint32_t)g_config.configReloadCheckSeconds == secs; i++) usleep(100000);
+    }
+    return NULL;
+}
 
 
 // Is the shell feed really running?

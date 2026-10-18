@@ -6,6 +6,14 @@ companion app) are documented here, newest first.
 ## Plugin
 
 ### Unreleased
+- **A stuck filesystem no longer stops the strip.** Captures showed WLED falling back to its own color for 4-7 s while the
+  game ran. The most likely cause is that both senders read files on the thread that sends frames (the plugin's 2 s ini check,
+  the shell feed's disable-file, `[shell] enabled`, heartbeat, claim-state and ini polls), so one blocked filesystem stopped both. The plugin's
+  ini reads now run on a watcher thread that hands the sampler an in-memory copy; the shell feed's file work runs on an I/O
+  worker (`shell_io.c`) and its heartbeat carries the send loop's tick count. If either thread cannot start, the old inline
+  behaviour is used. The shell feed also skips missed ticks after a stall (`SCHED_RESYNC`) instead of replaying them as a
+  burst, and slow file operations are logged as `FS_SLOW`. Write-up: `docs/debugging/filesystem-stalls.md`. Checked on a PC
+  only (config, claim and worker tests); needs a real build and a console run.
 - **The shell feed no longer stays dark after a reboot because of an old `fg=1`.** A game that was killed,
   crashed or lost power while in front leaves `fg=1` in `ps4_ambient_state`, and a freshly loaded shell feed
   backed off until some game was opened and backgrounded. At load, an `fg=1` already in the file is now ignored

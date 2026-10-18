@@ -88,10 +88,15 @@ void ambient_rebuild_perchannel_gamma_luts(void); // gamma.c -- called by settin
 
 // [settings] -- ini load/save + live-reload detection (settings.c)
 void ambient_load_config(void);       // called by main.c (plugin_load)
-void ambient_check_config_reload(void); // called by sample_thread.c, once per loop pass
+void ambient_check_config_reload(void); // inline check + apply; sample_thread.c uses it only while no watcher thread runs
+void ambient_config_watch_tick(void);    // the watcher thread's body: one read + hash; parks a changed ini for the call below (exposed so a PC test can drive it)
+bool ambient_apply_pending_config(void); // sample_thread.c, every pass: applies an ini copy the watcher parked (memory only); true if it reloaded
+void *ambient_config_thread(void *args);  // main.c starts it: the file reads for live reload happen here, not on the sampler
+extern volatile int g_cfgWatcherRunning;  // 1 once that thread exists
 bool ambient_shell_feed_expected(void); // false when the shell feed is not running (heartbeat file stopped changing, or switched off); stateful, state thread only
 extern volatile int g_shellFeedAlive;   // state.c's latest answer from the above, read by the startup hold in network.c; 1 until proven otherwise
 bool ambient_get_real_config_size_and_hash(int64_t *outSize, uint32_t *outHash); // v3.9.4: exposed for shell-feed's own reload poll
+bool ambient_read_config_snapshot(int64_t *outSize, uint32_t *outHash, uint8_t **outData, size_t *outLen); // same read, keeps the bytes (caller frees *outData; NULL for an empty file)
 
 // [network] -- WLED/relay/debug transport (network.c)
 extern int g_wledSockfd; // read directly by main.c's plugin_unload to close it

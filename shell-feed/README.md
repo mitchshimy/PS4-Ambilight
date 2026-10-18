@@ -49,6 +49,7 @@ split by job, the way `plugin/source/` is, and everything the files share is dec
 | `shell_log.c` | log lines, the `[dev]` UDP mirror, console notifications |
 | `shell_report.c` | the compile-time gates, the report file and its thread |
 | `shell_live.c` | `live_send()`, the send loop |
+| `shell_io.c` | the I/O worker: every file the send loop used to touch (disable file, enabled, heartbeat, claim state, ini watch) |
 | `shell_thread.c` | `probe_thread()`: start-up sequence and the standby waits |
 | `shell_shim.c` | the symbols the shared plugin files expect from files this module does not link |
 | `shell_probe17.c` | the probe's original v17 sampler. Legacy: only `build_points()` still runs |

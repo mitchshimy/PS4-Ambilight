@@ -100,37 +100,11 @@ int eof_hack(int c) {
     return EOF;
 }
 
-// Raw sceKernel* file calls only: libc stdio (fopen, FILE*) is not safe off the plugin-load thread and crashed.
-// Keep every read and write here on raw syscalls. [docs/code-comments.md]
-bool ini_table_read_from_file(ini_table_s* table, const char* file)
+// Parses an ini that is already in memory. The file reader below and the config watcher threads (settings.c) both
+// feed it, so a reload can be applied with no file access on the thread that applies it. [docs/code-comments.md]
+bool ini_table_read_from_buffer(ini_table_s* table, const char* filebuf, size_t filelen)
 {
-    int32_t fd = sceKernelOpen(file, 0 /* O_RDONLY */, 0777);
-    if (fd < 0) return false;
-
-    int64_t filesize = sceKernelLseek(fd, 0, SEEK_END);
-    if (filesize < 0) {
-        sceKernelClose(fd);
-        return false;
-    }
-    sceKernelLseek(fd, 0, SEEK_SET);
-
-    // malloc(0) is legal-but-implementation-defined (may return NULL even on success), so a genuinely...
-    // More: docs/code-comments.md (plugin/source/config.c:124)
-    char *filebuf = (char *)malloc((size_t)(filesize > 0 ? filesize : 1));
-    if (filebuf == NULL) {
-        sceKernelClose(fd);
-        return false;
-    }
-
-    ssize_t nread = filesize > 0 ? sceKernelRead(fd, filebuf, (size_t)filesize) : 0;
-    sceKernelClose(fd);
-    if (nread < 0) {
-        free(filebuf);
-        return false;
-    }
-
     size_t filepos = 0;
-    size_t filelen = (size_t)nread;
     #define fgetc(unused) (filepos < filelen ? (int)(unsigned char)filebuf[filepos++] : EOF)
 
     enum {Section, Key, Value, Comment} state = Section;
@@ -235,8 +209,41 @@ bool ini_table_read_from_file(ini_table_s* table, const char* file)
     }
     #undef fgetc
     free(buf);
-    free(filebuf);
     return true;
+}
+
+// Raw sceKernel* file calls only: libc stdio (fopen, FILE*) is not safe off the plugin-load thread and crashed.
+// Keep every read and write here on raw syscalls. [docs/code-comments.md]
+bool ini_table_read_from_file(ini_table_s* table, const char* file)
+{
+    int32_t fd = sceKernelOpen(file, 0 /* O_RDONLY */, 0777);
+    if (fd < 0) return false;
+
+    int64_t filesize = sceKernelLseek(fd, 0, SEEK_END);
+    if (filesize < 0) {
+        sceKernelClose(fd);
+        return false;
+    }
+    sceKernelLseek(fd, 0, SEEK_SET);
+
+    // malloc(0) is legal-but-implementation-defined (may return NULL even on success), so a genuinely...
+    // More: docs/code-comments.md (plugin/source/config.c:124)
+    char *filebuf = (char *)malloc((size_t)(filesize > 0 ? filesize : 1));
+    if (filebuf == NULL) {
+        sceKernelClose(fd);
+        return false;
+    }
+
+    ssize_t nread = filesize > 0 ? sceKernelRead(fd, filebuf, (size_t)filesize) : 0;
+    sceKernelClose(fd);
+    if (nread < 0) {
+        free(filebuf);
+        return false;
+    }
+
+    bool ok = ini_table_read_from_buffer(table, filebuf, (size_t)nread);
+    free(filebuf);
+    return ok;
 }
 
 bool ini_table_write_to_file(ini_table_s *table, const char *file) {

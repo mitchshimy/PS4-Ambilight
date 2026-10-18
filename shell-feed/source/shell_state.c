@@ -43,6 +43,35 @@ static int state_read_foreground(int *fgOut, long *seqOut)
     return 0;
 }
 
+// With the I/O worker running (shell_io.c), the state file is read THERE and published here as one packed word, so the
+// send loop never waits on the filesystem for it. Without a worker, claim_poll() reads the file itself, as before.
+volatile int g_shIoRunning = 0;
+static uint64_t g_stSample = 0;              // bit 63 = valid read, bit 62 = fg, low 32 bits = seq (int32, -1 = none)
+static uint64_t g_stNextIoPollTsc = 0;
+
+static int state_sample(int *fgOut, long *seqOut)
+{
+    if (!g_shIoRunning) return state_read_foreground(fgOut, seqOut);
+    uint64_t p = __atomic_load_n(&g_stSample, __ATOMIC_ACQUIRE);
+    if (!(p >> 63)) return -1;
+    *fgOut = (int)((p >> 62) & 1u);
+    *seqOut = (long)(int32_t)(uint32_t)p;
+    return 0;
+}
+
+// The file half, run by the I/O worker at twice the claim rate so the handoff sees a fresh bit about as soon as before.
+void shell_state_io_poll(uint64_t nowTsc, uint64_t tscHz)
+{
+    if (tscHz == 0 || nowTsc < g_stNextIoPollTsc) return;
+    g_stNextIoPollTsc = nowTsc + tscHz * (STATE_POLL_MS / 2) / 1000;
+    int fg = 0; long seq = -1;
+    uint64_t t0 = sceKernelGetProcessTimeCounter();
+    int rc = state_read_foreground(&fg, &seq);
+    shell_fs_slow_note("state_read", t0);
+    uint64_t packed = (rc == 0) ? ((1ULL << 63) | ((uint64_t)(fg & 1) << 62) | (uint64_t)(uint32_t)(int32_t)seq) : 0;
+    __atomic_store_n(&g_stSample, packed, __ATOMIC_RELEASE);
+}
+
 static uint64_t g_claimNextPollTsc = 0;
 int      g_claimEverSeen = 0;
 int      g_claimActive = 0;
@@ -59,7 +88,7 @@ int claim_poll(uint64_t nowTsc, uint64_t tscHz)
     if (nowTsc >= g_claimNextPollTsc) {
         g_claimNextPollTsc = nowTsc + (tscHz > 0 ? (tscHz * STATE_POLL_MS / 1000) : 0);
         int fg; long seq;
-        if (state_read_foreground(&fg, &seq) == 0) {
+        if (state_sample(&fg, &seq) == 0) {
             static int handoffDiagFirstState = 0;
             if (!handoffDiagFirstState) {
                 handoffDiagFirstState = 1;

@@ -12,13 +12,13 @@ old refusal behavior do not describe this binary.
 
 ```
 sha256sum -c <<'SUMS'
-e7027c14098b8cbdf302eb7a1ea46326ef24793f87d5a5ef3a1676a0af189628  ps4-ambilight.bin
+bda812ef59a106bdb35a7f8a68995770df570591487242955cb2ec640bab174b  ps4-ambilight.bin
 SUMS
 ```
 
 | File | Size (bytes) | sha256 | Note |
 |---|---|---|---|
-| `ps4-ambilight.bin` | 58,400 | `e7027c14098b8cbdf302eb7a1ea46326ef24793f87d5a5ef3a1676a0af189628` | Standalone loader payload. Starts `ps4_shell_feed.prx` in `GnmCompositor`. End-to-end confirmed on PS4 firmware 9.00 and 12.52; other firmware versions are untested or not in its firmware list. Loader source/build remain in a separate repository and are intentionally not included here. See `shell-feed/docs/support-matrix.md`. |
+| `ps4-ambilight.bin` | 69,216 | `bda812ef59a106bdb35a7f8a68995770df570591487242955cb2ec640bab174b` | Standalone loader payload. Starts `ps4_shell_feed.prx` in `GnmCompositor`. End-to-end confirmed on PS4 firmware 9.00 and 12.52; other firmware versions are untested or not in its firmware list. Loader source/build remain in a separate repository and are intentionally not included here. See `shell-feed/docs/support-matrix.md`. |
 
 After replacing the binary, run `sh tools/update_payload_checksum.sh` from the repo root: it
 rewrites the hash and size above from the file (the note is yours to edit), and CI fails if they

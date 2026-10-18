@@ -158,20 +158,32 @@ void *ambient_sample_thread(void *args)
             }
         }
 
-        if (g_config.configReloadCheckSeconds > 0) {
+        // With the watcher thread running, the sampler never touches the file: it only applies a copy the watcher parked
+        // (memory only, a pointer swap when idle). Without it, the old inline check below runs. [docs/debugging/filesystem-stalls.md]
+        bool reloadApplied = false;
+        if (g_cfgWatcherRunning) {
+            uint32_t loadsBefore = g_configLoadCount;
+            if (ambient_apply_pending_config()) {
+                reloadApplied = true;
+                if (g_configLoadCount != loadsBefore) ambient_notices_on_reload(); // the file changed and was re-read
+            }
+        } else if (g_config.configReloadCheckSeconds > 0) {
             uint64_t elapsedTicks = t0 - lastReloadCheckTicks;
             if (elapsedTicks >= tscFreq * (uint64_t)g_config.configReloadCheckSeconds) {
                 uint32_t loadsBefore = g_configLoadCount;
                 ambient_check_config_reload();
                 if (g_configLoadCount != loadsBefore) ambient_notices_on_reload(); // the file changed and was re-read
                 lastReloadCheckTicks = t0;
-                // Recompute everything derived from config that this loop otherwise only computes once at thread start...
-                // More: docs/code-comments.md (plugin/source/sample_thread.c:245)
-                sampleIntervalUs = 1000000u / g_config.updateFrequencyHz;
-#if TIMING_ENABLED
-                budgetTicks = (tscFreq * (uint64_t)sampleIntervalUs) / 1000000ULL;
-#endif
+                reloadApplied = true; // the block below only recomputes values; harmless when nothing changed
             }
+        }
+        if (reloadApplied) {
+            // Recompute everything derived from config that this loop otherwise only computes once at thread start...
+            // More: docs/code-comments.md (plugin/source/sample_thread.c:245)
+            sampleIntervalUs = 1000000u / g_config.updateFrequencyHz;
+#if TIMING_ENABLED
+            budgetTicks = (tscFreq * (uint64_t)sampleIntervalUs) / 1000000ULL;
+#endif
         }
         smoothingAlpha = smoothing_alpha(sampleIntervalUs, g_config.settlingTimeMs);
 

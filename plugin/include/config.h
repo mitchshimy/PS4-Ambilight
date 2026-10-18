@@ -2,6 +2,7 @@
 
 #ifndef GH_LIB
 #include <stdbool.h>
+#include <stddef.h>
 #endif
 
 typedef struct ini_entry_s {
@@ -31,6 +32,9 @@ void ini_table_destroy(ini_table_s *table);
 // @brief Creates an ini_table_s struct filled with data from the specified `file'.
 // More: docs/code-comments.md (plugin/include/config.h:35)
 bool ini_table_read_from_file(ini_table_s *table, const char *file);
+bool ini_table_read_from_buffer(ini_table_s *table, const char *data, size_t len); // same parser, ini already in memory
+bool ambient_config_read_table(ini_table_s *table); // settings.c: the plugin's ini as a table -- the copy being applied during a reload, else the file
+void ambient_config_snapshot_set(const char *data, size_t len); // settings.c: while set, the loaders parse this copy instead of opening the ini; NULL clears
 
 // @brief Writes the specified ini_table_s struct to the specified `file'.
 // More: docs/code-comments.md (plugin/include/config.h:44)

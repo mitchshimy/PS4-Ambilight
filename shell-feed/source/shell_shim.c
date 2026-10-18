@@ -28,5 +28,13 @@ void send_config_reload_debug_packet(uint32_t event, uint32_t statErrno, uint64_
   (void)checkCount; (void)contentPreview; (void)curHash; (void)lastHash; } // diagnostic-only, part of
                                              // ambient_check_config_reload(), which this probe never calls
 void ambient_read_content_preview(uint8_t *out, size_t previewLen) { memset(out, 0, previewLen); } // feeds the no-op packet above
+// settings.c reports slow file operations through the plugin's HOF1 channel; here they go out as the shell feed's own
+// event lines (klog and the [dev] mirror), so the one report covers both senders.
+void ambient_handoff_diag(const char *fmt, ...)
+{
+    char line[192];
+    va_list ap; va_start(ap, fmt); vsnprintf(line, sizeof(line), fmt, ap); va_end(ap);
+    shell_event("%s", line);
+}
 void debug_send_raw(const uint8_t *data, int len) { (void)data; (void)len; } // zones.c's own [dev]-gated diagnostic
                                              // packets (HDR2200 detection etc.), separate from this probe's [dev] mirror
