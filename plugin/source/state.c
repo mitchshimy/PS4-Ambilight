@@ -23,7 +23,6 @@ typedef struct {
     int      firstSendSeen; // launch latch: set once g_wledOutputCount first becomes non-zero, never cleared
     unsigned shellPollTicks; // ticks since the last shell-feed heartbeat check
     unsigned shellTicks;     // ticks spent checking so far; checking stops at SHELL_POLL_CAP_TICKS
-    int      shellFrozen;    // the game holds the strip: the heartbeat is silent by design, so the last answer stands
 } StateRunState;
 
 #define SHELL_POLL_EVERY_TICKS 3u   // about every 300 ms
@@ -78,9 +77,6 @@ static int ambient_state_tick(StateRunState *rs)
 // More: docs/code-comments.md (plugin/source/state.c:101)
 static void ambient_state_shell_poll(StateRunState *rs)
 {
-    // While this game holds the strip the shell feed writes no heartbeat (it stalls /data), so keep the last answer and read nothing.
-    if (rs->firstSendSeen && rs->wasForeground) { rs->shellFrozen = 1; return; }
-    if (rs->shellFrozen) { rs->shellFrozen = 0; rs->shellPollTicks = 0; ambient_shell_feed_rearm(); } // the strip is free: check afresh
     bool startupWindow = !rs->firstSendSeen && rs->shellTicks < SHELL_POLL_CAP_TICKS;
     // Relay hand-off (network.c, relay_release_external_source): a game that backgrounds or exits must...
     // More: docs/code-comments.md (plugin/source/state.c:109)

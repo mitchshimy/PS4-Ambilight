@@ -6,14 +6,13 @@ companion app) are documented here, newest first.
 ## Plugin
 
 ### Unreleased
-- **The app can see the payload is running again.** The no-heartbeat-in-game change stopped the heartbeat whenever anything
-  held the strip, including the companion app, whose "Launch Ambilight payload" check reads it. The shell feed now tells the
-  app's claim (`title=COMPANION`) from a game's and keeps the heartbeat going for the app. No extra disk writes during play.
-- **No heartbeat writes while a game holds the strip.** The long `/data` stalls (up to 40 s, 14 to 24% of the time during
-  burnouts) were caused by the shell feed rewriting its heartbeat file once a second during play; the period did not matter
-  (1, 3 and 10 s were the same) and only no writes removed them. The shell feed now writes the heartbeat only when no game
-  holds the strip. The plugin keeps its last "shell feed alive" answer while it holds the strip and re-arms the check when it
-  backgrounds. Checked on the console: `session8`, burnouts, 0 stalls. See `docs/debugging/filesystem-stalls.md`.
+- **The shell feed's heartbeat moved out of the project folder.** The long `/data` stalls (up to 40 s, 14 to 24% of the time in
+  burnouts) came from a file rewritten once a second blocking the other files in its folder, among them the ini the plugin reads.
+  The heartbeat is now `/data/ps4_shell_alive`, directly in `/data`. Checked on the console: with the heartbeat writing during play
+  the plugin had no slow file operation in 33 minutes (`session9b`), while the heartbeat write itself still stalled up to 24 s,
+  harmlessly, on the shell feed's worker. The companion app and the plugin read the new path. A shell feed older than this one
+  writes the old path and reads as not running. This replaces an earlier approach in this release (no heartbeat while a game holds
+  the strip), which is removed. See `docs/debugging/filesystem-stalls.md`.
 - **Fewer file operations while a game runs.** `config_reload_check_seconds` now defaults to 5 (was 2); an existing ini keeps its
   own value, and the app and the plugin's default ini agree. The shell feed holds its claim-state file and heartbeat file open
   instead of opening them every poll or beat, reopening periodically so a replaced file is still picked up. The plugin logs

@@ -52,7 +52,7 @@ v1 fg=1 seq=000123 title=CUSA00000
   output progress with a 2.2 s release window; the current rule is the explicit foreground bit plus the
   launch latch. See [`docs/shell-feed-foreground-gate.md`](../../docs/shell-feed-foreground-gate.md).
 
-shell-feed also rewrites `/data/ps4-ambilight/ps4_shell_alive`, a changing counter, about once a
+shell-feed also rewrites `/data/ps4_shell_alive`, a changing counter, about once a
 second (from the same loop as its `[shell] enabled=` poll, so it adds no new cadence), so the game plugin
 can tell a running shell feed from a stopped or absent one; see
 [`docs/development/shell-feed-coordination.md`](../../docs/development/shell-feed-coordination.md#the-shell-feeds-heartbeat-file).

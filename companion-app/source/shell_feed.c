@@ -62,7 +62,7 @@ static bool     g_payloadSentPending = false;
 
 // is the payload already running?
 // More: docs/code-comments.md (companion-app/source/shell_feed.c:70)
-#define SHELL_ALIVE_FILE        APP_DATA_DIR "/ps4_shell_alive"
+#define SHELL_ALIVE_FILE        "/data/ps4_shell_alive"
 #define SHELL_ALIVE_POLL_MS     500u
 #define SHELL_ALIVE_STALE_MS    3500u
 #define PAYLOAD_STARTING_MS     12000u   // how long after a send we say "starting" before giving up

@@ -54,23 +54,22 @@ processes at once. They can't be stopped from here, so the shell feed and plugin
 
 ## Root cause
 
-Phased captures separated the shell feed's disk work (`session5` to `session8`, 2026-10-18):
+Phased captures (`session4` to `session9b`, 2026-10-18 and 19) took the shell feed's disk work apart:
 
-- With the shell feed running, 14 to 24% of the time was stalled in NFS Heat burnouts, in both processes at once. With the
-  shell feed absent (`session4`), or with only its heartbeat write switched off, there were no stalls in over 25 minutes
-  across four separate phases. The claim-state read, the directory and ini opens, the disable file and the `enabled` poll made
-  no difference when switched off.
-- The heartbeat period made no difference either: 1 s, 3 s and 10 s all stalled at about 2 per minute, the console's roughly 30 s
-  flush cadence. Only no writes at all removed the stalls.
-- The 3 minutes of driving before the burnouts had no stalls with the heartbeat at 1 s, so it takes the heartbeat writes plus a
-  busy game. Why a 21-byte rewrite blocks the rest of `/data` is not known; the best fit is write-back of a continually
-  dirtied file on that cycle.
+- With the shell feed running its heartbeat in the project folder, 14 to 24% of the time was stalled in NFS Heat burnouts, in
+  both processes at once. With the shell feed absent, or with only its heartbeat write switched off, there were no stalls in over
+  25 minutes across four separate phases. The claim-state read, the ini opens, the disable file and the `enabled` poll made
+  no difference when switched off, and the heartbeat period did not either (1, 3 and 10 s all stalled about twice a minute, the
+  console's roughly 30 s write-back cadence).
+- Moving the heartbeat file to a different folder made the plugin's reads immune: `session9` (8 min) and `session9b` (33 min)
+  had **0** slow plugin file operations and no gap in its once-a-second ini read beyond UDP jitter, while the shell feed's own
+  heartbeat write still stalled 43 times for 1 s or more (longest 24 s). So the stall followed the folder, not the disk:
+  a continually rewritten file blocks the other files next to it, and only itself when it lives alone.
+- Nothing is lost with that: the stalls now hit only the shell feed's worker thread, which does no sending.
 
-The fix is to write no heartbeat while a game holds the strip (`shell_io.c`). The companion app's claim (`title=COMPANION`) is not a game, so the heartbeat keeps
-running for it: the app reads that file to say the payload is already running. The plugin keeps its last "shell feed alive" answer
-while it holds the strip and re-arms the check when it backgrounds (`state.c`, `ambient_shell_feed_rearm()` in `settings.c`).
-With it, `session8` had 0 stalls in the burnouts (4.7 s stalled in 498 s, all of it at 38 s and just after a trip to Home,
-where the heartbeat had resumed).
+The fix is the file's location: `/data/ps4_shell_alive`, directly in `/data` and away from the ini. (An earlier fix, writing no
+heartbeat while a game held the strip, worked but needed the plugin to freeze its "shell feed alive" answer and the app to tell its
+claim from a game's; it was reverted in the same release.)
 
 ## What it does not fix
 

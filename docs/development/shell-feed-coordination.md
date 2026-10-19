@@ -79,17 +79,17 @@ v1 fg=1 seq=000123 title=CUSA00000
 
 ## The shell feed's heartbeat file
 
-The other direction, for one purpose: `/data/ps4-ambilight/ps4_shell_alive` is a single line, a 20-digit
+The other direction, for one purpose: `/data/ps4_shell_alive` is a single line, a 20-digit
 zero-padded counter and a newline, rewritten in place (no truncate) by the shell feed about once a second
-from its worker, **but not while a game holds the strip** (it keeps beating when the companion app holds it, so the app's "payload is already running" check still works): a file rewritten during play stalls `/data` (see
+from its worker. It sits directly in `/data`, **not** in the project folder: a file rewritten every second
+stalled the other files in its own folder for seconds (see
 [filesystem-stalls](../debugging/filesystem-stalls.md#root-cause)). The plugin never trusts its value, only
 that it keeps changing: the state thread, from load until the plugin's first DDP send (or about one minute, if none ever comes), reads it about
 every 300 ms (`ambient_shell_feed_expected()` in `settings.c`) and treats the shell feed as gone when it
 has not changed for 3 s. That decides whether `network.c` holds its first send while the frames are black
 (see [shell-feed-foreground-gate](../shell-feed-foreground-gate.md#startup-hold-on-black-frames)). A
 missing file, an older shell feed without the heartbeat, a crashed one and an uninstalled one all read as
-"not running". While the game holds the strip the state thread stops reading it and keeps its last answer, and
-re-arms the check (the normal 3 s of grace) when the game backgrounds, when the heartbeat resumes.
+"not running". The companion app reads the same file to say the payload is already running.
 A reader of `ps4_ambient_state` does not need this file.
 
 ## Source

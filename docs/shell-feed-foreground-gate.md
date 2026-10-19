@@ -37,7 +37,7 @@ scenes are sent normally.
 
 The hold only makes sense while the shell feed is there to cover. With it off, holding would leave WLED on
 its default color through a black loading screen. So the shell feed rewrites
-`/data/ps4-ambilight/ps4_shell_alive` (a changing 20-digit counter and newline) about once a second, and
+`/data/ps4_shell_alive` (a changing 20-digit counter and newline) about once a second, and
 the plugin's state thread, from load until the first send (or about one minute if none ever comes), checks it about every 300 ms through
 `ambient_shell_feed_expected()` in `settings.c`. It reports the shell feed gone when the counter has not
 changed for 3 s, or at once when the disable file or `[shell] enabled=false` is present, and publishes the

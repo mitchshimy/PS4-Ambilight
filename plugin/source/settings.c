@@ -565,13 +565,12 @@ void *ambient_config_thread(void *args)
 // More: docs/code-comments.md (plugin/source/settings.c:607)
 extern uint64_t sceKernelGetProcessTimeCounter(void);          // same declarations state.c carries; harmless if the SDK header already has them
 extern uint64_t sceKernelGetProcessTimeCounterFrequency(void);
-#define SHELL_ALIVE_PATH     AMBILIGHT_DATA_DIR "/ps4_shell_alive"
+#define SHELL_ALIVE_PATH     "/data/ps4_shell_alive" // the shell feed rewrites it; keep it out of our folder
 #define SHELL_ALIVE_STALE_MS 3000ULL
-static char     lastText[32];
-static uint64_t firstCheckTsc = 0, lastChangeTsc = 0;
-void ambient_shell_feed_rearm(void) { lastText[0] = '\0'; firstCheckTsc = 0; lastChangeTsc = 0; }
 bool ambient_shell_feed_expected(void)
 {
+    static char     lastText[32];
+    static uint64_t firstCheckTsc = 0, lastChangeTsc = 0;
     uint64_t now = sceKernelGetProcessTimeCounter();
     uint64_t hz  = sceKernelGetProcessTimeCounterFrequency();
     if (hz == 0) return true;

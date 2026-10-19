@@ -93,7 +93,6 @@ void ambient_config_watch_tick(void);    // the watcher thread's body: one read 
 bool ambient_apply_pending_config(void); // sample_thread.c, every pass: applies an ini copy the watcher parked (memory only); true if it reloaded
 void *ambient_config_thread(void *args);  // main.c starts it: the file reads for live reload happen here, not on the sampler
 extern volatile int g_cfgWatcherRunning;  // 1 once that thread exists
-void ambient_shell_feed_rearm(void);    // forget the heartbeat history: the next checks start with the normal 3 s of grace
 bool ambient_shell_feed_expected(void); // false when the shell feed is not running (heartbeat file stopped changing, or switched off); stateful, state thread only
 extern volatile int g_shellFeedAlive;   // state.c's latest answer from the above, read by the startup hold in network.c; 1 until proven otherwise
 bool ambient_get_real_config_size_and_hash(int64_t *outSize, uint32_t *outHash); // v3.9.4: exposed for shell-feed's own reload poll
