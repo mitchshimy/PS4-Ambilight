@@ -35,7 +35,7 @@ Idle means silent, not black.
 ## The claim file (how the two plugins hand off)
 
 The sister plugin's `state.c` writes a small fixed-width text record to
-`/data/ps4-ambilight/ps4_ambient_state` in place (no truncate, so a reader never sees a
+`/data/ps4-ambilight/ps4_ambient_state` in place (fallback; the primary channel is the loopback lease, `shell_lease.c`) (no truncate, so a reader never sees a
 half-written file):
 
 ```

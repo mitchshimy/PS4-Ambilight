@@ -71,6 +71,15 @@ The fix is the file's location: `/data/ps4_shell_alive`, directly in `/data` and
 heartbeat while a game held the strip, worked but needed the plugin to freeze its "shell feed alive" answer and the app to tell its
 claim from a game's; it was reverted in the same release.)
 
+## The loopback lease removes the rest of the hand-off's file traffic
+
+With the heartbeat moved, the remaining per-game file traffic of the hand-off was the claim file (read 20 times a second by the shell
+feed, written on each transition by the plugin and every second by the companion app) and the heartbeat read. Both are gone when
+the loopback lease is up: claims and "the shell feed is running" travel over a TCP connection on 127.0.0.1, and a dead owner is an EOF
+instead of a stale `fg=1`. The files remain only as the fallback (see
+[shell-feed-coordination](../development/shell-feed-coordination.md#the-loopback-lease)). The `[shell] enabled` poll, the disable file and
+the ini watch are still files, on the shell feed's worker, at 1 Hz or slower.
+
 ## What it does not fix
 
 A stalled filesystem can still delay a config edit, the foreground bit, or the heartbeat, but not the frames. The state

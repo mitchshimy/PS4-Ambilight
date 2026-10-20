@@ -116,7 +116,17 @@ uint64_t g_liveStartTsc = 0;
 // File I/O is rate-limited to 10 Hz; the live-send loop only does a TSC comparison otherwise.
 int claim_poll(uint64_t nowTsc, uint64_t tscHz)
 {
-    if (nowTsc >= g_claimNextPollTsc) {
+    if (g_leaseUp) {
+        // The loopback lease (shell_lease.c): the worker publishes the number of connections holding a claim. No file, no stale
+        // claim (a dead owner's socket is closed by the kernel), no rate limit: this is one atomic load.
+        if (!g_claimEverSeen) {
+            g_claimEverSeen = 1;
+            shell_event("HANDOFF_DIAG SHELL_FIRST_VALID_STATE lease claims=%d tsc=%llu hz=%llu", shell_lease_claimed(),
+                        (unsigned long long)sceKernelGetProcessTimeCounter(), (unsigned long long)sceKernelGetProcessTimeCounterFrequency());
+        }
+        g_staleSeq = -1;
+        g_stateForeground = shell_lease_claimed() > 0;
+    } else if (nowTsc >= g_claimNextPollTsc) {
         g_claimNextPollTsc = nowTsc + (tscHz > 0 ? (tscHz * STATE_POLL_MS / 1000) : 0);
         int fg; long seq;
         if (state_sample(&fg, &seq) == 0) {

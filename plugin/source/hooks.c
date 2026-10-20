@@ -20,7 +20,7 @@
 attr_public const char *g_pluginName = "ps4_ambient_light";
 attr_public const char *g_pluginDesc = "Live per-frame ambient light: detiles the real scanout buffer and streams zone colors to WLED";
 attr_public const char *g_pluginAuth = "(null)";
-attr_public uint32_t g_pluginVersion = 0x00000309; // v3.8 -> v3.9:
+attr_public uint32_t g_pluginVersion = 0x00000400; // v3.9 -> v4.0:
 // g_pluginVersion and the v2.x-v3.x release notes that lived here are in CHANGELOG.md and docs/code-comments.md.
 // More: docs/code-comments.md (plugin/source/hooks.c:26)
 

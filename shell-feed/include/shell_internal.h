@@ -199,6 +199,13 @@ void shell_state_io_poll(uint64_t nowTsc, uint64_t tscHz); // the worker's half 
 extern volatile int g_shIoRunning;                         // 1 once the I/O worker exists; 0 = every poll runs inline on the send loop
 void shell_heartbeat(uint64_t nowTsc, uint64_t tscHz, uint64_t *nextBeatTsc, uint64_t counter);
 
+// shell_lease.c -- the loopback TCP lease: claims arrive over 127.0.0.1 instead of the claim file (plugin/include/lease.h)
+extern volatile int g_leaseUp;            // listener open: the claim file and the heartbeat file are not used
+int  shell_lease_open(void);              // 1 = listening; 0 = could not, so the claim file stays the channel
+void shell_lease_close(void);
+void shell_lease_wait(uint32_t timeoutUs); // the I/O worker's sleep: handles accepts, claims, releases and EOFs
+int  shell_lease_claimed(void);           // how many connections hold a claim right now (atomic read, send loop)
+
 // shell_io.c -- the I/O worker: every file the send loop used to touch (disable file, [shell] enabled, heartbeat, claim
 // state, ini watch) is read or written there, so a stuck filesystem cannot stop frames. [docs/debugging/filesystem-stalls.md]
 extern volatile uint64_t g_shLoopTicks;   // advanced by the send loop; the heartbeat file carries it, so it stops changing if the loop stalls

@@ -60,6 +60,19 @@ What has actually been used to check the plugin:
 - **`tools/test_report.c`.** A host test that compiles `report.c` and drives its write
   logic with made-up counters: what makes it write, that it never writes per frame, that a
   rewrite leaves no stale tail, and the off switch. See [tools](tools.md#test_reportc).
+- **`tools/test_lease.c` and `tools/test_lease_net.c`.** The loopback lease. The first checks the pure logic in `plugin/include/lease.h`
+  (the shell feed's slot table and parser, and the clients' state machine against fake sockets: zero traffic in steady state, one
+  message per change, reconnect and re-claim, throttled retries). The second runs the REAL listener (`shell_lease.c`) against the plugin's real
+  client (`plugin/source/lease.c`) over loopback on a PC, including a forked owner that exits without releasing (released by EOF),
+  a second owner, garbage from an unrelated process, and the shell feed closing and coming back.
+  `tools/check_lease_copy.sh` checks the companion app's copy of `lease.h`. Build (from the repo root):
+
+  ```bash
+  gcc -Wall -Wextra -Iplugin/include -o /tmp/test_lease tools/test_lease.c && /tmp/test_lease
+  gcc -w -pthread -DLEASE_MSG_DONTWAIT=0x40 -DLEASE_MSG_NOSIGNAL=0x4000 -DLEASE_SO_NOSIGPIPE=9 \
+      -Itools/host_stubs -Iplugin/include -Icommon -Ishell-feed/include -o /tmp/test_lease_net tools/test_lease_net.c \
+      shell-feed/source/shell_lease.c plugin/source/lease.c && /tmp/test_lease_net
+  ```
 - **Offline replicas.** Several algorithms were run in Python first against real
   captures, then ported: the zone geometry for all 8 corner and direction
   combinations, the saturation formula, gamma tables, the dark threshold hysteresis,

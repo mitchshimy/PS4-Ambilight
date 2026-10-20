@@ -23,6 +23,37 @@ progress or flip activity, with one launch-time exception: the plugin does not c
 DDP send, because a title is "foreground" seconds before it can drive the strip (see
 [launch-gap-test](../debugging/launch-gap-test.md)).
 
+## The loopback lease
+
+The primary hand-off channel. The file sections of this page below still apply as the **fallback**, used only when no lease
+connection exists.
+
+- The shell feed listens on `127.0.0.1:47200` (never `INADDR_ANY`: nothing on the LAN can take the strip) from the moment its send
+  loop starts until it stops (disabled by the disable file or `[shell] enabled=false`), when it closes the listener and every connection.
+- A game's plugin (from its state thread) and the companion app (while its Shell feed switch is on) connect and keep the connection.
+  A claim is `C <title>\n`, a release is `R\n`. The shell feed never sends anything. Steady state is zero traffic.
+- The strip is held while **any** connection holds a claim, so a game and the companion app can both be owners without a
+  special case. A connection that closes releases its claim: when an owner is killed or crashes the kernel closes its sockets, which
+  is what fixes the stale-`fg=1` case without a timeout.
+- An owner that is only backgrounded (PS button) is still alive, so the plugin sends `R` itself when `g_isBackgrounded` flips, exactly
+  where it used to write `fg=0`.
+- A client with nothing to claim connects only when it wants to know whether a shell feed is running (the plugin during its startup
+  window; the app while its Shell feed switch is on). Connected means running and enabled, so
+  those callers read no heartbeat file. A refused loopback connect is instant, and clients retry at most every 500 ms.
+- If the shell feed starts while a game is already in front, the game's plugin reconnects within 500 ms and re-sends its claim.
+- If every one of the 8 slots holds a claiming owner a new connection is refused; otherwise the oldest idle connection is evicted.
+- **Fallback:** if the listener cannot open, the shell feed reads the claim file and writes the heartbeat as before. The plugin
+  and the app write the claim file only while they have no lease connection, and write it back to `fg=0` once one exists, so a file
+  reader never sees a claim the lease already carries. The old stale-claim-at-load rule (`STALE_CLAIM`) applies only on this path.
+- The FreeBSD values of the socket flags are defined in `lease.h` (`LEASE_MSG_DONTWAIT`, `LEASE_MSG_NOSIGNAL`, `LEASE_SO_NOSIGPIPE`):
+  the OpenOrbis headers carry Linux's `MSG_*` numbers, which the console's kernel reads differently.
+
+Files: `plugin/include/lease.h` (wire format, the shell feed's slot table and parser, the clients' state machine: pure logic, host-tested;
+`companion-app/include/lease.h` is a byte-for-byte copy, checked by `tools/check_lease_copy.sh`), `plugin/source/lease.c` (the plugin's
+sockets), `shell-feed/source/shell_lease.c` (the listener, run by the I/O worker in `shell_io.c`), `companion-app/source/shell_feed.c`
+(the app's sockets). Log lines in the shell feed's log: `LEASE listening`, `LEASE claim|release|connect|released(EOF)`, `LEASE closed`;
+in the plugin's `[dev]` channel: `HANDOFF_DIAG LEASE CONNECTED|LOST`.
+
 ## The file
 
 `/data/ps4-ambilight/ps4_ambient_state`, exactly 35 bytes, one line:

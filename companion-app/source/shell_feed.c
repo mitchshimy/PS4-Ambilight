@@ -14,6 +14,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <sys/select.h>
 #include "file_util.h"
 #include "net_http.h"
 #include "sha256.h"
@@ -22,6 +23,7 @@
 #include "plugin_common.h"
 #include "install_plan.h"
 #include "claim_file.h"
+#include "lease.h"
 #include "payload_ini.h"
 #include "settings.h"
 #include "ui_screens.h"
@@ -55,6 +57,63 @@ void sync_shell_summary(void)
     }
 }
 
+// ---- the loopback lease (lease.h): the app's claim on the strip, and proof the payload runs (connected = running) ----
+// One connection to 127.0.0.1:LEASE_PORT while "Shell feed" is on; a claim is one message, not a file write; a dead app's socket is closed by the kernel.
+LeaseClient g_appLease = { .fd = -1 };
+
+static int app_lease_open(void *ctx)
+{
+    (void)ctx;
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+    int on = 1;
+    setsockopt(fd, SOL_SOCKET, LEASE_SO_NOSIGPIPE, &on, sizeof(on));
+    struct timeval to = { 0, 100000 };
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &to, sizeof(to));
+    struct sockaddr_in a;
+    memset(&a, 0, sizeof(a));
+    LEASE_SET_SIN_LEN(a);
+    a.sin_family = AF_INET;
+    a.sin_port = htons(LEASE_PORT);
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (connect(fd, (struct sockaddr *)&a, sizeof(a)) != 0) { close(fd); return -1; }
+    return fd;
+}
+static int app_lease_send(void *ctx, int fd, const char *msg, size_t n)
+{
+    (void)ctx;
+    return send(fd, msg, n, LEASE_MSG_NOSIGNAL) == (ssize_t)n ? 0 : -1;
+}
+static int app_lease_peek(void *ctx, int fd)
+{
+    (void)ctx;
+    if (fd < 0 || fd >= FD_SETSIZE) return -1;
+    fd_set rs; FD_ZERO(&rs); FD_SET(fd, &rs);
+    struct timeval tv = { 0, 0 };
+    int r = select(fd + 1, &rs, NULL, NULL, &tv);
+    if (r < 0) return -1;
+    if (r == 0 || !FD_ISSET(fd, &rs)) return 1;
+    char sink[16];
+    ssize_t n = recv(fd, sink, sizeof(sink), LEASE_MSG_DONTWAIT);
+    return n > 0 ? 1 : (n == 0 ? 0 : -1);
+}
+static void app_lease_close(void *ctx, int fd) { (void)ctx; close(fd); }
+static const LeaseOps g_appLeaseOps = { app_lease_open, app_lease_send, app_lease_peek, app_lease_close, NULL };
+
+// Once per frame. driving = the app is sending to the strip right now. Returns true while the claim is carried by a lease connection
+// (the caller then keeps the claim FILE at fg=0, as the plugin does).
+bool lease_app_tick(uint32_t nowMs, bool driving)
+{
+    static bool inited = false;
+    if (!inited) { lease_client_init(&g_appLease); inited = true; }
+    lease_client_set(&g_appLease, driving ? 1 : 0, CLAIM_TITLE);
+    lease_client_tick(&g_appLease, nowMs, &g_appLeaseOps, g_cfg.shellEnabled ? 1 : 0);
+    if (!g_cfg.shellEnabled && !driving && g_appLease.fd >= 0) lease_client_shutdown(&g_appLease, &g_appLeaseOps);
+    return g_appLease.fd >= 0;
+}
+
+void lease_app_shutdown(void) { lease_client_shutdown(&g_appLease, &g_appLeaseOps); }
+
 // When the payload was last sent to BinLoader, so the UI can say "starting" until the heartbeat shows up.
 static uint32_t g_payloadSentMs = 0;
 static bool     g_payloadSentOnce = false;
@@ -77,7 +136,7 @@ void shell_alive_poll(uint32_t nowMs)
     if (nowMs - lastPollMs < SHELL_ALIVE_POLL_MS) return;
     lastPollMs = nowMs;
 
-    if (g_cfg.shellEnabled) {
+    if (g_cfg.shellEnabled && g_appLease.fd < 0) { // connected: no file read at all
         char cur[32]; memset(cur, 0, sizeof(cur));
         int32_t fd = sceKernelOpen(SHELL_ALIVE_FILE, 0 /* O_RDONLY */, 0);
         if (fd >= 0) {
@@ -94,7 +153,9 @@ void shell_alive_poll(uint32_t nowMs)
         }
     }
 
-    bool running = g_cfg.shellEnabled && lastChangeMs != 0 && (nowMs - lastChangeMs) < SHELL_ALIVE_STALE_MS;
+    // A held lease connection is proof the payload is listening right now (see lease_app_tick); the heartbeat file is the older proof
+    // and the fallback when the payload could not open its listener.
+    bool running = g_cfg.shellEnabled && (g_appLease.fd >= 0 || (lastChangeMs != 0 && (nowMs - lastChangeMs) < SHELL_ALIVE_STALE_MS));
     if (running) g_payloadSentOnce = false;   // it came up; a later stop is not "starting"
     bool starting = g_cfg.shellEnabled && !running && g_payloadSentOnce && (nowMs - g_payloadSentMs) < PAYLOAD_STARTING_MS;
 

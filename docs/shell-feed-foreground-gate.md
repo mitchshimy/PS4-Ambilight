@@ -2,7 +2,7 @@
 
 **Status:** implemented in source; console result is preliminary and still being observed.
 
-The shell-feed loop reads `/data/ps4-ambilight/ps4_ambient_state` and uses the explicit `fg` bit as its gate. It no longer uses `seq` movement or a freshness deadline to infer ownership:
+The shell-feed loop gets the game plugin's explicit foreground bit over the loopback TCP lease (see [shell-feed-coordination](development/shell-feed-coordination.md#the-loopback-lease)); `/data/ps4-ambilight/ps4_ambient_state` is the fallback channel used when no lease connection exists, and what follows describes that file path, whose gate logic is the same. It no longer uses `seq` movement or a freshness deadline to infer ownership:
 
 - A valid `fg=1` record makes the shell feed back off.
 - A valid `fg=0` record allows the shell feed to send again.

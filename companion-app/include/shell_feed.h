@@ -10,7 +10,11 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#include "lease.h"
 extern ClaimRun g_claim;
+extern LeaseClient g_appLease;
+bool lease_app_tick(uint32_t nowMs, bool driving);  // every frame: keeps the loopback lease to the payload; true while it carries the claim
+void lease_app_shutdown(void);                      // on exit: release and close
 
 void rescan_shell_files(void);
 void sync_shell_summary(void);

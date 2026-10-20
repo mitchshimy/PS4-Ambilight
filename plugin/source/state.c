@@ -1,5 +1,5 @@
-// The state file reports only the foreground bit (fg=1 after the first successful send, then follows g_isBackgrounded);
-// never infer ownership from output, flips or seq. Fixed-width writes at offset 0, no O_TRUNC. [docs/code-comments.md]
+// Reports the foreground bit (fg=1 after the first send, then follows g_isBackgrounded) over the loopback lease (lease.h); the state file is the fallback.
+// Never infer ownership from output, flips or seq. File writes are fixed-width at offset 0, no O_TRUNC. [docs/code-comments.md]
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -9,20 +9,24 @@
 #include "plugin_common.h"
 #include "ambient_internal.h"
 #include "state_file.h"
+#include "lease.h"
 
 // Also declared here for the lightweight host test, whose kernel stubs provide these symbols.
 extern uint64_t sceKernelGetProcessTimeCounter(void);
 extern uint64_t sceKernelGetProcessTimeCounterFrequency(void);
+const LeaseOps *ambient_lease_ops(void); // lease.c (the sockets); the host test supplies a fake
 
 #define STATE_TICK_US 100000u
 
 typedef struct {
     uint32_t seq;
-    int      wasForeground;
+    int      wasForeground; // what the FILE says (see ambient_state_tick): fg=1 only while no lease connection carries the claim
     int      wroteOnce;
     int      firstSendSeen; // launch latch: set once g_wledOutputCount first becomes non-zero, never cleared
     unsigned shellPollTicks; // ticks since the last shell-feed heartbeat check
     unsigned shellTicks;     // ticks spent checking so far; checking stops at SHELL_POLL_CAP_TICKS
+    LeaseClient lease;       // the loopback TCP lease to the shell feed (lease.h): the primary hand-off channel
+    int      leaseInit;
 } StateRunState;
 
 #define SHELL_POLL_EVERY_TICKS 3u   // about every 300 ms
@@ -44,39 +48,63 @@ static int state_write_file(const char *text, size_t len)
     return (w == (ssize_t)len) ? 0 : -1;
 }
 
-// One turn of the state thread. Writes only at startup or when the published foreground status changes.
-// Kept separate from the thread so tools/test_state.c can exercise the exact state logic.
+static uint32_t lease_now_ms(void)
+{
+    uint64_t hz = sceKernelGetProcessTimeCounterFrequency();
+    return hz ? (uint32_t)(sceKernelGetProcessTimeCounter() / (hz / 1000u ? hz / 1000u : 1u)) : 0u;
+}
+
+// Does the plugin want to know whether a shell feed is there, even with nothing to claim? (Same window as the heartbeat check below.)
+static bool ambient_state_wants_shell_link(const StateRunState *rs)
+{
+    return (!rs->firstSendSeen && rs->shellTicks < SHELL_POLL_CAP_TICKS) || g_config.relaySignalEnabled;
+}
+
+// One turn of the state thread: the lease carries the claim; the file is written only while no lease connection exists, and kept at fg=0 otherwise.
+// Separate from the thread so tools/test_state.c can exercise the exact state logic. Design: docs/development/shell-feed-coordination.md
 static int ambient_state_tick(StateRunState *rs)
 {
     if (!rs->firstSendSeen && g_wledOutputCount != 0) rs->firstSendSeen = 1;
     bool foreground = !g_isBackgrounded && rs->firstSendSeen;
     char text[STATE_RECORD_LEN + 1];
 
-    if (!rs->wroteOnce || (int)foreground != rs->wasForeground) {
+    if (!rs->leaseInit) { lease_client_init(&rs->lease); rs->leaseInit = 1; }
+    bool wasLeased = lease_client_connected(&rs->lease);
+    lease_client_set(&rs->lease, foreground ? 1 : 0, g_titleId);
+    lease_client_tick(&rs->lease, lease_now_ms(), ambient_lease_ops(), ambient_state_wants_shell_link(rs) ? 1 : 0);
+    bool leased = lease_client_connected(&rs->lease);
+    if (leased != wasLeased)
+        ambient_handoff_diag("HANDOFF_DIAG LEASE %s fg=%d", leased ? "CONNECTED" : "LOST", foreground ? 1 : 0);
+
+    bool fileFg = foreground && !leased; // what the file should say right now
+    if (!rs->wroteOnce || (int)fileFg != rs->wasForeground) {
         uint32_t nextSeq = rs->seq;
-        if (foreground && (!rs->wroteOnce || !rs->wasForeground)) {
+        if (fileFg && (!rs->wroteOnce || !rs->wasForeground)) {
             nextSeq = (nextSeq + 1u) % 1000000u;
         }
-        size_t len = state_format(text, sizeof(text), foreground ? 1 : 0, nextSeq, g_titleId);
+        size_t len = state_format(text, sizeof(text), fileFg ? 1 : 0, nextSeq, g_titleId);
         if (len == 0 || state_write_file(text, len) != 0) return 0;
         rs->seq = nextSeq;
-        rs->wasForeground = foreground ? 1 : 0;
+        rs->wasForeground = fileFg ? 1 : 0;
         rs->wroteOnce = 1;
         // HANDOFF_DIAG: event-only instrumentation; never runs on unchanged ticks.
         ambient_handoff_diag("HANDOFF_DIAG GAME_STATE_WRITE fg=%d seq=%u tsc=%llu hz=%llu",
-               foreground ? 1 : 0, (unsigned)nextSeq,
+               fileFg ? 1 : 0, (unsigned)nextSeq,
                (unsigned long long)sceKernelGetProcessTimeCounter(),
                (unsigned long long)sceKernelGetProcessTimeCounterFrequency());
         return 1;
     }
 
-    return 0; // unchanged foreground state: no transmission checks, no heartbeat, no write
+    return 0; // nothing changed: no lease message, no file write, no heartbeat
 }
 
 // Is the shell feed really running?
 // More: docs/code-comments.md (plugin/source/state.c:101)
 static void ambient_state_shell_poll(StateRunState *rs)
 {
+    // A lease connection IS the proof: the shell feed is listening, so it is running and enabled (it closes the listener when it
+    // stops or is switched off, and the connection with it). No file is read.
+    if (rs->leaseInit && lease_client_connected(&rs->lease)) { g_shellFeedAlive = 1; return; }
     bool startupWindow = !rs->firstSendSeen && rs->shellTicks < SHELL_POLL_CAP_TICKS;
     // Relay hand-off (network.c, relay_release_external_source): a game that backgrounds or exits must...
     // More: docs/code-comments.md (plugin/source/state.c:109)

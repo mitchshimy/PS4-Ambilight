@@ -5,7 +5,26 @@ companion app) are documented here, newest first.
 
 ## Plugin
 
-### Unreleased
+### v4.0.0
+- **Plugin v4.0.** Everything in this section ships as v4.0: the loopback TCP lease hand-off, the shell feed's heartbeat move and the
+  other file-operation changes below. `g_pluginVersion` is `0x0400` and `AMBIENT_VERSION_STRING` is `4.0.0`; `tools/test_report.c`
+  checks that the two agree and that this heading exists. Entries below that say `g_pluginVersion` is unchanged were written while
+  they were unreleased and are left as they were. The plugin's "plugin updated to v4.0 (was v3.9)" console notice appears once
+  after installing it. Tag the release `v4.0` or `v4.0.0`.
+- **The hand-off between a game, the companion app and the shell feed is now a loopback TCP lease, not files.** The shell feed
+  listens on `127.0.0.1:47200` (loopback only). The game plugin and the companion app connect once and keep the connection: a claim is
+  one line (`C <title>`), a release is `R`, and in between nothing is sent, read or written. The shell feed sleeps in `select()` on its
+  I/O worker and wakes only for a connect, a claim, a release or its 1 s housekeeping timeout. Because the kernel closes a dead
+  process's sockets, an EOF means "released": the **stale `fg=1` after a game crash is gone with no timeout and no guessing**, and so is
+  the up-to-100 ms claim-file poll. The connection also replaces the heartbeat file as proof the shell feed is running: the plugin's
+  startup hold and the app's "payload is running" light use the connection, so with the lease up there is no
+  `ps4_shell_alive` write at all and no claim-file read or write. If the listener cannot open (or an older shell feed or plugin is
+  paired with a newer one) everything falls back to the claim file and heartbeat exactly as before: the plugin writes the file only
+  while no lease connection exists, and keeps it at `fg=0` while one does. Checked on a console (claim and release across
+  PS-button background and resume, game exit, the shell feed disabled and re-enabled mid-game, 15 minutes of NFS Heat burnouts with no
+  stalls and no slow file operation) and on a PC with real loopback sockets (`tools/test_lease.c`, `tools/test_lease_net.c`, including an
+  owner that exits without releasing). See
+  `docs/development/shell-feed-coordination.md#the-loopback-lease`.
 - **The shell feed's heartbeat moved out of the project folder.** The long `/data` stalls (up to 40 s, 14 to 24% of the time in
   burnouts) came from a file rewritten once a second blocking the other files in its folder, among them the ini the plugin reads.
   The heartbeat is now `/data/ps4_shell_alive`, directly in `/data`. Checked on the console: with the heartbeat writing during play

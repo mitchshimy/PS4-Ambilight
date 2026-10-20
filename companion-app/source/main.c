@@ -955,9 +955,11 @@ int main(void)
             s_wasOnHome = onHome;
 
             // Held while EITHER the switch or the saved ini says on (see g_shellEnabledOnDisk).
-            claim_tick(&g_claim, nowMs, (g_cfg.shellEnabled || g_shellEnabledOnDisk) && !g_appBackgrounded &&
-                                        (screenHasLedFrame || g_state.testRunning),
-                       claim_write_cb, NULL);
+            // The claim goes over the loopback lease when the payload listens (lease_app_tick); the claim file is the fallback, kept at fg=0 otherwise.
+            bool driving = (g_cfg.shellEnabled || g_shellEnabledOnDisk) && !g_appBackgrounded &&
+                           (screenHasLedFrame || g_state.testRunning);
+            bool leased = lease_app_tick(nowMs, driving);
+            claim_tick(&g_claim, nowMs, driving && !leased, claim_write_cb, NULL);
             sync_shell_summary();
             shell_alive_poll(nowMs);
         }
@@ -993,6 +995,7 @@ int main(void)
 
     // Release the strip claim so the shell feed doesn't wait out the 2.5 s expiry. Called twice, a
     // retry interval apart, in case the first write was refused.
+    lease_app_shutdown();
     claim_tick(&g_claim, SDL_GetTicks(), false, claim_write_cb, NULL);
     claim_tick(&g_claim, SDL_GetTicks() + CLAIM_RETRY_MS + 1u, false, claim_write_cb, NULL);
 
