@@ -29,7 +29,7 @@ void shell_relay_update(int shellActive)
     uint16_t port = g_config.relayPort;
 
     if (g_relayHeld && (!want || port != g_relayPort || strcmp(g_config.relayHost, g_relayHost) != 0)) {
-        if (g_claimActive) {
+        if (g_claimActive || shell_lease_claimed() > 0) {
             shell_event("RELAY: not sending off, a game holds the strip");
         } else {
             relay_send(g_relayHost, g_relayPort, 0);

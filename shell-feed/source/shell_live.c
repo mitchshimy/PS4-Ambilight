@@ -222,9 +222,9 @@ int live_send(void)
         }
     }
 
+    shell_relay_update(0); // wled-relay: this feed lets go; "off" only if no game holds the strip. Before shell_io_end(): that closes the lease
     shell_io_end();
     close(sock);
-    shell_relay_update(0); // wled-relay: this feed lets go; "off" only if no game holds the strip
     sh_publish(sent, skipped, gameOwned); // [v24]
     g_shStopReason = stopReason;
     {

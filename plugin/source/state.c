@@ -27,8 +27,11 @@ typedef struct {
     unsigned shellTicks;     // ticks spent checking so far; checking stops at SHELL_POLL_CAP_TICKS
     LeaseClient lease;       // the loopback TCP lease to the shell feed (lease.h): the primary hand-off channel
     int      leaseInit;
+    int      leaseSeen;      // a lease connection existed once: from then on it, not the heartbeat file, says whether the shell feed runs
+    unsigned relayTicks;     // ticks until the held strip is announced to the external-source signal again
 } StateRunState;
 
+#define RELAY_REFRESH_TICKS 50u     // about every 5 s while this game holds the strip
 #define SHELL_POLL_EVERY_TICKS 3u   // about every 300 ms
 #define SHELL_RELAY_POLL_EVERY_TICKS 10u // about every 1 s, once past the startup window, while relay_signal_enabled is on
 #define SHELL_POLL_CAP_TICKS   600u // about one minute from load; a title that never sends stops being polled
@@ -76,6 +79,13 @@ static int ambient_state_tick(StateRunState *rs)
     if (leased != wasLeased)
         ambient_handoff_diag("HANDOFF_DIAG LEASE %s fg=%d", leased ? "CONNECTED" : "LOST", foreground ? 1 : 0);
 
+    // The game holds the strip, so it announces that itself every 5 s (and at once if the shell feed that used to is gone): the signal
+    // must not depend on the shell feed running. Silent while backgrounded: then the shell feed, or nobody, owns the strip.
+    if (g_config.relaySignalEnabled && foreground) {
+        if (rs->relayTicks == 0 || (wasLeased && !leased)) { relay_send_external_source(true); rs->relayTicks = RELAY_REFRESH_TICKS; }
+        else rs->relayTicks--;
+    } else rs->relayTicks = 0;
+
     bool fileFg = foreground && !leased; // what the file should say right now
     if (!rs->wroteOnce || (int)fileFg != rs->wasForeground) {
         uint32_t nextSeq = rs->seq;
@@ -104,7 +114,8 @@ static void ambient_state_shell_poll(StateRunState *rs)
 {
     // A lease connection IS the proof: the shell feed is listening, so it is running and enabled (it closes the listener when it
     // stops or is switched off, and the connection with it). No file is read.
-    if (rs->leaseInit && lease_client_connected(&rs->lease)) { g_shellFeedAlive = 1; return; }
+    if (rs->leaseInit && lease_client_connected(&rs->lease)) { g_shellFeedAlive = 1; rs->leaseSeen = 1; return; }
+    if (rs->leaseSeen) { g_shellFeedAlive = 0; return; } // it closed the lease (stopped or switched off): not running, no 3 s of doubt
     bool startupWindow = !rs->firstSendSeen && rs->shellTicks < SHELL_POLL_CAP_TICKS;
     // Relay hand-off (network.c, relay_release_external_source): a game that backgrounds or exits must...
     // More: docs/code-comments.md (plugin/source/state.c:109)

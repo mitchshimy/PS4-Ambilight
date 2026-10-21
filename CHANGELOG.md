@@ -30,6 +30,11 @@ companion app) are documented here, newest first.
   `[prof] slow iteration ...` line split into input, poll, preview, io, render and present, at most one per 250 ms (`source/frame_prof.c`,
   `tests/test_frame_prof.c`); a slow `io` figure would point at the file reads on `/data`. `APP_VERSION` is 1.02; the plugin's version is
   not affected.
+- **A game keeps announcing that it holds the strip.** The optional external-source signal was refreshed only by the shell feed
+  while it ran, so with the shell feed switched off during a game nothing renewed it and an outside controller could take the strip
+  back and fight the game. The game now announces it every 5 s while it holds the strip, and at once when the shell feed's lease
+  closes. A closed lease also reads as "shell feed not running" immediately, not after 3 s, and the shell feed decides about its own
+  release before it closes the lease, counting lease claims as well. Checked on a PC only.
 - **The hand-off between a game, the companion app and the shell feed is now a loopback TCP lease, not files.** The shell feed
   listens on `127.0.0.1:47200` (loopback only). The game plugin and the companion app connect once and keep the connection: a claim is
   one line (`C <title>`), a release is `R`, and in between nothing is sent, read or written. The shell feed sleeps in `select()` on its
