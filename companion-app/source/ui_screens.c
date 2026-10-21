@@ -10,6 +10,7 @@
 #include "presets.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <math.h>
 
@@ -417,7 +418,114 @@ static float help_content_height(const UiFonts *f)
     return h;
 }
 
-static void render_help_screen(UiCanvas *c, const UiFonts *f, const UiState *st)
+
+// ---- Scroll layer cache: cards are painted once into a tall transparent layer and the visible slice is composited each frame;
+// a card repaints only when its signature changes (or it first scrolls into view), so a focus move repaints at most two.
+
+#define SC_MAX_CARDS 8
+
+struct UiScreenCache {
+    UiCanvas *layer;
+    UiScreenId screen;
+    bool layoutValid;
+    int n;
+    float y[SC_MAX_CARDS], h[SC_MAX_CARDS];
+    uint32_t sig[SC_MAX_CARDS];      // signature of what is painted in the layer; 0 = nothing painted
+    // Last measured height per signature, so an unchanged card is not re-measured every frame.
+    uint32_t hSig[SC_MAX_CARDS];
+    float hVal[SC_MAX_CARDS];
+};
+
+UiScreenCache *ui_screen_cache_create(void) { return (UiScreenCache *)calloc(1, sizeof(UiScreenCache)); }
+
+void ui_screen_cache_destroy(UiScreenCache *sc)
+{
+    if (!sc) return;
+    ui_canvas_destroy(sc->layer);
+    free(sc);
+}
+
+void ui_screen_cache_invalidate(UiScreenCache *sc)
+{
+    if (!sc) return;
+    sc->layoutValid = false;
+}
+
+// Brings the layer in line with `cards`, painting only cards that intersect the visible rows...
+// [srcY, srcY + CONTENT_H). Returns false if the layer can't be used (allocation failed).
+static bool scroll_layer_sync(UiScreenCache *sc, const UiFonts *f, UiScreenId screen,
+                              const UiCard *cards, int n, int srcY)
+{
+    if (n > SC_MAX_CARDS) return false;
+
+    uint32_t sig[SC_MAX_CARDS];
+    float y[SC_MAX_CARDS], h[SC_MAX_CARDS];
+    float cy = 0.0f;
+    for (int i = 0; i < n; i++) {
+        sig[i] = ui_card_signature(&cards[i]);
+        bool known = (sc->hSig[i] == sig[i]);
+        h[i] = known ? sc->hVal[i] : ui_card_height(f, &cards[i], CONTENT_W);
+        sc->hSig[i] = sig[i]; sc->hVal[i] = h[i];
+        y[i] = cy;
+        cy += h[i] + CARD_GAP;
+    }
+    int needH = (int)ceilf(cy) + 8;
+
+    bool relayout = !sc->layoutValid || sc->screen != screen || sc->n != n;
+    for (int i = 0; !relayout && i < n; i++)
+        if (sc->y[i] != y[i] || sc->h[i] != h[i]) relayout = true;
+
+    if (!sc->layer || sc->layer->h < needH) {
+        ui_canvas_destroy(sc->layer);
+        sc->layer = ui_canvas_create_layer((int)PAGE_W, needH + 256);   // headroom: growth won't realloc each time
+        if (!sc->layer) return false;
+        relayout = true;
+    }
+    if (relayout) {
+        ui_layer_clear_rows(sc->layer, 0, sc->layer->h);
+        memset(sc->sig, 0, sizeof(sc->sig));
+        sc->screen = screen; sc->n = n; sc->layoutValid = true;
+        for (int i = 0; i < n; i++) { sc->y[i] = y[i]; sc->h[i] = h[i]; }
+    }
+
+    UiCanvas *lc = sc->layer;
+    ui_clip_reset(lc);
+    for (int i = 0; i < n; i++) {
+        if (y[i] + h[i] < (float)srcY - 2.0f || y[i] > (float)(srcY + (int)CONTENT_H) + 2.0f) continue;
+        if (sc->sig[i] == sig[i]) continue;
+        // The gap between cards is 20px, so a 8px margin can't touch a neighbour.
+        ui_layer_clear_rows(lc, (int)floorf(y[i]) - 8, (int)ceilf(y[i] + h[i]) + 8);
+        ui_card_draw(lc, f, &cards[i], PAGE_MARGIN_X, y[i], CONTENT_W);
+        sc->sig[i] = sig[i];
+    }
+    return true;
+}
+
+// Draws the cards for one scrolling screen, from the layer if there is one, else directly.
+static void draw_card_stack(UiCanvas *c, const UiFonts *f, UiScreenCache *sc, UiScreenId screen,
+                            const UiCard *cards, int n, float scrollY)
+{
+    if (sc) {
+        int srcY = (int)floorf(scrollY + 0.5f);
+        if (srcY < 0) srcY = 0;
+        if (scroll_layer_sync(sc, f, screen, cards, n, srcY)) {
+            // Layer row r lands on screen row CONTENT_TOP - srcY + r, so the slice starts at srcY.
+            ui_layer_composite(c, sc->layer, srcY, (int)CONTENT_TOP, (int)CONTENT_H);
+            return;
+        }
+    }
+    ui_clip_push(c, ui_rect(0.0f, CONTENT_TOP, PAGE_W, CONTENT_H));
+    float y = CONTENT_TOP - scrollY;
+    for (int i = 0; i < n; i++) {
+        float h = ui_card_height(f, &cards[i], CONTENT_W);
+        if (y + h > CONTENT_TOP - 40.0f && y < CONTENT_TOP + CONTENT_H + 40.0f)
+            ui_card_draw(c, f, &cards[i], PAGE_MARGIN_X, y, CONTENT_W);
+        y += h + CARD_GAP;
+    }
+    ui_clip_pop(c);
+}
+
+static void render_help_screen(UiCanvas *c, const UiFonts *f, const UiState *st, UiScreenCache *sc)
 {
     ui_draw_scene(c);
     ui_page_header(c, f, "Help",
@@ -426,17 +534,8 @@ static void render_help_screen(UiCanvas *c, const UiFonts *f, const UiState *st)
     UiCard cards[HELP_CARD_COUNT];
     help_cards_init(cards);
 
-    // .content { top:236px; height:844px; overflow-y:auto } -- same
-    // viewport the settings screens scroll within.
-    ui_clip_push(c, ui_rect(0.0f, CONTENT_TOP, PAGE_W, CONTENT_H));
-    float y = CONTENT_TOP - st->scrollY;
-    for (int i = 0; i < HELP_CARD_COUNT; i++) {
-        float h = ui_card_height(f, &cards[i], CONTENT_W);
-        if (y + h > CONTENT_TOP - 40.0f && y < CONTENT_TOP + CONTENT_H + 40.0f)
-            ui_card_draw(c, f, &cards[i], PAGE_MARGIN_X, y, CONTENT_W);
-        y += h + CARD_GAP;
-    }
-    ui_clip_pop(c);
+    // .content { top:236px; height:844px; overflow-y:auto } -- same viewport the settings screens scroll within.
+    draw_card_stack(c, f, sc, UI_SCREEN_HELP, cards, HELP_CARD_COUNT, st->scrollY);
 
     // A plain hint bar, not the settings screens' save bar -- Help has
     // nothing to save, just somewhere to scroll back from.
@@ -596,7 +695,8 @@ bool ui_screen_focus_bounds(const UiFonts *f, const AmbientConfig *cfg, UiScreen
 }
 
 static void render_settings_screen(UiCanvas *c, const UiFonts *f, const AmbientConfig *cfg,
-                                    const UiState *st, const char *title, const char *subtitle)
+                                    const UiState *st, const char *title, const char *subtitle,
+                                    UiScreenCache *sc)
 {
     ui_draw_scene(c);
     ui_page_header(c, f, title, subtitle);
@@ -606,15 +706,7 @@ static void render_settings_screen(UiCanvas *c, const UiFonts *f, const AmbientC
     int n = build_cards(cfg, st, st->screen, &vb, cards, fields, rows);
 
     // .content { top:236px; height:844px; overflow-y:auto }
-    ui_clip_push(c, ui_rect(0.0f, CONTENT_TOP, PAGE_W, CONTENT_H));
-    float y = CONTENT_TOP - st->scrollY;
-    for (int i = 0; i < n; i++) {
-        float h = ui_card_height(f, &cards[i], CONTENT_W);
-        if (y + h > CONTENT_TOP - 40.0f && y < CONTENT_TOP + CONTENT_H + 40.0f)
-            ui_card_draw(c, f, &cards[i], PAGE_MARGIN_X, y, CONTENT_W);
-        y += h + CARD_GAP;
-    }
-    ui_clip_pop(c);
+    draw_card_stack(c, f, sc, st->screen, cards, n, st->scrollY);
 
     {
         // .save-bar -- shared by Set up and Customization, not Customization-only.
@@ -1052,20 +1144,21 @@ static void render_home(UiCanvas *c, const UiFonts *f, const AmbientConfig *cfg,
 
 // ---------------------------------------------------------------
 
-void ui_render(UiCanvas *c, const UiFonts *f, const AmbientConfig *cfg, const UiState *st)
+static void render_screen(UiCanvas *c, const UiFonts *f, const AmbientConfig *cfg, const UiState *st,
+                          UiScreenCache *sc)
 {
     ui_clip_reset(c);
     switch (st->screen) {
         case UI_SCREEN_SETUP:
             render_settings_screen(c, f, cfg, st, "Set up",
-                "Connect WLED and describe how the physical LED strip runs around your display.");
+                "Connect WLED and describe how the physical LED strip runs around your display.", sc);
             break;
         case UI_SCREEN_CUSTOMIZATION:
             render_settings_screen(c, f, cfg, st, "Customization",
-                "Tune how captured colours are sampled, balanced and animated on the strip.");
+                "Tune how captured colours are sampled, balanced and animated on the strip.", sc);
             break;
         case UI_SCREEN_HELP:
-            render_help_screen(c, f, st);
+            render_help_screen(c, f, st, sc);
             if (st->qrVisible) render_qr_modal(c, f);
             break;
         case UI_SCREEN_HOME:
@@ -1073,4 +1166,15 @@ void ui_render(UiCanvas *c, const UiFonts *f, const AmbientConfig *cfg, const Ui
             render_home(c, f, cfg, st);
             break;
     }
+}
+
+void ui_render(UiCanvas *c, const UiFonts *f, const AmbientConfig *cfg, const UiState *st)
+{
+    render_screen(c, f, cfg, st, NULL);
+}
+
+void ui_render_cached(UiCanvas *c, const UiFonts *f, const AmbientConfig *cfg, const UiState *st,
+                      UiScreenCache *cache)
+{
+    render_screen(c, f, cfg, st, cache);
 }

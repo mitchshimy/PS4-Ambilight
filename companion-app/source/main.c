@@ -45,6 +45,9 @@
 #include "ui_theme.h"
 #include "ui_screens.h"
 #include "led_frame.h"
+#include "pad_input.h"     // buffered controller samples -> button events (host-tested)
+#include "frame_prof.h"    // slow-iteration log
+#include "scroll_ease.h"   // animated scrolling
 #include "ui_widgets.h"   // CONTENT_TOP / CONTENT_H for scroll clamping
 #include "help_qr.h"
 #include "install_plan.h"  // shell feed + plugin: what is pending, what the Home button does
@@ -104,8 +107,24 @@ void set_status(const char *msg, bool isError)
 static uint32_t *g_homeStaticCache = NULL;
 static bool g_homeStaticCacheValid = false;
 
+// Cards of Set up / Customization / Help, painted once into a layer (see ui_render_cached).
+static UiScreenCache *g_screenCache = NULL;
+
+// Microsecond clock for the slow-iteration log. SDL_GetTicks is only 1 ms and far too coarse to split a frame.
+static uint64_t now_us(void)
+{
+    static uint64_t freq = 0;
+    if (!freq) { freq = SDL_GetPerformanceFrequency(); if (!freq) freq = 1000000u; }
+    return (uint64_t)((double)SDL_GetPerformanceCounter() * 1e6 / (double)freq);
+}
+static FrameProf g_prof;
+// Which stage the loop is in, so an interim frame drawn from deep inside blocking work (install, repair)
+// charges that work to the right stage instead of to "render".
+static FrameStage g_profStage = FP_INPUT;
+
 void render_and_present(void)
 {
+    frame_prof_mark(&g_prof, g_profStage, now_us());
     if (g_state.screen == UI_SCREEN_HOME) {
         // Drawn in two pieces (not ui_render()) specifically so the static part can be snapshotted before the...
         // More: docs/code-comments.md (companion-app/source/main.c:153)
@@ -119,50 +138,49 @@ void render_and_present(void)
                             g_state.ledColors, g_state.ledColorCount);
         }
     } else {
-        ui_render(g_canvas, g_fonts, &g_cfg, &g_state);
+        ui_render_cached(g_canvas, g_fonts, &g_cfg, &g_state, g_screenCache);
         // Left Home -- rebuild the cache from scratch next time we're back rather than trust a snapshot from a...
         // More: docs/code-comments.md (companion-app/source/main.c:167)
         g_homeStaticCacheValid = false;
     }
+    frame_prof_mark(&g_prof, FP_RENDER, now_us());
     SDL_BlitSurface(g_canvasSurface, NULL, g_windowSurface, NULL);
     SDL_UpdateWindowSurface(g_window);
+    frame_prof_mark(&g_prof, FP_PRESENT, now_us());
 }
 
 // The actual fast path: reuse the cached static layer, redraw only the (now cheap -- see led_frame.c)...
 // More: docs/code-comments.md (companion-app/source/main.c:176)
 static void render_home_fast(void)
 {
+    frame_prof_mark(&g_prof, g_profStage, now_us());
     if (!g_homeStaticCache) return; // shouldn't happen (see g_homeStaticCacheValid's invariant), but cheap to guard
     memcpy(g_canvas->px, g_homeStaticCache, (size_t)FRAME_WIDTH * FRAME_HEIGHT * sizeof(uint32_t));
     led_frame_draw(g_canvas, g_state.ledSlots, g_state.ledSlotCount,
                     g_state.ledColors, g_state.ledColorCount);
+    frame_prof_mark(&g_prof, FP_RENDER, now_us());
     SDL_BlitSurface(g_canvasSurface, NULL, g_windowSurface, NULL);
     SDL_UpdateWindowSurface(g_window);
+    frame_prof_mark(&g_prof, FP_PRESENT, now_us());
 }
 
 // button auto-repeat Holding a D-Pad direction or L1/R1 now fires repeatedly instead of once per press...
 // More: docs/code-comments.md (companion-app/source/main.c:190)
 
-typedef struct { bool wasDown; uint32_t pressedAtMs; uint32_t lastRepeatMs; } RepeatState;
+// Held D-Pad / L1 / R1 auto-repeat and the press / release edges live in pad_input.c.
 
-#define REPEAT_INITIAL_DELAY_MS 350u
-#define REPEAT_INTERVAL_MS      90u
-
-static bool repeat_fire(RepeatState *rs, bool down, uint32_t nowMs)
+// Scroll position: g_scroll.target is where the view is going, g_state.scrollY (what the renderer reads)
+// is where it is now, eased toward it every frame by scroll_animate().
+static ScrollEase g_scroll;
+static void scroll_snap(float v) { scroll_ease_snap(&g_scroll, v); g_state.scrollY = v; }
+// Returns true while the view is still moving.
+static bool scroll_animate(float dtSec)
 {
-    if (!down) { rs->wasDown = false; return false; }
-    if (!rs->wasDown) {
-        rs->wasDown = true;
-        rs->pressedAtMs = nowMs;
-        rs->lastRepeatMs = nowMs;
-        return true; // fires immediately on the initial press
-    }
-    if (nowMs - rs->pressedAtMs < REPEAT_INITIAL_DELAY_MS) return false;
-    if (nowMs - rs->lastRepeatMs >= REPEAT_INTERVAL_MS) {
-        rs->lastRepeatMs = nowMs;
-        return true;
-    }
-    return false;
+    float before = g_state.scrollY;
+    bool moving = scroll_ease_step(&g_scroll, dtSec);
+    g_state.scrollY = g_scroll.pos;
+    if (g_state.scrollY != before) g_dirty = true;
+    return moving;
 }
 
 // field navigation Row structure comes from ui_screen_field_rows() (ui_screens.c), which is the exact...
@@ -202,7 +220,7 @@ static void scroll_to_focus(const UiFonts *fonts, int fieldCount)
     if (maxScroll < 0.0f) maxScroll = 0.0f;
 
     if (g_state.focusField >= fieldCount) {
-        g_state.scrollY = maxScroll;
+        g_scroll.target = maxScroll;
         return;
     }
 
@@ -210,15 +228,19 @@ static void scroll_to_focus(const UiFonts *fonts, int fieldCount)
     if (!ui_screen_focus_bounds(fonts, &g_cfg, g_state.screen, g_state.focusField, &top, &bottom))
         return;
 
-    float viewTop = CONTENT_TOP + g_state.scrollY;
+    // Measured against where the view is going, not where it is right now, so a second press while it is
+    // still gliding keeps heading the right way.
+    float viewTop = CONTENT_TOP + g_scroll.target;
     float viewBottom = viewTop + CONTENT_H;
     const float pad = 24.0f;
+    float t = g_scroll.target;
 
-    if (top - pad < viewTop) g_state.scrollY -= (viewTop - (top - pad));
-    else if (bottom + pad > viewBottom) g_state.scrollY += ((bottom + pad) - viewBottom);
+    if (top - pad < viewTop) t -= (viewTop - (top - pad));
+    else if (bottom + pad > viewBottom) t += ((bottom + pad) - viewBottom);
 
-    if (g_state.scrollY > maxScroll) g_state.scrollY = maxScroll;
-    if (g_state.scrollY < 0.0f) g_state.scrollY = 0.0f;
+    if (t > maxScroll) t = maxScroll;
+    if (t < 0.0f) t = 0.0f;
+    g_scroll.target = t;
 }
 
 // ---------------- controller ----------------
@@ -234,6 +256,81 @@ static bool pad_init(void)
     g_padHandle = scePadOpen(g_userId, 0, 0, NULL);
     if (g_padHandle < 0) { printf("[pad] scePadOpen failed (%d)\n", g_padHandle); return false; }
     return true;
+}
+
+// scePadRead returns every sample queued since the last call (up to 64); pad_input.c orders them by timestamp.
+#define PAD_READ_MAX 64
+// 1 = buffered scePadRead; 0 = one scePadReadState per pass, as other homebrew does (buffered is only checked against shadPS4).
+#define PAD_BUFFERED_READ 1
+static PadInput g_padIn;
+static OrbisPadData g_padRaw[PAD_READ_MAX];
+static PadSample g_padSamples[PAD_READ_MAX];
+static bool g_padStateOnly = !PAD_BUFFERED_READ;   // true: one snapshot per read (set at runtime too if scePadRead is not delivering)
+
+static void pad_input_setup(void)
+{
+    PadMasks m = {
+        ORBIS_PAD_BUTTON_UP, ORBIS_PAD_BUTTON_DOWN, ORBIS_PAD_BUTTON_LEFT, ORBIS_PAD_BUTTON_RIGHT,
+        ORBIS_PAD_BUTTON_L1, ORBIS_PAD_BUTTON_R1, ORBIS_PAD_BUTTON_CROSS, ORBIS_PAD_BUTTON_CIRCLE,
+        ORBIS_PAD_BUTTON_TRIANGLE, ORBIS_PAD_BUTTON_SQUARE, ORBIS_PAD_BUTTON_OPTIONS
+    };
+    padin_init(&g_padIn, &m);
+}
+
+// Fills g_padSamples with what the pad has for us. Returns the count (0 = nothing new).
+static int pad_collect(uint32_t nowMs)
+{
+    int n = 0;
+    if (!g_padStateOnly) {
+        int32_t r = scePadRead(g_padHandle, g_padRaw, PAD_READ_MAX);
+        if (r < 0) {
+            printf("[pad] scePadRead failed (%d) -- using single snapshots\n", (int)r);
+            g_padStateOnly = true;
+        } else {
+            n = r > PAD_READ_MAX ? PAD_READ_MAX : (int)r;
+            for (int i = 0; i < n; i++) {
+                g_padSamples[i].buttons = g_padRaw[i].buttons;
+                g_padSamples[i].timestamp = g_padRaw[i].timestamp;
+            }
+        }
+    }
+    // Safety net: if scePadRead keeps saying "nothing" while a single snapshot shows the buttons are not what
+    // we last saw, the buffered read is not working on this system. Checked every 100 ms, three misses in a row.
+    static uint32_t lastCheckMs = 0;
+    static int misses = 0;
+    if (!g_padStateOnly && n == 0 && nowMs - lastCheckMs >= 100u) {
+        lastCheckMs = nowMs;
+        OrbisPadData snap;
+        memset(&snap, 0, sizeof(snap));
+        if (scePadReadState(g_padHandle, &snap) == 0) {
+            uint32_t seen = g_padIn.prev | g_padIn.ignore;
+            if (snap.buttons != seen) {
+                if (++misses >= 3) {
+                    printf("[pad] scePadRead returns nothing while the pad changes -- using single snapshots\n");
+                    g_padStateOnly = true;
+                }
+            } else misses = 0;
+        }
+    }
+    if (g_padStateOnly) {
+        OrbisPadData snap;
+        memset(&snap, 0, sizeof(snap));
+        if (scePadReadState(g_padHandle, &snap) == 0) {
+            g_padSamples[0].buttons = snap.buttons;
+            g_padSamples[0].timestamp = 0;      // no history: every snapshot counts
+            n = 1;
+        }
+    }
+    return n;
+}
+
+// Drops whatever is queued and ignores buttons held right now until they are let go. After a blocking call,
+// the on-screen keyboard, or coming back from the background, presses made meanwhile must not fire late.
+static void pad_flush(uint32_t nowMs)
+{
+    if (g_padHandle < 0) return;
+    int n = pad_collect(nowMs);
+    padin_resync(&g_padIn, g_padSamples, n, nowMs);
 }
 
 // Home button: pending actions The work itself lives in plugin_install.c and shell_feed.c; the...
@@ -448,17 +545,17 @@ static void handle_home_input(bool up, bool down, bool left, bool right, bool cr
             break;
         case HOME_FOCUS_HELP:
             g_state.screen = UI_SCREEN_HELP;
-            g_state.scrollY = 0.0f;
+            scroll_snap(0.0f);
             break;
         case HOME_FOCUS_SETUP:
             g_state.screen = UI_SCREEN_SETUP;
             g_state.focusField = 0;
-            g_state.scrollY = 0.0f;
+            scroll_snap(0.0f);
             break;
         case HOME_FOCUS_CUST:
             g_state.screen = UI_SCREEN_CUSTOMIZATION;
             g_state.focusField = 0;
-            g_state.scrollY = 0.0f;
+            scroll_snap(0.0f);
             break;
         default:
             break;
@@ -691,7 +788,7 @@ static void handle_settings_input(bool up, bool down, bool left, bool right,
 
     if (circle) {
         g_state.screen = UI_SCREEN_HOME;
-        g_state.scrollY = 0.0f;
+        scroll_snap(0.0f);
         g_dirty = true;
     }
 }
@@ -717,9 +814,10 @@ static void handle_help_input(bool up, bool down, bool circle, bool cross, bool 
         float maxScroll = ui_screen_content_height(g_fonts, &g_cfg, UI_SCREEN_HELP) - CONTENT_H;
         if (maxScroll < 0.0f) maxScroll = 0.0f;
 
-        g_state.scrollY += down ? HELP_SCROLL_STEP_PX : -HELP_SCROLL_STEP_PX;
-        if (g_state.scrollY < 0.0f) g_state.scrollY = 0.0f;
-        if (g_state.scrollY > maxScroll) g_state.scrollY = maxScroll;
+        float t = g_scroll.target + (down ? HELP_SCROLL_STEP_PX : -HELP_SCROLL_STEP_PX);
+        if (t < 0.0f) t = 0.0f;
+        if (t > maxScroll) t = maxScroll;
+        g_scroll.target = t;
         g_dirty = true;
     }
 
@@ -731,7 +829,7 @@ static void handle_help_input(bool up, bool down, bool circle, bool cross, bool 
 
     if (circle) {
         g_state.screen = UI_SCREEN_HOME;
-        g_state.scrollY = 0.0f;
+        scroll_snap(0.0f);
         g_dirty = true;
     }
 }
@@ -845,24 +943,30 @@ int main(void)
     // Firmware the standalone shell loader is untested on, or has no entry for: read once and shown as a note.
     firmware_check();
 
-    OrbisPadData pad, prevPad;
-    memset(&pad, 0, sizeof(pad));
-    memset(&prevPad, 0, sizeof(prevPad));
-
-    RepeatState rsUp, rsDown, rsLeft, rsRight, rsL1, rsR1;
-    memset(&rsUp, 0, sizeof(rsUp));
-    memset(&rsDown, 0, sizeof(rsDown));
-    memset(&rsLeft, 0, sizeof(rsLeft));
-    memset(&rsRight, 0, sizeof(rsRight));
-    memset(&rsL1, 0, sizeof(rsL1));
-    memset(&rsR1, 0, sizeof(rsR1));
+    pad_input_setup();
+    scroll_snap(0.0f);
+    g_screenCache = ui_screen_cache_create();
+    frame_prof_init(&g_prof);
 
     uint32_t lastTicksMs = SDL_GetTicks();
 
+    // Only input and drawing run fast; network, files, lease and update check keep their old 30 Hz cadence,
+    // or polling the pad every few ms would also send the UDP preview and touch the claim files that often.
+    const uint32_t SERVICE_INTERVAL_MS = 33u;
+    const uint32_t IDLE_SLEEP_US = 2000u;        // between pad reads when there is nothing to draw
+    const uint32_t BLOCKING_HANDLER_MS = 250u;   // a press that took this long did blocking work: drop what queued meanwhile
+    uint32_t lastServiceMs = lastTicksMs - SERVICE_INTERVAL_MS;
+    bool wasDialog = false, wasBackgroundedForPad = false;
+    bool lastConfirmShown = false;
+
     bool running = true;
     while (running) {
+        uint64_t iterStartUs = now_us();
+        frame_prof_begin(&g_prof, iterStartUs);
+        g_profStage = FP_INPUT;
         uint32_t nowMs = SDL_GetTicks();
-        g_animSeconds += (nowMs - lastTicksMs) / 1000.0f;
+        float dtSec = (float)(nowMs - lastTicksMs) / 1000.0f;
+        g_animSeconds += dtSec;
         lastTicksMs = nowMs;
 
         SDL_Event ev;
@@ -870,123 +974,139 @@ int main(void)
             if (ev.type == SDL_QUIT) running = false;
         }
 
+        // ---- controller: every sample since the last pass, oldest first ----
         if (g_padHandle >= 0) {
-            prevPad = pad;
-            scePadReadState(g_padHandle, &pad);
-
-            // While the on-screen keyboard is up, this app's own D-Pad-driven input has to sit out that frame so...
+            // While the on-screen keyboard is up, this app's own D-Pad-driven input has to sit out so...
             // More: docs/code-comments.md (companion-app/source/main.c:1067)
             bool commonDialogUsed = sceCommonDialogIsUsed();
+            bool dialogJustClosed = wasDialog && !commonDialogUsed;
+            wasDialog = commonDialogUsed;
+            bool justForegrounded = wasBackgroundedForPad && !g_appBackgrounded;
+            wasBackgroundedForPad = g_appBackgrounded;
 
-            // D-Pad + L1/R1: held-repeat (see repeat_fire() above).
-            bool up    = repeat_fire(&rsUp,    (pad.buttons & ORBIS_PAD_BUTTON_UP) != 0,    nowMs);
-            bool down  = repeat_fire(&rsDown,  (pad.buttons & ORBIS_PAD_BUTTON_DOWN) != 0,  nowMs);
-            bool left  = repeat_fire(&rsLeft,  (pad.buttons & ORBIS_PAD_BUTTON_LEFT) != 0,  nowMs);
-            bool right = repeat_fire(&rsRight, (pad.buttons & ORBIS_PAD_BUTTON_RIGHT) != 0, nowMs);
-            bool l1    = repeat_fire(&rsL1,    (pad.buttons & ORBIS_PAD_BUTTON_L1) != 0,    nowMs);
-            bool r1    = repeat_fire(&rsR1,    (pad.buttons & ORBIS_PAD_BUTTON_R1) != 0,    nowMs);
-
-            // Cross, Circle, Options: edge-only, on purpose (see the
-            // comment above repeat_fire()).
-            #define PRESSED(b) ((pad.buttons & (b)) && !(prevPad.buttons & (b)))
-            bool circle   = PRESSED(ORBIS_PAD_BUTTON_CIRCLE);
-            bool options  = PRESSED(ORBIS_PAD_BUTTON_OPTIONS);
-            bool triangle = PRESSED(ORBIS_PAD_BUTTON_TRIANGLE);
-            bool square   = PRESSED(ORBIS_PAD_BUTTON_SQUARE);
-            // Cross fires on release, not press: opening the keyboard on the press edge left a stale press for the...
-            // More: docs/code-comments.md (companion-app/source/main.c:1088)
-            bool crossUp = !(pad.buttons & ORBIS_PAD_BUTTON_CROSS) && (prevPad.buttons & ORBIS_PAD_BUTTON_CROSS);
-            #undef PRESSED
-
-            if (options || g_quitRequested) running = false;
-
-            if (!commonDialogUsed) {
-                if (g_state.screen == UI_SCREEN_HOME)
-                    handle_home_input(up, down, left, right, crossUp);
-                else if (g_state.screen == UI_SCREEN_HELP)
-                    handle_help_input(up, down, circle, crossUp, triangle);
-                else
-                    handle_settings_input(up, down, left, right, crossUp, circle, l1, r1, square);
+            if (dialogJustClosed || justForegrounded) {
+                pad_flush(nowMs);
+            } else {
+                int n = pad_collect(nowMs);
+                PadEvents pe[PAD_READ_MAX + 1];
+                int ne = padin_process(&g_padIn, g_padSamples, n, nowMs, pe, PAD_READ_MAX + 1);
+                for (int i = 0; i < ne; i++) {
+                    if (pe[i].options) running = false;
+                    if (commonDialogUsed) continue;      // edges are still tracked above, just not acted on
+                    uint32_t h0 = SDL_GetTicks();
+                    if (g_state.screen == UI_SCREEN_HOME)
+                        handle_home_input(pe[i].up, pe[i].down, pe[i].left, pe[i].right, pe[i].crossUp);
+                    else if (g_state.screen == UI_SCREEN_HELP)
+                        handle_help_input(pe[i].up, pe[i].down, pe[i].circle, pe[i].crossUp, pe[i].triangle);
+                    else
+                        handle_settings_input(pe[i].up, pe[i].down, pe[i].left, pe[i].right, pe[i].crossUp,
+                                              pe[i].circle, pe[i].l1, pe[i].r1, pe[i].square);
+                    if (SDL_GetTicks() - h0 >= BLOCKING_HANDLER_MS) {   // install / save / launch on a slow disk
+                        pad_flush(SDL_GetTicks());
+                        break;
+                    }
+                }
             }
         }
+        if (g_quitRequested) running = false;
+        frame_prof_mark(&g_prof, FP_INPUT, now_us());
 
-        poll_background_update_check();
-
-        if (ime_is_open()) {
-            ImeHost host = ime_host();
-            if (ime_update(&host)) g_dirty = true;
-        }
-
-        // wled-relay hand-off signal: this app has no idle/Home-only mode for this purpose -- "driving the...
-        // More: docs/code-comments.md (companion-app/source/main.c:1115)
-        static bool s_relayWasActive = false;
-        if (g_cfg.relaySignalEnabled != s_relayWasActive) {
-            relay_send_external_source(g_cfg.relayHost, g_cfg.relayPort, g_cfg.relaySignalEnabled != 0);
-            s_relayWasActive = g_cfg.relaySignalEnabled != 0;
-        }
-
-        // Set up/Customization always keep the live preview running, since their own LED edge frame is always...
-        // More: docs/code-comments.md (companion-app/source/main.c:1137)
+        // ---- everything else, at 30 Hz ----
+        bool serviceTick = (nowMs - lastServiceMs) >= SERVICE_INTERVAL_MS;
         bool screenHasLedFrame = (g_state.screen == UI_SCREEN_SETUP || g_state.screen == UI_SCREEN_CUSTOMIZATION);
-        poll_background_state(nowMs);
-        {   // GoldHEN's plugin loader switch: every 2 s on Home, and at once on coming back to the app
-            static uint32_t lastLoaderPollMs = 0;
-            static bool wasBackgrounded = false;
-            bool justForegrounded = wasBackgrounded && !g_appBackgrounded;
-            wasBackgrounded = g_appBackgrounded;
-            if (g_state.screen == UI_SCREEN_HOME && !g_appBackgrounded &&
-                (justForegrounded || nowMs - lastLoaderPollMs >= 2000u)) {
-                lastLoaderPollMs = nowMs;
-                refresh_plugin_loader_state();
+        if (serviceTick) {
+            lastServiceMs = nowMs;
+            g_profStage = FP_POLL;
+
+            poll_background_update_check();
+
+            if (ime_is_open()) {
+                ImeHost host = ime_host();
+                if (ime_update(&host)) g_dirty = true;
             }
-        }
-        // Sending stops while the app is in the background (PS button), otherwise it keeps holding the strip.
-        if ((screenHasLedFrame || g_state.testRunning) && !g_appBackgrounded) {
-            update_live_preview();
-        }
 
-        // While this app is sending to the strip (the same condition as above) and the Shell feed is on, claim...
-        // More: docs/code-comments.md (companion-app/source/main.c:1162)
-        {
-            static bool s_wasOnHome = true;
-            bool onHome = (g_state.screen == UI_SCREEN_HOME);
-            // Coming back to Home is when a hand-copied or deleted file is noticed.
-            if (onHome && !s_wasOnHome && g_cfg.shellEnabled) rescan_shell_files();
-            s_wasOnHome = onHome;
+            // wled-relay hand-off signal: this app has no idle/Home-only mode for this purpose -- "driving the...
+            // More: docs/code-comments.md (companion-app/source/main.c:1115)
+            static bool s_relayWasActive = false;
+            if (g_cfg.relaySignalEnabled != s_relayWasActive) {
+                relay_send_external_source(g_cfg.relayHost, g_cfg.relayPort, g_cfg.relaySignalEnabled != 0);
+                s_relayWasActive = g_cfg.relaySignalEnabled != 0;
+            }
+            poll_background_state(nowMs);
+            frame_prof_mark(&g_prof, FP_POLL, now_us());
 
-            // Held while EITHER the switch or the saved ini says on (see g_shellEnabledOnDisk).
-            // The claim goes over the loopback lease when the payload listens (lease_app_tick); the claim file is the fallback, kept at fg=0 otherwise.
-            bool driving = (g_cfg.shellEnabled || g_shellEnabledOnDisk) && !g_appBackgrounded &&
-                           (screenHasLedFrame || g_state.testRunning);
-            bool leased = lease_app_tick(nowMs, driving);
-            claim_tick(&g_claim, nowMs, driving && !leased, claim_write_cb, NULL);
-            sync_shell_summary();
-            shell_alive_poll(nowMs);
+            g_profStage = FP_PREVIEW;
+            // Sending stops while the app is in the background (PS button), otherwise it keeps holding the strip.
+            if ((screenHasLedFrame || g_state.testRunning) && !g_appBackgrounded) {
+                update_live_preview();
+            }
+            frame_prof_mark(&g_prof, FP_PREVIEW, now_us());
+
+            g_profStage = FP_IO;
+            {   // GoldHEN's plugin loader switch: every 2 s on Home, and at once on coming back to the app
+                static uint32_t lastLoaderPollMs = 0;
+                static bool wasBackgrounded = false;
+                bool justForegrounded = wasBackgrounded && !g_appBackgrounded;
+                wasBackgrounded = g_appBackgrounded;
+                if (g_state.screen == UI_SCREEN_HOME && !g_appBackgrounded &&
+                    (justForegrounded || nowMs - lastLoaderPollMs >= 2000u)) {
+                    lastLoaderPollMs = nowMs;
+                    refresh_plugin_loader_state();
+                }
+            }
+
+            // While this app is sending to the strip (the same condition as the preview) and the Shell feed is on, claim...
+            // More: docs/code-comments.md (companion-app/source/main.c:1162)
+            {
+                static bool s_wasOnHome = true;
+                bool onHome = (g_state.screen == UI_SCREEN_HOME);
+                // Coming back to Home is when a hand-copied or deleted file is noticed.
+                if (onHome && !s_wasOnHome && g_cfg.shellEnabled) rescan_shell_files();
+                s_wasOnHome = onHome;
+
+                // Held while EITHER the switch or the saved ini says on (see g_shellEnabledOnDisk).
+                // The claim goes over the loopback lease when the payload listens (lease_app_tick); the claim file is the fallback, kept at fg=0 otherwise.
+                bool driving = (g_cfg.shellEnabled || g_shellEnabledOnDisk) && !g_appBackgrounded &&
+                               (screenHasLedFrame || g_state.testRunning);
+                bool leased = lease_app_tick(nowMs, driving);
+                claim_tick(&g_claim, nowMs, driving && !leased, claim_write_cb, NULL);
+                sync_shell_summary();
+                shell_alive_poll(nowMs);
+            }
+            frame_prof_mark(&g_prof, FP_IO, now_us());
         }
+        g_profStage = FP_INPUT;
 
         g_state.saveJustConfirmed = (nowMs < g_saveConfirmUntilMs);
+        if (g_state.saveJustConfirmed != lastConfirmShown) { lastConfirmShown = g_state.saveJustConfirmed; g_dirty = true; }
 
-        // Normally the app only redraws when something actually changed (g_dirty), which is what lets it sit...
-        // More: docs/code-comments.md (companion-app/source/main.c:1183)
+        // Ease the scroll toward its target: each frame of that is a redraw, so the loop runs full rate while it glides.
+        bool scrolling = scroll_animate(dtSec);
+
+        // ---- draw ---- only when something changed (g_dirty) or is moving, so a static screen sits idle.
         bool onHomeTest = (g_state.screen == UI_SCREEN_HOME && g_state.testRunning);
-        bool needsContinuousRedraw = onHomeTest || g_state.saveJustConfirmed;
-
+        bool rendered = false;
         if (g_dirty) {
             // Something actually changed (focus moved, install state flipped, a field was edited, ...) -- a full...
             // More: docs/code-comments.md (companion-app/source/main.c:1195)
             render_and_present();
             g_dirty = false;
-        } else if (onHomeTest && g_homeStaticCacheValid) {
-            // The only thing that changed this frame is the animation -- reuse the cached static layer and redraw...
-            // More: docs/code-comments.md (companion-app/source/main.c:1201)
-            render_home_fast();
-        } else if (needsContinuousRedraw) {
-            // Continuous redraw is needed but the fast path isn't available yet (e.g. the very first animation...
-            // More: docs/code-comments.md (companion-app/source/main.c:1212)
-            render_and_present();
+            rendered = true;
+        } else if (onHomeTest && serviceTick) {
+            // The only thing that changed is the strip animation, which advances on the 30 Hz tick: reuse the
+            // cached static layer and redraw just the LED frame (full redraw if the cache is not ready yet).
+            if (g_homeStaticCacheValid) render_home_fast(); else render_and_present();
+            rendered = true;
         }
 
-        usleep(1000000 / 30);
+        char profLine[256];
+        const char *tag = g_state.screen == UI_SCREEN_HOME ? "Home" :
+                          g_state.screen == UI_SCREEN_SETUP ? "Set up" :
+                          g_state.screen == UI_SCREEN_CUSTOMIZATION ? "Customization" : "Help";
+        if (frame_prof_end(&g_prof, now_us(), tag, profLine, sizeof(profLine))) printf("%s\n", profLine);
+
+        // A drawn frame already waited for the flip; otherwise nap briefly and look at the pad again.
+        if (!rendered && !scrolling) usleep(IDLE_SLEEP_US);
     }
 
     // BUG FIX: closing the app (Options button or SDL_QUIT) previously went straight to teardown, so any...
@@ -1007,6 +1127,7 @@ int main(void)
     }
     ui_fonts_destroy(&fonts);
     free(g_homeStaticCache);
+    ui_screen_cache_destroy(g_screenCache);
     SDL_FreeSurface(canvasSurface);
     ui_canvas_destroy(canvas);
     SDL_DestroyWindow(window);

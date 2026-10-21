@@ -384,6 +384,40 @@ static void draw_field(UiCanvas *c, const UiFonts *f, const UiField *fd, float x
 // Card drawing
 // More: docs/code-comments.md (companion-app/source/ui_widgets.c:398)
 
+static uint32_t fnv_bytes(uint32_t h, const void *p, size_t n)
+{
+    const unsigned char *b = (const unsigned char *)p;
+    for (size_t i = 0; i < n; i++) { h ^= b[i]; h *= 16777619u; }
+    return h;
+}
+static uint32_t fnv_str(uint32_t h, const char *s)
+{
+    if (!s) return fnv_bytes(h, "\1", 1);
+    return fnv_bytes(h, s, strlen(s) + 1);
+}
+#define FNV_POD(h, v) fnv_bytes((h), &(v), sizeof(v))
+
+uint32_t ui_card_signature(const UiCard *card)
+{
+    uint32_t h = 2166136261u;
+    h = FNV_POD(h, card->accent);  h = FNV_POD(h, card->icon);  h = FNV_POD(h, card->iconColor);
+    h = fnv_str(h, card->title);   h = fnv_str(h, card->desc);
+    h = FNV_POD(h, card->rowCount); h = FNV_POD(h, card->totalAfterRow);
+    h = fnv_str(h, card->totalLabel); h = fnv_str(h, card->totalValue);
+    for (int r = 0; r < card->rowCount; r++) {
+        const UiFieldRow *row = &card->rows[r];
+        h = FNV_POD(h, row->count); h = FNV_POD(h, row->marginTop);
+        for (int i = 0; i < row->count; i++) {
+            const UiField *fl = &row->fields[i];
+            h = FNV_POD(h, fl->labelIcon); h = fnv_str(h, fl->label); h = FNV_POD(h, fl->labelColor);
+            h = FNV_POD(h, fl->kind);      h = fnv_str(h, fl->value); h = FNV_POD(h, fl->valueIcon);
+            h = FNV_POD(h, fl->toggleOn);  h = FNV_POD(h, fl->armed); h = FNV_POD(h, fl->focused);
+            h = FNV_POD(h, fl->basis);     h = FNV_POD(h, fl->fixed);
+        }
+    }
+    return h ? h : 1u;
+}
+
 void ui_card_draw(UiCanvas *c, const UiFonts *f, const UiCard *card, float x, float y, float width)
 {
     float h = ui_card_height(f, card, width);

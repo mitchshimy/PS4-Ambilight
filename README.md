@@ -601,7 +601,7 @@ PS4-Ambilight/
 ├── companion-app/      # standalone PS4 homebrew app: on-console settings UI + live preview
 │   ├── source/, include/, assets/, sce_sys/, sce_module/
 │   ├── tests/           # isolated unit tests for settings, pipeline, layout and the shell feed logic
-│   └── tools/           # ui_preview: renders Home, Set up and Help to PNG on a PC
+│   └── tools/           # ui_preview (Home, Set up and Help to PNG on a PC), ui_scroll_check (cached scroll layer vs direct render)
 ├── tools/               # PC-side Python/C helper scripts for capture, verification and
 │                        # serve_local_release.py (a local stand-in for a GitHub release)
 ├── docs/                # architecture, history, debugging write-ups, dev notes

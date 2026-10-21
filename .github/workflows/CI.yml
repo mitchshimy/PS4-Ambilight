@@ -163,7 +163,7 @@ jobs:
         run: |
           mkdir -p build/int
           for f in source/*.c; do
-            clang --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables \
+            clang --target=x86_64-pc-freebsd12-elf -O2 -fPIC -funwind-tables \
               -I"$OO_PS4_TOOLCHAIN/include" -I"$OO_PS4_TOOLCHAIN/include/c++/v1" -Iinclude \
               -c -o "build/int/$(basename "${f%.c}").o" "$f"
           done

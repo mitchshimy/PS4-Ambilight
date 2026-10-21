@@ -69,6 +69,10 @@ typedef struct {
 
 float ui_card_height(const UiFonts *f, const UiCard *card, float width);
 
+// Hash of everything that decides how a card looks (text, values, icons, colours, focus, armed...)...
+// two cards with the same signature draw identically at the same width. Never 0.
+uint32_t ui_card_signature(const UiCard *card);
+
 // Vertical offset (from the card's top edge) and height of one field row, so a caller can scroll a...
 // More: docs/code-comments.md (companion-app/source/ui_widgets.h:83)
 bool ui_card_row_offset(const UiFonts *f, const UiCard *card, int row, float *outY, float *outH);

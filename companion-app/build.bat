@@ -71,12 +71,14 @@ set outputOelf=%intdir%\%targetname%.oelf
 
 @mkdir %intdir%
 
+Rem -O2: the UI is a CPU rasterizer; without an -O flag clang builds at -O0 and a full
+Rem redraw cost roughly 2.5x more (host-measured), which made input feel sticky.
 Rem freetype2 include added for text_render.c's <ft2build.h> / FT_FREETYPE_H
 Rem -- standard FreeType2 install layout puts headers under an SDK
 Rem freetype2\ subfolder, not directly in include\. If your toolchain
 Rem snapshot places them elsewhere, adjust this one -I.
 for %%f in (source\*.c) do (
-    clang --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -I"%OO_PS4_TOOLCHAIN%\include" -I"%OO_PS4_TOOLCHAIN%\include\freetype2" -I"%OO_PS4_TOOLCHAIN%\include\c++\v1" -I"include" -c -o %intdir%\%%~nf.o %%f
+    clang --target=x86_64-pc-freebsd12-elf -O2 -fPIC -funwind-tables -I"%OO_PS4_TOOLCHAIN%\include" -I"%OO_PS4_TOOLCHAIN%\include\freetype2" -I"%OO_PS4_TOOLCHAIN%\include\c++\v1" -I"include" -c -o %intdir%\%%~nf.o %%f
 )
 
 set obj_files=

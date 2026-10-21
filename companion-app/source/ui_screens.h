@@ -85,6 +85,15 @@ typedef struct {
 
 void ui_render(UiCanvas *c, const UiFonts *f, const AmbientConfig *cfg, const UiState *st);
 
+// Same picture as ui_render(), but Set up / Customization / Help composite cached card layers (scroll rounds to whole pixels).
+// Home ignores the cache.
+typedef struct UiScreenCache UiScreenCache;
+UiScreenCache *ui_screen_cache_create(void);
+void ui_screen_cache_destroy(UiScreenCache *cache);
+void ui_screen_cache_invalidate(UiScreenCache *cache);   // after anything the signatures can't see (fonts, config reload)
+void ui_render_cached(UiCanvas *c, const UiFonts *f, const AmbientConfig *cfg, const UiState *st,
+                      UiScreenCache *cache);
+
 // Draws every part of Home except the LED edge frame (led_frame.c's job, driven by...
 // More: docs/code-comments.md (companion-app/source/ui_screens.h:108)
 void ui_render_home_static(UiCanvas *c, const UiFonts *f, const AmbientConfig *cfg, const UiState *st);

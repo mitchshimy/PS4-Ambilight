@@ -11,6 +11,25 @@ companion app) are documented here, newest first.
   checks that the two agree and that this heading exists. Entries below that say `g_pluginVersion` is unchanged were written while
   they were unreleased and are left as they were. The plugin's "plugin updated to v4.0 (was v3.9)" console notice appears once
   after installing it. Tag the release `v4.0` or `v4.0.0`.
+- **Companion app 1.02: the controls no longer feel sticky.** Host measurements (not yet timed on a console) showed the app was built
+  with no optimisation flag (clang `-O0`) while its UI is a CPU rasteriser, so one redraw of Set up cost about 2.3x what it should, and
+  a press that began and ended inside one slow redraw was never seen. Changes: (1) `-O2` in `build.bat` and CI. (2) The pad is read
+  with `scePadRead`, which returns every sample queued since the last read; each is stepped through the same edge and repeat logic in
+  time order (`source/pad_input.c`, host test `tests/test_pad_input.c`). Cross, Circle, Triangle, Square and Options act at most once per
+  loop pass (directions and L1/R1 are never limited), so a mashed button can't repeat an action behind a slow frame. Buttons held when the
+  on-screen keyboard closes, when the app returns from the background, or after a press that did blocking work are ignored until
+  released, and presses queued meanwhile are dropped. If `scePadRead` errors, or stays silent while the pad changes, the app falls back
+  to one `scePadReadState` snapshot per pass; `PAD_BUFFERED_READ` in `main.c` (1 by default) selects that mode outright, which is how
+  other PS4 homebrew (Apollo, liborbis) reads the pad. Buffered reads are checked against the shadPS4 emulator only, not real hardware.
+  (3) The loop reads the pad every 2 ms when idle and draws only when something changed or is moving; the network, file, lease and claim
+  work keeps its 30 Hz cadence. (4) Scrolling glides (critically damped and time based, `include/scroll_ease.h`) instead of jumping; the
+  focus brackets still jump. (5) Set up, Customization and Help paint their cards once into a premultiplied layer
+  (`ui_canvas_create_layer`) and composite the visible slice (`ui_render_cached`), repainting only a card whose content changed
+  (`ui_card_signature`). `tools/ui_scroll_check.sh` compares it with the direct render (within 2 levels, bar a few icon-edge pixels) and
+  times both: a scrolled frame on Set up went from 32 ms to 7 ms at `-O2` on a PC. (6) A loop iteration over 50 ms logs one
+  `[prof] slow iteration ...` line split into input, poll, preview, io, render and present, at most one per 250 ms (`source/frame_prof.c`,
+  `tests/test_frame_prof.c`); a slow `io` figure would point at the file reads on `/data`. `APP_VERSION` is 1.02; the plugin's version is
+  not affected.
 - **The hand-off between a game, the companion app and the shell feed is now a loopback TCP lease, not files.** The shell feed
   listens on `127.0.0.1:47200` (loopback only). The game plugin and the companion app connect once and keep the connection: a claim is
   one line (`C <title>`), a release is `R`, and in between nothing is sent, read or written. The shell feed sleeps in `select()` on its

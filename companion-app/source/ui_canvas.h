@@ -56,11 +56,23 @@ typedef struct {
     // Lazily-built cache of ui_draw_scene()'s output (the 80px grid + radial glow), reused on every call...
     // More: docs/code-comments.md (companion-app/source/ui_canvas.h:71)
     uint32_t *sceneCache;
+    // Layer canvases (ui_canvas_create_layer) keep PREMULTIPLIED ARGB and may be partly or wholly transparent...
+    // Everything else (the screen canvas) stays opaque, straight-ARGB as before.
+    bool premul;
 } UiCanvas;
 
 UiCanvas *ui_canvas_create(int w, int h);
 void ui_canvas_destroy(UiCanvas *c);
 void ui_canvas_clear(UiCanvas *c, UiColor color);
+
+// ---- layers: an off-screen canvas that starts transparent and stores premultiplied ARGB: paint once, composite at any offset.
+// Normal drawing calls work on it (ui_blend_pixel checks c->premul); ui_draw_scene / ui_canvas_clear are for opaque canvases only.
+UiCanvas *ui_canvas_create_layer(int w, int h);
+// Makes rows [y0, y1) fully transparent again (clamped to the layer).
+void ui_layer_clear_rows(UiCanvas *layer, int y0, int y1);
+// Composites rows [srcY, srcY + rows) of `layer` onto the opaque canvas `dst` from row dstY, full width;
+// rows outside the layer are skipped, rows outside dst clipped.
+void ui_layer_composite(UiCanvas *dst, const UiCanvas *layer, int srcY, int dstY, int rows);
 
 // Clipping. ui_clip_push intersects with the current clip; the matching ui_clip_pop restores it.
 // More: docs/code-comments.md (companion-app/source/ui_canvas.h:86)

@@ -85,7 +85,7 @@ uses, and the patched result diffs byte-identical to the local copy it came from
 ## Companion app build
 
 `build_pkg` is the Linux equivalent of `companion-app/build.bat`. It compiles every
-`source/*.c` with clang for `x86_64-pc-freebsd12-elf`, links, creates the self and
+`source/*.c` with clang at `-O2` for `x86_64-pc-freebsd12-elf` (the same flag as `build.bat`; without one clang builds at `-O0`, which made the CPU-drawn UI feel sticky), links, creates the self and
 `param.sfo`, and builds the package with the toolchain's Linux `create-fself`,
 `create-gp4` and `PkgTool.Core` binaries instead of the Windows ones.
 

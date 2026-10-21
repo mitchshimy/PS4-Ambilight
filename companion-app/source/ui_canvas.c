@@ -274,6 +274,51 @@ void ui_canvas_clear(UiCanvas *c, UiColor color)
     for (size_t i = 0; i < n; i++) c->px[i] = v;
 }
 
+UiCanvas *ui_canvas_create_layer(int w, int h)
+{
+    UiCanvas *c = ui_canvas_create(w, h);   // calloc: every pixel starts as transparent black
+    if (c) c->premul = true;
+    return c;
+}
+
+void ui_layer_clear_rows(UiCanvas *layer, int y0, int y1)
+{
+    if (y0 < 0) y0 = 0;
+    if (y1 > layer->h) y1 = layer->h;
+    if (y0 >= y1) return;
+    memset(&layer->px[(size_t)y0 * layer->w], 0, (size_t)(y1 - y0) * layer->w * sizeof(uint32_t));
+}
+
+// dst = src_premul + dst * (255 - a) / 255, two channels per multiply. Because src is premultiplied...
+// each channel of src is <= a, so the sum can't carry into its neighbour.
+static inline uint32_t over_premul(uint32_t s, uint32_t d)
+{
+    uint32_t ia = 255u - (s >> 24);
+    uint32_t rb = (d & 0x00FF00FFu) * ia + 0x00800080u;
+    rb = ((rb + ((rb >> 8) & 0x00FF00FFu)) >> 8) & 0x00FF00FFu;
+    uint32_t g = ((d >> 8) & 0xFFu) * ia + 0x80u;
+    g = ((g + (g >> 8)) >> 8) & 0xFFu;
+    return 0xFF000000u | (((s & 0x00FFFFFFu) + (rb | (g << 8))) & 0x00FFFFFFu);
+}
+
+void ui_layer_composite(UiCanvas *dst, const UiCanvas *layer, int srcY, int dstY, int rows)
+{
+    int w = dst->w < layer->w ? dst->w : layer->w;
+    for (int i = 0; i < rows; i++) {
+        int sy = srcY + i, dy = dstY + i;
+        if (sy < 0 || sy >= layer->h) continue;
+        if (dy < 0 || dy >= dst->h) continue;
+        const uint32_t *s = &layer->px[(size_t)sy * layer->w];
+        uint32_t *d = &dst->px[(size_t)dy * dst->w];
+        for (int x = 0; x < w; x++) {
+            uint32_t sp = s[x];
+            uint32_t a = sp >> 24;
+            if (a == 0) continue;
+            d[x] = (a == 255u) ? sp : over_premul(sp, d[x]);
+        }
+    }
+}
+
 void ui_clip_reset(UiCanvas *c)
 {
     c->clipX0 = 0; c->clipY0 = 0; c->clipX1 = c->w; c->clipY1 = c->h;
@@ -318,6 +363,23 @@ void ui_blend_pixel(UiCanvas *c, int x, int y, UiColor color, float coverage)
 
     uint32_t *p = &c->px[(size_t)y * c->w + x];
     uint32_t d = *p;
+
+    if (c->premul) {
+        // Layer: stored channels are already multiplied by alpha, so "over" is src*a + dst*(1-a) on...
+        // all four (alpha included, with src alpha = 255).
+        float ia = 1.0f - a;
+        float na = 255.0f * a + (float)(d >> 24) * ia;
+        float pr = (float)color.r * a + (float)((d >> 16) & 0xFF) * ia;
+        float pg = (float)color.g * a + (float)((d >> 8) & 0xFF) * ia;
+        float pb = (float)color.b * a + (float)(d & 0xFF) * ia;
+        uint32_t A = (uint32_t)(na + 0.5f); if (A > 255u) A = 255u;
+        uint32_t R = (uint32_t)(pr + 0.5f); if (R > A) R = A;
+        uint32_t G = (uint32_t)(pg + 0.5f); if (G > A) G = A;
+        uint32_t B = (uint32_t)(pb + 0.5f); if (B > A) B = A;
+        *p = (A << 24) | (R << 16) | (G << 8) | B;
+        return;
+    }
+
     float dr = (float)((d >> 16) & 0xFF);
     float dg = (float)((d >> 8) & 0xFF);
     float db = (float)(d & 0xFF);

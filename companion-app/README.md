@@ -135,11 +135,12 @@ build.bat <intermediate_dir> ps4_ambient_light_companion <output_dir>
 
 The PC tests build with plain `gcc`, see `docs/development/testing.md`.
 `tools/ui_preview.sh` renders Home, Set up and Help to PNG with the app's real
-UI code, for checking a layout change without a console.
+UI code, for checking a layout change without a console. `tools/ui_scroll_check.sh` checks the cached
+scroll layer against the direct render and times both.
 
 ## Files
 
-- `source/main.c` -- app entry, the main loop, SDL2 drawing, controller nav, the Home / Set up / Help input handlers and the live preview. Everything below was split out of it; `source/app_state.h` lists what `main.c` shares with them (`g_cfg`, `g_state`, `g_dirty`, `set_status()`, `render_and_present()`) and `include/app_paths.h` holds the on-console paths and release asset names
+- `source/main.c` -- app entry, the main loop (pad read every pass, services at 30 Hz, draw on change), SDL2 drawing, the Home / Set up / Help input handlers, scroll easing and the live preview. Everything below was split out of it; `source/app_state.h` lists what `main.c` shares with them (`g_cfg`, `g_state`, `g_dirty`, `set_status()`, `render_and_present()`) and `include/app_paths.h` holds the on-console paths and release asset names
 - `source/file_util.c` / `include/file_util.h` -- small file helpers (`read_small_file`, `write_file_atomic`, `file_size_of`) and the checksum helpers
 - `source/update_check.c` / `include/update_check.h` -- the background update check (worker thread, flags, once-a-frame poll) and the shell feed file bookkeeping `g_assetPresent` / `g_assetUpdate`
 - `source/plugin_install.c` / `source/plugin_install.h` -- installing, enabling and checking the plugin (`do_plugin_update`, `do_plugin_enable`, the `plugins.ini` registration) and reading GoldHEN's plugin loader switch
@@ -148,6 +149,9 @@ UI code, for checking a layout change without a console.
 - `source/net_http.c` / `include/net_http.h` -- HTTP(S) downloads (`http_download`, `http_download_text`) and the lookup of where a release asset lives (GitHub's release API, or the `[dev] update_base_url` test server), split out of `main.c`
 - `include/github_release_json.h` -- the scan that pulls one asset's API URL out of GitHub's release JSON (header-only so a PC test can run it)
 - `source/ime.c` / `include/ime.h` -- the on-screen keyboard for the numeric and string rows, split out of `main.c`; it takes everything it needs through an `ImeHost` instead of reaching into `main.c`'s globals
+- `source/pad_input.c` / `include/pad_input.h` -- turns buffered controller samples into button events (press and release edges, held-direction repeat, once-per-pass actions); no SDK calls, so a PC test runs it
+- `source/frame_prof.c` / `include/frame_prof.h` -- the slow-iteration log line (which stage of the loop took the time)
+- `include/scroll_ease.h` -- the critically damped scroll easing (header-only)
 - `source/text_render.c` / `include/text_render.h` -- FreeType-based text rendering (not SDL2_ttf)
 - `include/app_version.h` -- `APP_VERSION`, the one place the app's version lives (Help screen, and `APP_VER` / `VERSION` in the package, read by CI and `build.bat`)
 - `source/settings.c` / `include/settings.h` -- ini schema + load/save
@@ -163,5 +167,6 @@ UI code, for checking a layout change without a console.
 - `include/payload_ini.h` -- reads and flips the Ambilight payload's entry in GoldHEN's payload AutoRun list without touching other lines
 - `include/claim_file.h` -- the `/data/ps4-ambilight/ps4_ambient_state` record and heartbeat the app writes while it drives the strip
 - `include/update_source.h` -- cleans up `[dev] update_base_url`
-- `tests/test_settings.c`, `tests/test_pipeline.c`, `tests/test_display_units.c`, `tests/test_presets.c`, `tests/test_install_plan.c`, `tests/test_goldhen_config.c`, `tests/test_payload_ini.c`, `tests/test_claim_file.c`, `tests/test_shell_settings.c`, `tests/test_action_buttons.c`, `tests/test_app_version.c`, `tests/test_ime.c`, `tests/test_github_release_json.c` -- isolation tests; `gcc -Iinclude -o test_x test_x.c source/x.c source/config.c tests/test_sce_stubs.c` to rerun (exact commands in `docs/development/testing.md`; `test_settings` still fails at its `relayHost` check, as it did before the shell feed)
+- `tests/test_settings.c`, `tests/test_pipeline.c`, `tests/test_display_units.c`, `tests/test_presets.c`, `tests/test_install_plan.c`, `tests/test_goldhen_config.c`, `tests/test_payload_ini.c`, `tests/test_claim_file.c`, `tests/test_shell_settings.c`, `tests/test_action_buttons.c`, `tests/test_app_version.c`, `tests/test_ime.c`, `tests/test_github_release_json.c`, `tests/test_pad_input.c`, `tests/test_frame_prof.c`, `tests/test_scroll_ease.c` -- isolation tests; `gcc -Iinclude -o test_x test_x.c source/x.c source/config.c tests/test_sce_stubs.c` to rerun (exact commands in `docs/development/testing.md`; `test_settings` still fails at its `relayHost` check, as it did before the shell feed)
 - `tools/ui_preview.c` / `tools/ui_preview.sh` -- renders the UI to PNG on a PC
+- `tools/ui_scroll_check.sh` (with `tests/bench_ui_scroll.c`) -- checks the cached scroll layer against the direct render and times both

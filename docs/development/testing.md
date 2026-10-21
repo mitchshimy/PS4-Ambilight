@@ -94,6 +94,10 @@ an `mprotect` instead is not something a fake kernel can tell you about another 
 | `test_settings.c` | menu item count, ini save and load round trip, the `relay_*` keys kept only when the file already had them |
 | `test_github_release_json.c` | the scan that finds one asset's API URL in GitHub's release JSON: each name gets its own asset's url, a name that is only a prefix of another is refused, the spaced JSON form, output size, an asset with no url |
 | `test_ime.c` | the keyboard module `source/ime.c`, driven by fake `sceImeDialog*` calls: opens with the row's label and current value, applies and clamps a typed number, rejects garbage and empty input, handles cancel, edits the string row, reports a refused open, closes once on shutdown. Uses the test-only SDK stand-ins in `tests/stubs/orbis/` |
+| `test_pad_input.c` | `source/pad_input.c`: a Cross tap that starts and ends inside one frame is seen (oldest or newest first), quick double taps, duplicate history, held-direction repeat timing, resync ignoring held buttons, action buttons limited to once per call. `gcc -Wall -Wextra -Iinclude -o /tmp/test_pad_input tests/test_pad_input.c source/pad_input.c` |
+| `test_frame_prof.c` | `source/frame_prof.c`: the slow-iteration line, its stage split and rate limit. `gcc -Iinclude -o /tmp/test_frame_prof tests/test_frame_prof.c source/frame_prof.c` |
+| `test_scroll_ease.c` | `include/scroll_ease.h`: settles without overshoot, same result at any frame rate, smooth retarget. `gcc -Iinclude -o /tmp/test_scroll_ease tests/test_scroll_ease.c -lm` |
+| `bench_ui_scroll.c` | the cached scroll layer against the direct render, plus timings: `sh tools/ui_scroll_check.sh` from `companion-app/` |
 | `test_app_version.c` | `APP_VERSION` keeps the `N.NN` form (at most 8 characters) that CI, `build.bat` and the SFO field expect |
 | `test_action_buttons.c` | every `FIELD_ACTION` button has its own text (`Launch Ambilight payload`, `Reset Game`/`Movie`, `Press again to confirm`), none but the preset reset says "Reset", an unknown action is refused, and the menu says "Ambilight payload" rather than loader or launcher |
 | `test_shell_settings.c` | `[shell] enabled` round trip, other sections (`[dev] update_base_url`, `[compat]`, unknown `[shell]` keys) surviving a save, the autoload row never reaching the ini, the two Set up rows' place and card, `[dev] update_base_url` cleanup |
@@ -145,11 +149,17 @@ gcc -w -Iinclude -o /tmp/test_app_version tests/test_app_version.c && /tmp/test_
 gcc -w -Iinclude -o /tmp/test_github_release_json tests/test_github_release_json.c && /tmp/test_github_release_json
 gcc -w -I. -Iinclude -I../plugin/include -I/tmp/stub -Itests/stubs -o /tmp/test_ime tests/test_ime.c \
     source/ime.c source/settings.c source/presets.c source/config.c tests/test_sce_stubs.c && /tmp/test_ime
+gcc -Wall -Wextra -Iinclude -o /tmp/test_pad_input tests/test_pad_input.c source/pad_input.c && /tmp/test_pad_input
+gcc -Wall -Wextra -Iinclude -o /tmp/test_frame_prof tests/test_frame_prof.c source/frame_prof.c && /tmp/test_frame_prof
+gcc -Wall -Wextra -Iinclude -o /tmp/test_scroll_ease tests/test_scroll_ease.c -lm && /tmp/test_scroll_ease
 ```
 
 `tools/ui_preview.sh` renders Home and Set up to PNG with the app's real UI code (no console, no SDL), for
 checking a layout change by eye. Compared against the code before the shell feed, Home with the
-Shell feed off is byte for byte identical.
+Shell feed off is byte for byte identical. `tools/ui_scroll_check.sh` (run from `companion-app/`, needs FreeType headers)
+renders Set up, Customization and Help both directly and through the cached scroll layer over a sweep of scroll
+offsets and focus positions, fails if they differ by more than a few icon-edge pixels, and prints ms per frame
+for each path.
 
 Current state: every test above passes, `test_settings` included. It used to fail at the
 `relayHost` round trip because the test saved to a fresh file and expected `relay_*` keys the
