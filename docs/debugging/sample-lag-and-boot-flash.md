@@ -164,6 +164,42 @@ Costs:
   waited through the first flips.
 - The other games checked by eye (ones that never had these problems) show no flicker.
 
+## A title that needs lag 1 (Lapy's PS4 Player)
+
+Lapy's PS4 Player (`LAPY20002`, run with the shell feed off) flashed white and blue on part of the strip: in its
+menu, on the dark screen before it, and on a static blue screen. Format `0x80000000`, two slots, hook count about
+59.7 a second with a 30 fps test video.
+
+What the captures showed:
+
+- The probe zones stayed steady while the whole-strip output jumped by 1,000 to 2,100 and decayed over a few
+  passes, with the same sums in separate runs (2,112 twice, 1,848 twice). So other zones moved, and moved the
+  same way each time. The flicker probe only watches 6 of the 229 zones, so the zones themselves were not seen.
+- In the probe zones about one pass in ten had a first read of exactly (203,203,203) where both buffers
+  re-read as blue, 55 to 58 passes per capture. The read-verify dropped every one of them. The transients were
+  mostly in the slot the hook reports as current (35 of 40).
+- Playing the video did not change it, and the video has no flashes: it is a slow pattern of bars on black whose
+  edge average only changes at 30 s marks.
+
+Setting `AMBIENT_SAMPLE_LAG` to 1 stopped the flashes. With two slots the history goes 0, 1, 0, 1, so the slot two
+flips back is the current slot, the one the app may still be rewriting. That is an inference from the slot history,
+not something a capture logged.
+
+A fix keyed on the history alone (use the previous slot when two flips back equals the current one) was tried and
+did not hold: RDR1 flickered again. RDR1 has three slots that rotate, with stretches that alternate between two of
+them, so the rule applied there too. The cause is the same arithmetic and the right answer is opposite, so the
+choice cannot come from the slot history. It is per title instead: `lag_titles.h` holds a short list of title IDs
+that read one flip back (`LAPY20002` so far), everything else keeps `AMBIENT_SAMPLE_LAG` 2. The sampler logs
+`LG_LAG_TITLE_OVERRIDE lag=1 title=...` once, so a capture says which path it took.
+
+Checked with captures from the final build, using the analyzer's method of matching the pipeline's read to the
+slot at each lag: the player's reads matched the lag 1 slot (20 of 20 informative reads), RDR1's matched the lag 2
+slot (299 of 299), the output was steady in both (largest jump 539 for RDR1), and the flashes were gone by eye.
+God of War Ragnarok was checked by eye and did not flicker.
+
+A capture that reads the lag 1 slot on RDR1 is a build with `AMBIENT_SAMPLE_LAG` set to 1, which flickers it again:
+check the build (and `-DAMBIENT_SAMPLE_LAG` in the Makefile) before the title.
+
 ## Not verified
 
 - The boot mechanism is from two captures and a result. No capture caught the bright
@@ -180,6 +216,9 @@ Costs:
   and could see the boot flash. The number is `LAG_HISTORY_WAIT_PASSES` in
   `sample_thread.c`.
 - `AMBIENT_SAMPLE_LAG` above 2 behaves as 2. There is no third tracked slot.
+- Why the player's lag 2 slot is torn is not proven, and neither is where the flat (203,203,203) comes from. Whether
+  other 2-slot titles (Shadow of the Tomb Raider is listed with two slots) need `lag_titles.h` is not known.
+- The flashing zones were never identified: the probe sees 6 of 229. The fix is judged by the lag match and by eye.
 
 ## Methodology
 

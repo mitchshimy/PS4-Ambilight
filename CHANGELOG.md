@@ -11,6 +11,15 @@ companion app) are documented here, newest first.
   checks that the two agree and that this heading exists. Entries below that say `g_pluginVersion` is unchanged were written while
   they were unreleased and are left as they were. The plugin's "plugin updated to v4.0 (was v3.9)" console notice appears once
   after installing it. Tag the release `v4.0` or `v4.0.0`.
+- **Lapy's PS4 Player flashed white and blue on part of the strip; it now samples one flip back.** The player has a 2-slot swap chain
+  at format `0x80000000`, and with `AMBIENT_SAMPLE_LAG` 2 the plugin read a slot that was still being rewritten: about one pass in ten
+  caught a flat grey-white (203,203,203) over a blue menu, in a few zones at a time. The read-verify caught the ones it could see, but a
+  step that lasts several passes passes it by design, and the flashes showed in the menu, before playback and on a static screen.
+  `plugin/include/lag_titles.h` lists title IDs that read one flip back (`LAPY20002`); every other title keeps lag 2. The sampler logs
+  `LG_LAG_TITLE_OVERRIDE lag=1 title=...` once when it applies. Confirmed on a console: the player's reads came from the lag 1 slot and
+  the flashes stopped, and RDR1's reads still came from the lag 2 slot. A rule keyed on the slot history alone (use the previous slot
+  when two flips back equals the current one) was tried and dropped: it brought RDR1's flicker back. Details in
+  [sample-lag-and-boot-flash](docs/debugging/sample-lag-and-boot-flash.md#a-title-that-needs-lag-1-lapys-ps4-player).
 - **Companion app 1.02: the controls no longer feel sticky.** Host measurements (not yet timed on a console) showed the app was built
   with no optimisation flag (clang `-O0`) while its UI is a CPU rasteriser, so one redraw of Set up cost about 2.3x what it should, and
   a press that began and ended inside one slow redraw was never seen. Changes: (1) `-O2` in `build.bat` and CI. (2) The pad is read

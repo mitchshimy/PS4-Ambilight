@@ -16,6 +16,7 @@
 #include "plugin_common.h"
 #include "ambient_internal.h"
 #include "smoothing.h"
+#include "lag_titles.h"
 
 // v1.1: all the actual work -- resolving the live buffer, sampling 229 zones, sending the UDP packet...
 // More: docs/code-comments.md (plugin/source/sample_thread.c:22)
@@ -205,7 +206,13 @@ void *ambient_sample_thread(void *args)
             // Read a slot N flips back, which the GPU has had longer to finish drawing; the slot the hook just...
             // More: docs/code-comments.md (plugin/source/sample_thread.c:278)
 #if AMBIENT_SAMPLE_LAG >= 2
-            uint32_t prevIdx = g_prevPrevDisplayBufferIndex;
+            // Titles in lag_titles.h read one flip back; the slot two flips back is torn for them. [docs/code-comments.md]
+            static int s_oneBack = -1;
+            if (s_oneBack < 0) {
+                s_oneBack = lag_title_is_one_back(g_titleId) ? 1 : 0;
+                if (s_oneBack) ambient_handoff_diag("HANDOFF_DIAG LG_LAG_TITLE_OVERRIDE lag=1 title=%s", g_titleId);
+            }
+            uint32_t prevIdx = s_oneBack ? g_prevDisplayBufferIndex : g_prevPrevDisplayBufferIndex;
 #else
             uint32_t prevIdx = g_prevDisplayBufferIndex;
 #endif

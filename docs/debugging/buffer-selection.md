@@ -46,6 +46,8 @@ fallback is used, so a title that never changes slot still lights up.
 v3.7 (it was 1 from v3.3). `-DAMBIENT_SAMPLE_LAG=1` gives the v3.3 behaviour and
 `-DAMBIENT_SAMPLE_LAG=0` the original one, which is useful for A/B comparison when a
 title acts differently. Values above 2 behave as 2, there is no third tracked slot.
+Title IDs in `lag_titles.h` read one flip back whatever the default is, see
+[sample-lag-and-boot-flash](sample-lag-and-boot-flash.md#a-title-that-needs-lag-1-lapys-ps4-player).
 Before v3.7 a value of 2 compiled to the same code as 1.
 
 On top of the slot choice, a zone that jumps is read a second time from the same
