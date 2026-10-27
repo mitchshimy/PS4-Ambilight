@@ -101,6 +101,7 @@ static __attribute__((noinline, used)) int32_t plugin_load_impl(int32_t argc, co
             sys_dynlib_dlsym(hKernel, "sceKernelMapDirectMemory", (void**)&sceKernelMapDirectMemoryPtr);
             sys_dynlib_dlsym(hKernel, "sceKernelMunmap", (void**)&sceKernelMunmapPtr);
             sys_dynlib_dlsym(hKernel, "sceKernelMprotect", (void**)&sceKernelMprotectPtr); // v3.9
+            sys_dynlib_dlsym(hKernel, "sceKernelIsNeoMode", (void**)&sceKernelIsNeoModePtr); // v4.0, report file only
         }
         g_guardAvailable = (sceKernelVirtualQueryPtr != NULL) ? 1 : 0;
     }

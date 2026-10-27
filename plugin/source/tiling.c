@@ -16,11 +16,16 @@
 #include "plugin_common.h"
 #include "ambient_internal.h"
 
-// Detile math -- confirmed-correct BASE params only (/).
+// Detile math -- BASE params confirmed on a console; the Neo (PS4 Pro) set is derived, not yet confirmed.
 // More: docs/code-comments.md (plugin/source/tiling.c:21)
 
 const TileParams kParamsBase = {
     0xc, 8, 1, 1, 16, 128, 64, 1920, 512, 8, 3, 4
+};
+
+// PS4 Pro layout (P16, 8 banks, 128x128 macro tile). Only the report's tiling check reads with it.
+const TileParams kParamsNeo = {
+    0x12, 16, 1, 2, 8, 128, 128, 1920, 512, 8, 4, 3
 };
 
 // paddedHeight isn't in TileParams (only paddedWidth is used by the offset math itself), but it's...
@@ -40,12 +45,13 @@ static uint32_t getElementIndex32(uint32_t x, uint32_t y)
     return elem;
 }
 
-static uint32_t getPipeIndex(uint32_t x, uint32_t y) // base only -> P8_32x32_16x16
+static uint32_t getPipeIndex(uint32_t x, uint32_t y, const TileParams *p) // P8_32x32_16x16, or P16 for Neo
 {
     uint32_t pipe = 0;
     pipe |= (((x >> 3) ^ (y >> 3) ^ (x >> 4)) & 0x1) << 0;
     pipe |= (((x >> 4) ^ (y >> 4))            & 0x1) << 1;
     pipe |= (((x >> 5) ^ (y >> 5))            & 0x1) << 2;
+    if (p->pipeConfig == 0x12) pipe |= (((x >> 6) ^ (y >> 5)) & 0x1) << 3;
     return pipe;
 }
 
@@ -56,13 +62,19 @@ static uint32_t fastIntLog2_(uint32_t i)
     return log2;
 }
 
-static uint32_t getBankIndex(uint32_t x, uint32_t y, const TileParams *p) // base only -> numBanks=16
+static uint32_t getBankIndex(uint32_t x, uint32_t y, const TileParams *p) // numBanks 16 (base) or 8 (Neo)
 {
     const uint32_t x_shift_offset = fastIntLog2_(p->bankWidth * p->numPipes);
     const uint32_t y_shift_offset = fastIntLog2_(p->bankHeight);
     const uint32_t xs = x >> x_shift_offset;
     const uint32_t ys = y >> y_shift_offset;
     uint32_t bank = 0;
+    if (p->numBanks == 8) {
+        bank |= (((xs >> 3) ^ (ys >> 5))             & 0x1) << 0;
+        bank |= (((xs >> 4) ^ (ys >> 4) ^ (ys >> 5)) & 0x1) << 1;
+        bank |= (((xs >> 5) ^ (ys >> 3))             & 0x1) << 2;
+        return bank;
+    }
     bank |= (((xs >> 3) ^ (ys >> 6))             & 0x1) << 0;
     bank |= (((xs >> 4) ^ (ys >> 5) ^ (ys >> 6)) & 0x1) << 1;
     bank |= (((xs >> 5) ^ (ys >> 4))             & 0x1) << 2; // confirmed against GnmTiler.cpp:310, see main.c v2.1 fix
@@ -73,7 +85,7 @@ static uint32_t getBankIndex(uint32_t x, uint32_t y, const TileParams *p) // bas
 uint64_t getTiledElementByteOffset(const TileParams *p, uint32_t x, uint32_t y)
 {
     uint64_t element_index = getElementIndex32(x, y);
-    uint64_t pipe = getPipeIndex(x, y);
+    uint64_t pipe = getPipeIndex(x, y, p);
     uint64_t bank = getBankIndex(x, y, p);
 
     uint32_t tile_bytes = (8 * 8 * 1 * 32 * 1 + 7) / 8; // 256, our fixed 32bpp case

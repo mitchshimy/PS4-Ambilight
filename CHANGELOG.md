@@ -5,6 +5,24 @@ companion app) are documented here, newest first.
 
 ## Plugin
 
+### v4.0.1
+- **Report file: the console model and a base-vs-Neo tiling check (groundwork for the PS4 Pro).** The plugin reads a picture with the
+  tiling of the original PS4 and the Slim (base), confirmed on a console. The PS4 Pro (Neo mode) lays a picture out differently, the Neo
+  set in `tools/ps4_detile_2dthin.c` was never compared with a real Pro, and the plugin had no Neo code, so on a Pro the strip could read
+  scrambled pixels. Nobody on the project has a Pro, so this adds the means for one report to decide it. **How the strip is driven does not
+  change.** With `[compat] report_file=1` the report gains two lines: `console:` (from `sceKernelIsNeoMode`, looked up at load like the other
+  optional kernel calls, `unknown` if libkernel lacks it) and `tiling_check:`, which reads 832 pairs of pixels across 8x8 tile edges and 832
+  inside tiles through both layouts and says `base fits`, `Neo fits`, `flat picture`, `unclear` or `no data`, with the numbers. Only steps
+  across a tile edge tell the layouts apart, because a wrong layout keeps each 8x8 block whole and moves it. The check runs once every 120
+  sampler passes, stops at the first decisive answer or after 30 tries, reads only inside `g_readableLimit`, and does nothing with the report
+  off. `tiling.c` gains `kParamsNeo` and the P16 pipe and 8-bank math (base results unchanged on all 2,073,600 pixels); the check is the only
+  reader of it. The check is in `plugin/source/tile_check.c` (plugin only; the shell feed, which shares `tiling.c`, does not build it) with
+  its scoring in `plugin/include/tile_select.h`. The game report form asks for the console. On synthetic pictures it never named the wrong
+  layout (0 of 90) and named the right one for about 70%; the rest came out `unclear` or `flat picture`. Not run on a console: whether the
+  Neo parameters are right, whether a Pro picture is in that layout, how the thresholds do on real frames, and `sceKernelIsNeoMode` itself.
+  The full version is 4.0.1 and `g_pluginVersion` stays `0x0400`. Details in [ps4-pro-tiling](docs/debugging/ps4-pro-tiling.md). Host tests: `tools/test_tile_select.c` (new)
+  and `tools/test_report.c` (the two new lines).
+
 ### v4.0.0
 - **Plugin v4.0.** Everything in this section ships as v4.0: the loopback TCP lease hand-off, the shell feed's heartbeat move and the
   other file-operation changes below. `g_pluginVersion` is `0x0400` and `AMBIENT_VERSION_STRING` is `4.0.0`; `tools/test_report.c`

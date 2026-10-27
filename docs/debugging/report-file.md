@@ -94,6 +94,14 @@ remap:          setting 3, created 0, failed 0, passes 0, last_method none, last
 end of report
 ```
 
+Files from v4.0 on have two more lines before `end of report`, which the two examples above (v3.9.1)
+predate (example values):
+
+```
+console:        base PS4 (sceKernelIsNeoMode = 0)
+tiling_check:   base fits (edge step: base 4.56, Neo 14.10; inner 4.51; 832 pairs, 1 tries)
+```
+
 The last line is always `end of report`, so a cut-off or half-written file is easy to tell.
 `backgrounded: yes` in both is because the last write came from the change to backgrounded when
 the game was left, and `uptime_s` is the time of that write.
@@ -107,6 +115,8 @@ the game was left, and `uptime_s` is the time of that write.
 | `pass_us` | the last 30-pass window. 33,000 µs is the budget at 30 Hz. `0 windows` means no timing yet. |
 | `guard` | `rejects` counts passes skipped because the buffer wasn't CPU-readable. `available no` means `sceKernelVirtualQuery` couldn't be resolved and the guard is off. |
 | `remap` | what the plugin did about a GPU-only buffer. `setting` is `[compat] gpu_only_remap`. |
+| `console` | from `sceKernelIsNeoMode`: `PS4 Pro (... = 1)`, `base PS4 (... = 0)`, or `unknown` when libkernel has no such function. |
+| `tiling_check` | which picture layout fits what the plugin read: `base fits`, `Neo fits`, `flat picture`, `unclear` or `no data`, then the mean step across a tile edge for each layout, the step inside a tile, how many pairs were read and how many tries it took. See [ps4-pro-tiling](ps4-pro-tiling.md). |
 
 ## What it points to
 
@@ -120,6 +130,7 @@ the game was left, and `uptime_s` is the time of that write.
 | `running`, `rejects` climbing, `created 0`, `failed` above 0 | a GPU-only buffer the plugin couldn't make readable. [gpu-only-buffers](gpu-only-buffers.md). |
 | `running`, `rejects 0`, strip dark or wrong | the buffer was readable, so look at the format and what it holds: [hdr-pixel-format](hdr-pixel-format.md), [youtube-hdr-8bit](youtube-hdr-8bit.md). |
 | `avg` near or above 33,000 | the sampler is falling behind its own interval. |
+| `console` says PS4 Pro, `tiling_check` says `Neo fits` | the plugin reads this title's picture with the wrong layout. [ps4-pro-tiling](ps4-pro-tiling.md#reading-a-pro-report). |
 
 These are starting points, not diagnoses. The file records what the plugin saw, and several
 causes can look the same from outside.

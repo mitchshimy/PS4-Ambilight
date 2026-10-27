@@ -303,6 +303,7 @@ void *ambient_sample_thread(void *args)
                 // v2.9: throttled internally (autoLetterboxCheckIntervalFrames) and a complete no-op when...
                 // More: docs/code-comments.md (plugin/source/sample_thread.c:403)
                 ambient_check_letterbox(&kParamsBase, liveBufferAddr, unpack);
+                ambient_tile_check_tick(liveBufferAddr, unpack); // v4.0: report_file=1 only, see tile_check.c
 
                 uint8_t rgbTriplets[MAX_TOTAL_ZONES * 3];
 #if (__FINAL__) == 0

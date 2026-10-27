@@ -57,6 +57,8 @@ installs from the same app.
 
 The shell feed and current standalone payload are confirmed working on firmware 9.00 and 12.52; other versions are untested, and any firmware not in the payload's list will most likely be refused; see [Shell feed](#shell-feed-optional).
 
+The PS4 Pro is untested. Its pictures may sit in memory in a different layout from the one the plugin reads, so a Pro could show wrong colors. The [game report](#reporting-a-game) records the console model and checks which layout a game's picture fits, so a report from a Pro owner settles it; see [ps4-pro-tiling](docs/debugging/ps4-pro-tiling.md).
+
 Other setups very likely work too, since the plugin only depends on GoldHEN and a WLED controller
 on your network. If you try a different firmware, GoldHEN version or strip, a note in an
 [issue](../../issues) helps.
@@ -487,8 +489,8 @@ need a debug build or a network capture. It is **off by default**.
 4. Open a [Game report](../../issues/new?template=title-report.yml), say whether it works, the
    strip stays dark, or the game crashed, and paste the file in.
 
-The file lists the plugin version, the title, how far the plugin got, the pixel format, and what
-the buffer guard and remap did. It has no personal data in it: no WLED address and nothing from
+The file lists the plugin version, the title, how far the plugin got, the pixel format, what
+the buffer guard and remap did, the console model, and which picture layout fits (a PS4 Pro question). It has no personal data in it: no WLED address and nothing from
 your ini. It is written when something changes, so even a game that crashes straight away leaves
 a file. If there is no file at all with the line in place, the plugin never hooked that game, and
 that is worth saying in the report. Each line is explained in

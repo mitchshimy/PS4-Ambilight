@@ -73,6 +73,14 @@ static void report_take_snapshot(ReportSnapshot *s, uint32_t uptimeSecs)
     s->remapPasses     = g_remapPasses;
     s->remapLastMethod = g_remapLastMethod;
     s->remapLastRet    = g_remapLastRet;
+
+    s->neoMode       = ambient_console_neo();
+    s->tileVerdict   = g_tileVerdict;
+    s->tileBaseX100  = g_tileBaseX100;
+    s->tileNeoX100   = g_tileNeoX100;
+    s->tileInnerX100 = g_tileInnerX100;
+    s->tilePairs     = g_tilePairs;
+    s->tileTries     = g_tileTries;
 }
 
 // One turn of the thread loop. Returns 1 if it wrote the file this turn. Separate from the

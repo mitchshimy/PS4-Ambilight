@@ -14138,7 +14138,7 @@ Original (lines 1-4):
 In the code now:
 
 ```
-// Detile math -- confirmed-correct BASE params only (/).
+// Detile math -- BASE params confirmed on a console; the Neo (PS4 Pro) set is derived, not yet confirmed.
 // More: docs/code-comments.md (plugin/source/tiling.c:21)
 ```
 

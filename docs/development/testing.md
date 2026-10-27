@@ -60,6 +60,10 @@ What has actually been used to check the plugin:
 - **`tools/test_report.c`.** A host test that compiles `report.c` and drives its write
   logic with made-up counters: what makes it write, that it never writes per frame, that a
   rewrite leaves no stale tail, and the off switch. See [tools](tools.md#test_reportc).
+- **`tools/test_tile_select.c`.** The PS4 Pro tiling check. The Neo offsets are compared with the standalone detile port on
+  every pixel and the base offsets with a copy of the code from before the Neo set went in; the scoring is run on synthetic pictures
+  tiled for each layout, on flat and noisy ones, and over random pictures (never the wrong layout); and the read bound is checked
+  with a guard page. See [tools](tools.md#test_tile_selectc) and [ps4-pro-tiling](../debugging/ps4-pro-tiling.md).
 - **`tools/test_lease.c` and `tools/test_lease_net.c`.** The loopback lease. The first checks the pure logic in `plugin/include/lease.h`
   (the shell feed's slot table and parser, and the clients' state machine against fake sockets: zero traffic in steady state, one
   message per change, reconnect and re-claim, throttled retries). The second runs the REAL listener (`shell_lease.c`) against the plugin's real

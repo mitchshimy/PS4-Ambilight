@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "ambilight_paths.h"
+#include "tile_select.h"
 
 #define REPORT_PATH_PREFIX   AMBILIGHT_DATA_DIR "/ps4_ambient_report_"
 #define REPORT_PATH_SUFFIX   ".txt"
@@ -39,6 +40,11 @@ typedef struct {
 
     uint32_t remapSetting, remapCreated, remapFailed, remapPasses, remapLastMethod;
     int32_t  remapLastRet;
+
+    int32_t  neoMode;              // sceKernelIsNeoMode: 1 PS4 Pro, 0 base PS4, -1 not available
+    uint32_t tileVerdict;          // TileVerdict, TILE_VERDICT_NONE until a check has run
+    uint32_t tileBaseX100, tileNeoX100, tileInnerX100;   // mean edge step per layout, inner step, all x100
+    uint32_t tilePairs, tileTries;
 } ReportSnapshot;
 
 // Where the title has got to, from the counters alone.
@@ -50,6 +56,13 @@ static inline const char *report_stage(const ReportSnapshot *s)
     if (flips > 0)         return "flipping";
     if (s->registerCalls > 0) return "registered";
     return "hooked";
+}
+
+static inline const char *report_console(int32_t neo)
+{
+    if (neo > 0)  return "PS4 Pro (sceKernelIsNeoMode = 1)";
+    if (neo == 0) return "base PS4 (sceKernelIsNeoMode = 0)";
+    return "unknown (sceKernelIsNeoMode not found)";
 }
 
 static inline const char *report_remap_method(uint32_t m)
@@ -95,7 +108,9 @@ static inline int report_changed(const ReportSnapshot *a, const ReportSnapshot *
         || a->remapLastMethod != b->remapLastMethod
         || a->remapLastRet    != b->remapLastRet
         || (a->remapPasses   > 0) != (b->remapPasses   > 0)
-        || a->backgrounded    != b->backgrounded;
+        || a->backgrounded    != b->backgrounded
+        || a->neoMode         != b->neoMode
+        || a->tileVerdict     != b->tileVerdict;
 }
 
 // Fills `out` (NUL terminated, never longer than cap - 1) and returns its length. The last
@@ -124,6 +139,9 @@ static inline size_t report_format(char *out, size_t cap, const ReportSnapshot *
         "guard:          available %s, rejects %u, last_ret %d, last_bad_addr 0x%llx\n"
         "remap:          setting %u, created %u, failed %u, passes %u, last_method %s, last_ret %d\n"
         "\n"
+        "console:        %s\n"
+        "tiling_check:   %s (edge step: base %u.%02u, Neo %u.%02u; inner %u.%02u; %u pairs, %u tries)\n"
+        "\n"
         "end of report\n",
         s->version, s->build, s->titleId[0] ? s->titleId : "unknown", report_stage(s),
         (unsigned)s->uptimeSecs,
@@ -137,7 +155,12 @@ static inline size_t report_format(char *out, size_t cap, const ReportSnapshot *
         s->guardAvailable ? "yes" : "no", (unsigned)s->guardRejects, (int)s->guardLastRet,
         (unsigned long long)s->guardLastBadAddr,
         (unsigned)s->remapSetting, (unsigned)s->remapCreated, (unsigned)s->remapFailed,
-        (unsigned)s->remapPasses, report_remap_method(s->remapLastMethod), (int)s->remapLastRet);
+        (unsigned)s->remapPasses, report_remap_method(s->remapLastMethod), (int)s->remapLastRet,
+        report_console(s->neoMode), tile_verdict_name(s->tileVerdict),
+        (unsigned)(s->tileBaseX100 / 100), (unsigned)(s->tileBaseX100 % 100),
+        (unsigned)(s->tileNeoX100 / 100), (unsigned)(s->tileNeoX100 % 100),
+        (unsigned)(s->tileInnerX100 / 100), (unsigned)(s->tileInnerX100 % 100),
+        (unsigned)s->tilePairs, (unsigned)s->tileTries);
     if (n < 0) { out[0] = '\0'; return 0; }
     if ((size_t)n >= cap) {
         // Never expected at REPORT_TEXT_MAX (the test checks), but if a future field makes it

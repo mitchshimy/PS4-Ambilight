@@ -177,7 +177,7 @@ uint64_t ambient_resolve_readable(uint64_t bufferAddr); // readable address (ori
 void send_remap_diag_packet(uint32_t flags, uint32_t created, uint32_t failed, uint32_t passes, int32_t lastRet, uint64_t lastAlias); // RMAP, network.c, debug builds only
 // [report] -- v3.9.1, report.c. The per-title report file a tester sends instead of a capture.
 // More: docs/code-comments.md (plugin/include/ambient_internal.h:234)
-#define AMBIENT_VERSION_STRING "4.0.0"
+#define AMBIENT_VERSION_STRING "4.0.1"
 extern volatile uint32_t g_reportEnabled;        // ini [compat] report_file (optional): 1 on, default 0 (off)
 extern volatile uint32_t g_reportLoopPasses;     // bumped once per completed sampler loop, sample_thread.c
 extern volatile uint32_t g_reportTimingWindows, g_reportPassUsAvg, g_reportPassUsMax; // set once per timing window
@@ -200,15 +200,18 @@ void ambient_notices_tick(uint64_t nowTicks, uint64_t tscFreq, bool formatUnknow
 
 extern bool g_isBackgrounded; // defined in network.c, updated by sample_thread.c, read by settings.c
 
-// [tiling] -- confirmed-correct BASE detile params only (tiling.c)
+// [tiling] -- BASE detile params (confirmed) and the Neo set (unconfirmed, report check only) (tiling.c)
 typedef struct {
     uint32_t pipeConfig, numPipes, bankWidth, bankHeight, numBanks;
     uint32_t macroTileWidth, macroTileHeight, paddedWidth, tileSplitBytes;
     uint32_t pipeInterleaveBits, pipeBits, bankBits;
 } TileParams;
 extern const TileParams kParamsBase;
+extern const TileParams kParamsNeo;
 #define BASE_PADDED_HEIGHT 1088
 #define BASE_PADDED_BUFFER_BYTES ((uint64_t)1920 * BASE_PADDED_HEIGHT * 4)
+#define NEO_PADDED_HEIGHT 1152
+#define NEO_PADDED_BUFFER_BYTES ((uint64_t)1920 * NEO_PADDED_HEIGHT * 4)
 uint64_t getTiledElementByteOffset(const TileParams *p, uint32_t x, uint32_t y); // tiling.c, called by zones.c
 
 // [pixel_formats] -- runtime format dispatch (pixel_formats.c)
@@ -231,6 +234,13 @@ extern volatile int32_t g_hdr2200Countdown;
 // v3.5: 0x88740000 with 8-bit ARGB in the buffer (YouTube, SDR video, HDR on).
 // More: docs/code-comments.md (plugin/include/ambient_internal.h:292)
 extern volatile int     g_pq8bitMode;
+
+// [tile_check] -- tile_check.c, plugin only. Console model and a base-vs-Neo tiling check, run only with report_file=1.
+extern int32_t (*sceKernelIsNeoModePtr)(void);   // resolved by main.c, optional
+extern volatile uint32_t g_tileVerdict;          // TileVerdict (tile_select.h)
+extern volatile uint32_t g_tileBaseX100, g_tileNeoX100, g_tileInnerX100, g_tilePairs, g_tileTries; // last check, step sizes x100
+int32_t ambient_console_neo(void);               // 1 PS4 Pro, 0 base PS4, -1 unknown
+void ambient_tile_check_tick(uint64_t bufferAddr, PixelUnpackFn unpack); // sampler thread, once per pass (throttled inside)
 
 // [zones] -- screen-edge sample points (zones.c)
 #define SCREEN_WIDTH  1920

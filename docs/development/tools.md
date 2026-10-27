@@ -288,10 +288,10 @@ made-up counters. The console's three file calls are stand-ins that redirect `/d
 directory and honor the flags `report.c` really passes, so a missing `O_TRUNC` shows up as a
 stale tail. Exits 0 if all pass:
 
-- The text has the title, stage, format, guard and remap lines, ends with `end of report`, and
+- The text has the title, stage, format, guard, remap, console and tiling lines, ends with `end of report`, and
   has nothing from the ini in it. An undersized buffer is cut safely.
 - Stages follow the counters in order, and a title ID can't change where the file goes.
-- Only stage, format and guard or remap outcome count as a change. Flip counts, pass counts and
+- Only stage, format, guard or remap outcome, console model and the tiling verdict count as a change. Flip counts, pass counts and
   timing don't, or the file would be rewritten every second.
 - The first turn writes at once with `O_WRONLY | O_CREAT | O_TRUNC`, a rewrite leaves no stale
   tail, and a change is written while more of the same is not. A refresh comes round every 60 turns.
@@ -302,6 +302,34 @@ stale tail. Exits 0 if all pass:
 
 It can't show that a real console lets a game process write `/data` with these flags, or what the
 counters read on a title nobody has tried. See [report-file](../debugging/report-file.md).
+
+## test_tile_select.c
+
+Builds and runs on a PC from the repo root, no console and no SDK. The standalone detile port
+(`tools/ps4_detile_2dthin.c`) is included with its names changed, as the independent reference:
+
+```
+gcc -O1 -Wall -fsanitize=address,undefined -Itools/host_stubs -Iplugin/include -Icommon -Itools -o /tmp/test_tile_select tools/test_tile_select.c
+/tmp/test_tile_select
+```
+
+It `#include`s `plugin/source/tiling.c` and `plugin/source/tile_check.c` themselves. Exits 0 if all pass:
+
+- The base offsets equal a verbatim copy of the pre-v4.0 code and the standalone port, and the Neo
+  offsets equal the standalone port's Neo set, on all 1920x1080 pixels.
+- Both layouts are collision-free and stay inside their padded buffers (1920x1088 and 1920x1152).
+- The verdict rules on made-up scores: too few pairs, flat, either side winning, a close call, both
+  scrambled, one scrambled, the 2.00 floor, and the per-pair step cap.
+- A synthetic picture tiled for each layout is called for that layout, with letterbox bars too; black,
+  one colour and white noise never get a layout.
+- 48 seeded random pictures: none called the wrong layout, at least 55% called the right one.
+- Nothing is read past `g_readableLimit`, with a guard page behind the buffer.
+- The tick: off without `report_file`, once per 120 passes, stops on a decisive verdict, stops after
+  30 tries. The console model is `-1` until `sceKernelIsNeoMode` resolves, then its answer, kept.
+
+It can't show that the Neo parameters match a real Pro (the reference is the same source), that a
+Pro picture is in that layout, or how the thresholds do on real frames. See
+[ps4-pro-tiling](../debugging/ps4-pro-tiling.md).
 
 ## test_state.c
 

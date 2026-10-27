@@ -47,6 +47,17 @@ body:
         - Not sure
     validations:
       required: true
+  - type: dropdown
+    id: console
+    attributes:
+      label: Console
+      description: The report file has a `console:` line too, so this is a cross-check.
+      options:
+        - PS4 (original or Slim)
+        - PS4 Pro
+        - Not sure
+    validations:
+      required: true
   - type: textarea
     id: report
     attributes:

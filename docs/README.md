@@ -50,6 +50,8 @@ Investigations with the evidence and the wrong turns left in.
   titles
 - [report-file](debugging/report-file.md): the file the release build writes for a game,
   what each line means, and what it points to
+- [ps4-pro-tiling](debugging/ps4-pro-tiling.md): the console model line and the base-vs-Neo
+  tiling check, built so a PS4 Pro owner's report can settle whether the Pro needs another layout
 
 ## Development
 
