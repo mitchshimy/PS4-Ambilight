@@ -51,10 +51,13 @@ static void version_notice(void)
     // O_WRONLY|O_CREAT|O_TRUNC, the BSD values (see state.c); TRUNC so a shorter value leaves no tail.
     fd = sceKernelOpen(VERSION_MARKER, 0x0001 | 0x0200 | 0x0400, 0777);
     if (fd >= 0) { sceKernelWrite(fd, out, (size_t)len); sceKernelClose(fd); }
+    // Crossing v4.0: the companion app that came before it can't tell its user a newer app exists, so this is where they hear it.
+    bool appNote = had && old < 0x0400 && cur >= 0x0400;
     if (had)
-        say(false, "plugin %s v%u.%u (was v%u.%u).", cur > old ? "updated to" : "changed to",
+        say(false, "plugin %s v%u.%u (was v%u.%u).%s", cur > old ? "updated to" : "changed to",
             (unsigned)((cur >> 8) & 0xFF), (unsigned)(cur & 0xFF),
-            (unsigned)((old >> 8) & 0xFF), (unsigned)(old & 0xFF));
+            (unsigned)((old >> 8) & 0xFF), (unsigned)(old & 0xFF),
+            appNote ? " Also update the companion app: github.com/mitchshimy/PS4-Ambilight/releases" : "");
 }
 
 // WLED address Only "there is none", never "it doesn't answer".

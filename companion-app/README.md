@@ -88,7 +88,8 @@ default and the app does nothing shell-related while it is off.
 - **Local update source.** `[dev] update_base_url=http://<pc>:8000` in the ini
   makes every download and its `.sha256` come from that address instead of the
   GitHub API (`update_source.h` cleans the value up). `tools/serve_local_release.py`
-  at the repo root serves the three files with their checksums. See
+  at the repo root serves the three files with their checksums, and the app version file
+  (`--app-version 9.99` shows the "App update available" notice). See
   `docs/development/local-install-testing.md`.
 - On-screen keyboard for `wledHost` uses the real
   `sceImeDialogInit`/`sceImeDialogGetStatus`/`sceImeDialogGetResult`/
@@ -142,7 +143,7 @@ scroll layer against the direct render and times both.
 
 - `source/main.c` -- app entry, the main loop (pad read every pass, services at 30 Hz, draw on change), SDL2 drawing, the Home / Set up / Help input handlers, scroll easing and the live preview. Everything below was split out of it; `source/app_state.h` lists what `main.c` shares with them (`g_cfg`, `g_state`, `g_dirty`, `set_status()`, `render_and_present()`) and `include/app_paths.h` holds the on-console paths and release asset names
 - `source/file_util.c` / `include/file_util.h` -- small file helpers (`read_small_file`, `write_file_atomic`, `file_size_of`) and the checksum helpers
-- `source/update_check.c` / `include/update_check.h` -- the background update check (worker thread, flags, once-a-frame poll) and the shell feed file bookkeeping `g_assetPresent` / `g_assetUpdate`
+- `source/update_check.c` / `include/update_check.h` -- the background update check, including whether a newer companion app is out (worker thread, flags, once-a-frame poll) and the shell feed file bookkeeping `g_assetPresent` / `g_assetUpdate`
 - `source/plugin_install.c` / `source/plugin_install.h` -- installing, enabling and checking the plugin (`do_plugin_update`, `do_plugin_enable`, the `plugins.ini` registration) and reading GoldHEN's plugin loader switch
 - `source/shell_feed.c` / `include/shell_feed.h` -- the shell feed's file work: install and repair, sending the Ambilight payload to the BinLoader, the autoload entry, and the strip claim
 - `source/notify.c` / `include/notify.h` -- a line in the console's notification bar (the same one the plugin and shell feed use), honouring the Notifications switch on Set up (`[notifications] enabled`)
@@ -167,6 +168,8 @@ scroll layer against the direct render and times both.
 - `include/payload_ini.h` -- reads and flips the Ambilight payload's entry in GoldHEN's payload AutoRun list without touching other lines
 - `include/claim_file.h` -- the `/data/ps4-ambilight/ps4_ambient_state` record and heartbeat the app writes while it drives the strip
 - `include/update_source.h` -- cleans up `[dev] update_base_url`
+- `include/app_update.h` -- reads the release's `ps4-ambilight-app.version` and says whether it is newer than `APP_VERSION` (header-only, no console calls)
 - `tests/test_settings.c`, `tests/test_pipeline.c`, `tests/test_display_units.c`, `tests/test_presets.c`, `tests/test_install_plan.c`, `tests/test_goldhen_config.c`, `tests/test_payload_ini.c`, `tests/test_claim_file.c`, `tests/test_shell_settings.c`, `tests/test_action_buttons.c`, `tests/test_app_version.c`, `tests/test_ime.c`, `tests/test_github_release_json.c`, `tests/test_pad_input.c`, `tests/test_frame_prof.c`, `tests/test_scroll_ease.c` -- isolation tests; `gcc -Iinclude -o test_x test_x.c source/x.c source/config.c tests/test_sce_stubs.c` to rerun (exact commands in `docs/development/testing.md`; `test_settings` still fails at its `relayHost` check, as it did before the shell feed)
+- `tests/test_app_update.c`, `tests/test_app_update_check.c` -- the app version comparison, and `update_check.c`'s state machine run on a PC with the network and thread stubbed
 - `tools/ui_preview.c` / `tools/ui_preview.sh` -- renders the UI to PNG on a PC
 - `tools/ui_scroll_check.sh` (with `tests/bench_ui_scroll.c`) -- checks the cached scroll layer against the direct render and times both

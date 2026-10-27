@@ -98,6 +98,8 @@ an `mprotect` instead is not something a fake kernel can tell you about another 
 | `test_frame_prof.c` | `source/frame_prof.c`: the slow-iteration line, its stage split and rate limit. `gcc -Iinclude -o /tmp/test_frame_prof tests/test_frame_prof.c source/frame_prof.c` |
 | `test_scroll_ease.c` | `include/scroll_ease.h`: settles without overshoot, same result at any frame rate, smooth retarget. `gcc -Iinclude -o /tmp/test_scroll_ease tests/test_scroll_ease.c -lm` |
 | `bench_ui_scroll.c` | the cached scroll layer against the direct render, plus timings: `sh tools/ui_scroll_check.sh` from `companion-app/` |
+| `test_app_update.c` | `include/app_update.h`: parsing (`1.02`, `1.2`, `v1.03\n`, junk rejected) and comparing as numbers (1.10 newer than 1.09, equal, older, unusable text says nothing) |
+| `test_app_update_check.c` | `source/update_check.c` run for real with the network, disk and thread stubbed: the app question is asked with nothing installed, once per launch, retried after a failure or a bad file, and what the status line says. Eight scenarios, one process each |
 | `test_app_version.c` | `APP_VERSION` keeps the `N.NN` form (at most 8 characters) that CI, `build.bat` and the SFO field expect |
 | `test_action_buttons.c` | every `FIELD_ACTION` button has its own text (`Launch Ambilight payload`, `Reset Game`/`Movie`, `Press again to confirm`), none but the preset reset says "Reset", an unknown action is refused, and the menu says "Ambilight payload" rather than loader or launcher |
 | `test_shell_settings.c` | `[shell] enabled` round trip, other sections (`[dev] update_base_url`, `[compat]`, unknown `[shell]` keys) surviving a save, the autoload row never reaching the ini, the two Set up rows' place and card, `[dev] update_base_url` cleanup |
@@ -146,6 +148,9 @@ gcc -w -I. -Iinclude -I../plugin/include -I/tmp/stub -o /tmp/test_shell_settings
 gcc -w -I. -Iinclude -I../plugin/include -I/tmp/stub -o /tmp/test_action_buttons tests/test_action_buttons.c \
     source/settings.c source/presets.c source/config.c tests/test_sce_stubs.c && /tmp/test_action_buttons
 gcc -w -Iinclude -o /tmp/test_app_version tests/test_app_version.c && /tmp/test_app_version
+gcc -Wall -Wextra -Iinclude -o /tmp/test_app_update tests/test_app_update.c && /tmp/test_app_update
+# test_app_update_check.c needs a one-header stand-in for <orbis/libkernel.h> whose scePthreadCreate runs the thread
+# function before it returns (its header comment has the build line); run each scenario: for n in 1 2 3 4 5 6 7 8; do /tmp/test_app_update_check $n; done
 gcc -w -Iinclude -o /tmp/test_github_release_json tests/test_github_release_json.c && /tmp/test_github_release_json
 gcc -w -I. -Iinclude -I../plugin/include -I/tmp/stub -Itests/stubs -o /tmp/test_ime tests/test_ime.c \
     source/ime.c source/settings.c source/presets.c source/config.c tests/test_sce_stubs.c && /tmp/test_ime

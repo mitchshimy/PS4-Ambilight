@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Serve the three downloadable files from this PC, so the companion app can be tested without
-publishing a GitHub release.
+publishing a GitHub release. It also serves ps4-ambilight-app.version, the one-line file the app compares
+with its own version to say "a newer app is out".
 
     python tools/serve_local_release.py                 # looks for the built files in the usual places
     python tools/serve_local_release.py --plugin X.prx --shell Y.prx --payload Z.bin --port 8000
+    python tools/serve_local_release.py --app-version 9.99   # test the app update notice
 
 It copies the files into a scratch folder, writes the "<name>.sha256" next to each one (the same
 "<hex>  <name>" text the release publishes), and runs Python's http.server there. Then, on the
@@ -27,6 +29,17 @@ ASSETS = [
 ]
 
 
+def own_app_version():
+    """APP_VERSION from companion-app/include/app_version.h, what CI publishes for this tree."""
+    try:
+        for line in open(os.path.join(REPO, "companion-app", "include", "app_version.h")):
+            if line.startswith("#define APP_VERSION"):
+                return line.split('"')[1]
+    except (OSError, IndexError):
+        pass
+    return None
+
+
 def lan_ip():
     """The address this PC uses to reach the LAN (no packet is sent)."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -43,6 +56,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     for flag, name, _ in ASSETS:
         ap.add_argument("--" + flag, help="path to " + name)
+    ap.add_argument("--app-version", help="what ps4-ambilight-app.version says (default: this tree's APP_VERSION, so no notice); "
+                                          "'none' leaves the file out")
     ap.add_argument("--port", type=int, default=8000)
     ap.add_argument("--host", default="0.0.0.0", help="address to listen on (default: all)")
     args = ap.parse_args()
@@ -67,7 +82,14 @@ def main():
             f.write("%s  %s\n" % (digest, name))
         print("  %-24s %8d bytes  sha256 %s...  (from %s)" % (name, os.path.getsize(dst), digest[:12], src))
         found += 1
-    if not found:
+    appver = args.app_version if args.app_version else own_app_version()
+    if appver and appver.lower() != "none":
+        with open(os.path.join(out, "ps4-ambilight-app.version"), "w") as f:
+            f.write(appver + "\n")
+        print("  %-24s %s" % ("ps4-ambilight-app.version", appver))
+    else:
+        print("  %-24s not served" % "ps4-ambilight-app.version")
+    if not found and not appver:
         sys.exit("Nothing to serve.")
 
     ip = lan_ip()

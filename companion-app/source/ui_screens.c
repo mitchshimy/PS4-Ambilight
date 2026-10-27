@@ -3,6 +3,7 @@
 
 #include "ui_screens.h"
 #include "app_version.h"
+#include "app_update.h"
 #include "ui_widgets.h"
 #include "ui_icons.h"
 #include "led_frame.h"
@@ -528,8 +529,16 @@ static void draw_card_stack(UiCanvas *c, const UiFonts *f, UiScreenCache *sc, Ui
 static void render_help_screen(UiCanvas *c, const UiFonts *f, const UiState *st, UiScreenCache *sc)
 {
     ui_draw_scene(c);
-    ui_page_header(c, f, "Help",
-        "Setup steps, controls and fixes for common problems, in one place. App version " APP_VERSION ".");
+    // The version line also says when a newer app is out, since Help is where people look for the version.
+    char helpSub[200];
+    if (st->appUpdateVersion[0])
+        snprintf(helpSub, sizeof(helpSub),
+                 "Setup steps, controls and fixes for common problems, in one place. App version " APP_VERSION
+                 ". Version %s is available.", st->appUpdateVersion);
+    else
+        snprintf(helpSub, sizeof(helpSub),
+                 "Setup steps, controls and fixes for common problems, in one place. App version " APP_VERSION ".");
+    ui_page_header(c, f, "Help", helpSub);
 
     UiCard cards[HELP_CARD_COUNT];
     help_cards_init(cards);
@@ -944,6 +953,26 @@ static void home_cta_label(const UiState *st, const HomePlan *plan, char *label,
     else                 { snprintf(label, n, "Test strip"); *icon = ICON_ACTIVITY; }
 }
 
+// One of Home's notice panels: an accent bar, an icon, a heading line and one body line. The toast, the firmware warning
+// and the app update notice all use it; the caller picks the rect.
+static void draw_home_notice(UiCanvas *c, const UiFonts *f, UiRect t, UiIconId icon, UiColor accent,
+                             const char *title, const char *body)
+{
+    float lh = 1.5f * 14.0f;
+    ui_fill_round_rect(c, t, ui_radius_all(RADIUS_PANEL), COL_PANEL_BG);
+    ui_stroke_round_rect(c, t, ui_radius_all(RADIUS_PANEL), 1.0f, COL_PANEL_BORDER);
+    ui_clip_push(c, ui_rect(t.x, t.y, 3.0f, t.h));
+    ui_stroke_round_rect(c, t, ui_radius_all(RADIUS_PANEL), 3.0f, accent);
+    ui_clip_pop(c);
+
+    float cx = t.x + 3.0f + 22.0f;
+    float cy = t.y + 1.0f + 18.0f;
+    ui_icon_draw(c, icon, cx, cy + 2.0f, 18.0f, accent);   // .icon { margin-top: 2px }
+    float px = cx + 18.0f + 14.0f;
+    ui_text_draw_box(c, f->hint, px, cy, lh, title, COL_TEXT_HEADING);
+    ui_text_draw_box(c, f->hint, px, cy + lh, lh, body, COL_TEXT_LABEL);
+}
+
 void ui_render_home_static(UiCanvas *c, const UiFonts *f, const AmbientConfig *cfg, const UiState *st)
 {
     ui_draw_scene(c);
@@ -964,23 +993,23 @@ void ui_render_home_static(UiCanvas *c, const UiFonts *f, const AmbientConfig *c
             warnTitle = st->fwTitle;
             warnBody  = st->fwBody;
         }
+        const float noticeW = 640.0f, noticeGap = 24.0f;
+        float lh = 1.5f * 14.0f;
+        float th = 1.0f + 18.0f + lh * 2.0f + 18.0f + 1.0f;
         if (warnTitle) {
-            float tw = 640.0f;
-            float lh = 1.5f * 14.0f;
-            float th = 1.0f + 18.0f + lh * 2.0f + 18.0f + 1.0f;
-            UiRect t = ui_rect(PAGE_MARGIN_X, 236.0f, tw, th);
-            ui_fill_round_rect(c, t, ui_radius_all(RADIUS_PANEL), COL_PANEL_BG);
-            ui_stroke_round_rect(c, t, ui_radius_all(RADIUS_PANEL), 1.0f, COL_PANEL_BORDER);
-            ui_clip_push(c, ui_rect(t.x, t.y, 3.0f, th));
-            ui_stroke_round_rect(c, t, ui_radius_all(RADIUS_PANEL), 3.0f, COL_WARN);
-            ui_clip_pop(c);
-
-            float cx = t.x + 3.0f + 22.0f;
-            float cy = t.y + 1.0f + 18.0f;
-            ui_icon_draw(c, ICON_WARNING, cx, cy + 2.0f, 18.0f, COL_WARN);   // .icon { margin-top: 2px }
-            float px = cx + 18.0f + 14.0f;
-            ui_text_draw_box(c, f->hint, px, cy, lh, warnTitle, COL_TEXT_HEADING);
-            ui_text_draw_box(c, f->hint, px, cy + lh, lh, warnBody, COL_TEXT_LABEL);
+            draw_home_notice(c, f, ui_rect(PAGE_MARGIN_X, 236.0f, noticeW, th), ICON_WARNING, COL_WARN,
+                             warnTitle, warnBody);
+        }
+        // A newer companion app. Its own slot, so neither of the panels above can hide it: beside them when one
+        // is showing, otherwise where they would be. The app can't install itself, so the text says where to get it.
+        if (st->appUpdateVersion[0]) {
+            char body[160];
+            snprintf(body, sizeof(body), "You have " APP_VERSION ". Download the new .pkg from " APP_RELEASES_URL_TEXT);
+            char title[64];
+            snprintf(title, sizeof(title), "App update available: %s", st->appUpdateVersion);
+            float x = warnTitle ? PAGE_MARGIN_X + noticeW + noticeGap : PAGE_MARGIN_X;
+            float w = warnTitle ? CONTENT_W - noticeW - noticeGap : 808.0f;
+            draw_home_notice(c, f, ui_rect(x, 236.0f, w, th), ICON_DOWNLOAD, COL_AMBER, title, body);
         }
     }
 

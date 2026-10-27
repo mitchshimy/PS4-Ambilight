@@ -15,4 +15,8 @@ void refresh_dev_base_url(void);
 void start_background_update_check(void);
 void poll_background_update_check(void);
 
+// The newest published app version when it is newer than this build ("1.03"), "" when it isn't or nothing is known.
+// Main thread only; fills in once poll_background_update_check() has seen the check finish.
+const char *app_update_version(void);
+
 #endif

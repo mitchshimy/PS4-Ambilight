@@ -49,6 +49,8 @@ typedef struct {
     // no warning. Drawn only while the Shell feed switch is on, and never blocks anything.
     char fwTitle[96];
     char fwBody[128];
+    // A newer companion app is out ("1.03"); empty = none known. Home shows a notice for it whatever else it shows.
+    char appUpdateVersion[16];
     int homeFocus;
 
     // Help screen only: the Triangle-button QR popup (help_qr.c) pointing at this project's README.

@@ -928,11 +928,12 @@ int main(void)
     // More: docs/code-comments.md (companion-app/source/main.c:1005)
     if (g_state.install == UI_INSTALL_OK || (g_cfg.shellEnabled && (g_assetPresent[ASSET_SHELL_PRX] || g_assetPresent[ASSET_PAYLOAD]))) {
         set_status("Checking for updates...", false);
-        start_background_update_check();
     } else {
         set_status(g_state.install == UI_INSTALL_DISABLED ? "Plugin installed but disabled -- enable it below." :
                    "Plugin not installed yet.", false);
     }
+    // Always: the check also asks whether a newer companion app is out, which matters with nothing installed too.
+    start_background_update_check();
 
     // GoldHEN's plugin loader: read it once now so the very first frame of Home is right; a definite
     // OFF replaces whatever the line above said, because nothing else matters while it is off.

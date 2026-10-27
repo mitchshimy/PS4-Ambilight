@@ -17,6 +17,8 @@
 #include "sha256.h"
 #include "install_plan.h"
 #include "update_source.h"
+#include "app_update.h"
+#include "app_version.h"
 #include "settings.h"
 #include "ui_screens.h"
 #include "plugin_common.h"
@@ -100,6 +102,27 @@ static int check_shell_asset_update(const char *assetName, const char *path)
     return matches ? 0 : 1;
 }
 
+// Is the newest release's app newer than this one? The release carries APP_VERSION_ASSET_NAME, a bare "N.NN" line made
+// from app_version.h by CI. -1 couldn't tell (offline, no such file on that release, not a version), 0 not newer, 1 newer.
+static int check_app_update(char *shown, size_t shownSize)
+{
+    char url[256];
+    const char *acceptHdr = NULL;
+    if (!resolve_asset_url(APP_VERSION_ASSET_NAME, url, sizeof(url), &acceptHdr)) {
+        printf("[update-check] app: couldn't resolve %s\n", APP_VERSION_ASSET_NAME);
+        return -1;
+    }
+    char remote[64];
+    if (!http_download_text(url, remote, sizeof(remote), acceptHdr)) {
+        printf("[update-check] app: couldn't fetch %s\n", url);
+        return -1;
+    }
+    int r = app_update_compare(APP_VERSION, remote, shown, shownSize);
+    printf("[update-check] app\n  installed=%s\n  remote_url=%s\n  result=%s\n", APP_VERSION, url,
+           r < 0 ? "not a version, ignored" : r ? "NEWER APP AVAILABLE" : "up to date");
+    return r;
+}
+
 // The update check runs on its own thread with an explicit 256 KB stack, polled once a frame via an atomic flag.
 // SDL_CreateThread's default stack overflowed on console at startup; do not go back to it. [docs/code-comments.md]
 #define UPDATE_CHECK_THREAD_STACK_SIZE (256 * 1024)
@@ -107,6 +130,11 @@ static int check_shell_asset_update(const char *assetName, const char *path)
 static SDL_atomic_t g_updateCheckDone;      // 0 = not finished yet, 1 = finished
 static SDL_atomic_t g_updateCheckAvailable; // valid only once g_updateCheckDone == 1: bitmask of AssetId (1 << id) with a newer build
 static SDL_atomic_t g_updateCheckKnown;     // valid only once g_updateCheckDone == 1: bitmask of AssetId whose check actually got an answer
+static SDL_atomic_t g_updateCheckApp;       // valid only once g_updateCheckDone == 1: -2 not asked, -1 couldn't tell, 0 not newer, 1 newer
+static char g_appRemoteShown[16];           // the thread's answer for the above; written before g_updateCheckDone, read after
+static bool g_checkWantApp = false;         // whether this run asks about the app; written before the thread starts
+static bool g_appChecked = false;           // the app question got an answer once this run, so it is not asked again
+static char g_appUpdateVersion[16];         // "" or the newer version, for the main thread
 static bool g_updateCheckStarted = false;
 static int  g_checkWantMask = 0;            // which assets this run checks; written before the thread starts, read only by it
 static bool g_recheckWanted = false;        // something asked for a check while one was already running
@@ -151,6 +179,9 @@ static void *update_check_thread_fn(void *unused)
         if (r >= 0) known |= 1 << ASSET_PAYLOAD;
         if (r == 1) available |= 1 << ASSET_PAYLOAD;
     }
+    int appResult = -2;
+    if (g_checkWantApp) appResult = check_app_update(g_appRemoteShown, sizeof(g_appRemoteShown));
+    SDL_AtomicSet(&g_updateCheckApp, appResult);
     SDL_AtomicSet(&g_updateCheckAvailable, available);
     SDL_AtomicSet(&g_updateCheckKnown, known);
     SDL_AtomicSet(&g_updateCheckDone, 1); // set last -- this publishes the results above
@@ -169,7 +200,10 @@ void start_background_update_check(void)
         if (g_assetPresent[ASSET_SHELL_PRX]) want |= 1 << ASSET_SHELL_PRX;
         if (g_assetPresent[ASSET_PAYLOAD])   want |= 1 << ASSET_PAYLOAD;
     }
-    if (want == 0) return;
+    // The app's own version is asked about once per run whatever else is installed: someone with no plugin yet,
+    // or with the plugin off, still needs to hear that a newer app exists. A failed attempt is retried next time.
+    bool wantApp = !g_appChecked;
+    if (want == 0 && !wantApp) return;
 
     // One check at a time: a request that arrives mid-run (the Shell feed switch was just turned
     // on, say) is remembered and run when the current one finishes.
@@ -177,6 +211,7 @@ void start_background_update_check(void)
 
     refresh_dev_base_url();
     g_checkWantMask = want;
+    g_checkWantApp = wantApp;
     SDL_AtomicSet(&g_updateCheckDone, 0);
 
     OrbisPthreadAttr attr;
@@ -207,19 +242,39 @@ void poll_background_update_check(void)
     int available = SDL_AtomicGet(&g_updateCheckAvailable);
     int known = SDL_AtomicGet(&g_updateCheckKnown);
 
+    int appResult = SDL_AtomicGet(&g_updateCheckApp);
+    if (appResult >= 0) {            // an answer replaces what we knew; "couldn't tell" leaves it alone
+        g_appChecked = true;
+        snprintf(g_appUpdateVersion, sizeof(g_appUpdateVersion), "%s", appResult == 1 ? g_appRemoteShown : "");
+        snprintf(g_state.appUpdateVersion, sizeof(g_state.appUpdateVersion), "%s", g_appUpdateVersion);
+        g_dirty = true;              // Home draws the notice from this
+    }
+    bool appNewer = g_appUpdateVersion[0] != '\0';
+
     if (available & (1 << ASSET_PLUGIN)) g_state.install = UI_INSTALL_UPDATE;
     // Shell files: an answer replaces what we knew; "couldn't tell" leaves it alone.
     for (int id = ASSET_SHELL_PRX; id <= ASSET_PAYLOAD; id++) {
         if (known & (1 << id)) g_assetUpdate[id] = (available & (1 << id)) != 0;
     }
 
-    if (available) {
+    if (available && appNewer) {
+        char line[160];
+        snprintf(line, sizeof(line), "Update available. A newer app (%s) is out too.", g_appUpdateVersion);
+        set_status(line, false);
+    } else if (available) {
         set_status("Update available.", false);
-    } else if (!g_state.statusIsError) {
-        // Only overwrite a still-neutral "Checking for updates..." -- if something else already changed the...
-        // More: docs/code-comments.md (companion-app/source/update_check.c:305)
+    } else if (appNewer) {
+        char line[200];
+        snprintf(line, sizeof(line), "App update %s available (this is " APP_VERSION "): " APP_RELEASES_URL_TEXT,
+                 g_appUpdateVersion);
+        set_status(line, false);
+    } else if (!g_state.statusIsError && strcmp(g_state.statusLine, "Checking for updates...") == 0) {
+        // Only a still-neutral "Checking for updates..." becomes "Ready.". The check now runs with nothing installed
+        // too, and must not wipe "Plugin not installed yet." or a line something else set meanwhile.
         set_status("Ready.", false);
     }
 
     if (g_recheckWanted) { g_recheckWanted = false; start_background_update_check(); }
 }
+
+const char *app_update_version(void) { return g_appUpdateVersion; }

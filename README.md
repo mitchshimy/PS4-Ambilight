@@ -275,6 +275,10 @@ The main button keeps the three files current afterwards:
 | Shell feed update available | **Update shell feed** | a file differs from the published build |
 | any mix with the plugin | **Install all (n)** / **Update all (n)** | everything pending, plugin first |
 
+The app can't update itself. When a newer companion app is out, Home shows **App update available** with where to
+get it, and Help's header says so too. Download the new `.pkg` from [Releases](../../releases) and install it over the
+old one. It checks at launch, so you need a network connection for it to know.
+
 While the Shell feed switch is on, the app claims the strip whenever Set up, Customization or Test
 Strip is sending, the same way a game does, so the shell feed doesn't send over it. It lets go when
 you leave those screens or press the PS button. To switch the shell feed off, turn the switch off

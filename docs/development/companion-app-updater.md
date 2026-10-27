@@ -64,13 +64,43 @@ PC in `tests/test_install_plan.c`. Autoload at boot edits GoldHEN's payload Auto
 in place, the same keep-every-other-byte approach as `plugins.ini` below
 (`include/payload_ini.h`). With the switch off none of this runs.
 
+## Telling people a newer app exists
+
+The app can't install a new copy of itself (a `.pkg` goes through the console's own installer), so for the app
+the updater only says that a newer one is out. Every tagged release carries `ps4-ambilight-app.version`: one line,
+`N.NN`, made by the `publish` job from `companion-app/include/app_version.h`, the same place the package's `APP_VER`
+comes from. See [ci-and-releases](ci-and-releases.md).
+
+At launch, on the same background thread as the other checks, the app resolves that asset, reads it and compares it
+with its own `APP_VERSION` (`include/app_update.h`, header-only). Both are split into major and minor and compared as
+numbers, so `1.10` is newer than `1.09`, `1.2` and `1.02` are the same, and a leading `v` or a trailing newline is
+fine. If the file says something that isn't a version (an error page, say) it is ignored.
+
+- **It asks whatever else is installed.** The plugin and shell feed checks only run for what is installed; this one runs
+  with nothing installed too, because a new user on an old app needs it most.
+- **Once per launch, retried on failure.** An answer (newer or not) is kept; "couldn't tell" (offline, a release made
+  before this file existed, a bad file) leaves things as they were and is asked again the next time a check starts.
+- **Where it shows.** Home draws **App update available: 1.03** with the Releases address, in a slot of its own beside
+  the LED-setup toast and the firmware warning, so neither hides it. Help's header line adds "Version 1.03 is
+  available", and the status line says it too (and, with a plugin or shell feed update pending, that a newer app is out
+  as well). None of it blocks anything.
+- **The `.pkg` is what a person installs.** The text names `github.com/mitchshimy/PS4-Ambilight/releases`.
+
+An app older than the one that added this can't know. For the jump to v4.0, the plugin's one-time "updated to v4.0
+(was v3.x)" notification (`notices.c`) ends with "Also update the companion app". It is said only when the old
+version is below 4.0 and the new one is 4.0 or later.
+
+Tested on a PC: `tests/test_app_update.c` for the comparison and `tests/test_app_update_check.c`, which runs
+`update_check.c` itself with the network and disk stubbed, for what is asked and when, what the status line says and
+that a failed check is retried. Not yet run on a console.
+
 ## A local update source
 
 For testing, `[dev] update_base_url=http://<pc>:8000` in the app's ini replaces the
 GitHub lookup: every file and its `.sha256` is fetched from `<base>/<file name>`, with no
 `Accept` header. It is read again on each check, so no restart is needed, and the app's
-own save leaves it alone. `tools/serve_local_release.py` serves the three files and
-writes their checksums. See [local-install-testing](local-install-testing.md).
+own save leaves it alone. `tools/serve_local_release.py` serves the three files (and the app
+version file) and writes their checksums. See [local-install-testing](local-install-testing.md).
 
 ## Editing `plugins.ini`
 

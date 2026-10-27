@@ -20,6 +20,17 @@ companion app) are documented here, newest first.
   the flashes stopped, and RDR1's reads still came from the lag 2 slot. A rule keyed on the slot history alone (use the previous slot
   when two flips back equals the current one) was tried and dropped: it brought RDR1's flicker back. Details in
   [sample-lag-and-boot-flash](docs/debugging/sample-lag-and-boot-flash.md#a-title-that-needs-lag-1-lapys-ps4-player).
+- **Companion app 1.02: it now tells you when a newer app is out.** The app could find a newer plugin or shell feed but never a
+  newer version of itself, so a release that needed a new app (the shell feed work) left people on the old one with no hint. Every
+  tagged release now carries `ps4-ambilight-app.version`, a one-line file CI makes from `app_version.h`. At launch the app fetches it
+  from the latest release, compares it with its own `APP_VERSION` (as numbers, so 1.10 is newer than 1.09) and, when it is newer,
+  shows **App update available: 1.03** on Home, a line on Help and a status line with where to get it. It asks whether or not the
+  plugin is installed, in its own slot beside the LED and firmware warnings so neither can hide it, and says nothing when offline,
+  when the release has no version file or when the text isn't a version (it asks again next launch). It can't install itself, so it
+  names the Releases page. `tools/serve_local_release.py` serves the file too (`--app-version 9.99` to see the notice). Apps older than
+  1.02 can't know, so the plugin's "updated to v4.0 (was v3.x)" notice, shown once when crossing v4.0, now ends with "Also update the
+  companion app". Host tests: `tests/test_app_update.c` (the version comparison) and `tests/test_app_update_check.c` (the check's
+  state machine, eight scenarios). Not yet run on a console.
 - **Companion app 1.02: the controls no longer feel sticky.** Host measurements (not yet timed on a console) showed the app was built
   with no optimisation flag (clang `-O0`) while its UI is a CPU rasteriser, so one redraw of Set up cost about 2.3x what it should, and
   a press that began and ended inside one slow redraw was never seen. Changes: (1) `-O2` in `build.bat` and CI. (2) The pad is read

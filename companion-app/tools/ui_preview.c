@@ -65,6 +65,19 @@ int main(int argc, char **argv)
     st.install = UI_INSTALL_NONE;                                                              render(c, &fonts, &cfg, &st, dir, "home_loader_off_plugin_missing");
     st.loader = LOADER_UNKNOWN; st.install = UI_INSTALL_OK;
 
+    // ---- A newer companion app is out: its notice has its own slot, beside the toast / firmware warning ----
+    snprintf(st.appUpdateVersion, sizeof(st.appUpdateVersion), "1.03");
+    cfg.shellEnabled = 0; st.shell = shell_summarize(false, ASSET_PRESENT, ASSET_PRESENT);     render(c, &fonts, &cfg, &st, dir, "home_app_update");
+    cfg.shellEnabled = 1; st.shell = shell_summarize(true, ASSET_PRESENT, ASSET_PRESENT);
+    snprintf(st.fwTitle, sizeof(st.fwTitle), "Firmware 9.00 is not supported by the Ambilight payload.");
+    snprintf(st.fwBody, sizeof(st.fwBody), "The shell feed needs 9.00 or older; the game plugin is unaffected.");
+                                                                                               render(c, &fonts, &cfg, &st, dir, "home_app_update_fw");
+    st.fwTitle[0] = st.fwBody[0] = '\0'; st.toastVisible = true;                               render(c, &fonts, &cfg, &st, dir, "home_app_update_toast");
+    st.toastVisible = false; cfg.shellEnabled = 0; st.shell = shell_summarize(false, ASSET_PRESENT, ASSET_PRESENT);
+    st.screen = UI_SCREEN_HELP;                                                                render(c, &fonts, &cfg, &st, dir, "help_app_update");
+    st.screen = UI_SCREEN_HOME; st.appUpdateVersion[0] = '\0';
+    cfg.shellEnabled = 1; st.shell = shell_summarize(true, ASSET_PRESENT, ASSET_PRESENT);   // as the cases below expect
+
     // ---- Set up ----
     st.screen = UI_SCREEN_SETUP; st.scrollY = 0;
     render(c, &fonts, &cfg, &st, dir, "setup_top");

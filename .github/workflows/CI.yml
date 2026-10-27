@@ -240,6 +240,7 @@ jobs:
           sparse-checkout: |
             payloads
             tools
+            companion-app/include
           sparse-checkout-cone-mode: true
 
       - name: Download plugin (Release)
@@ -278,6 +279,20 @@ jobs:
           sha256sum ps4-ambilight.bin > ps4-ambilight.bin.sha256
           cat ps4-ambilight.bin.sha256
 
+      # The companion app can't install itself, so it only tells people a newer one exists: it reads this one-line
+      # file from the latest release and compares it with its own APP_VERSION. Same source as the .pkg's APP_VER.
+      - name: App version file
+        run: |
+          set -eu
+          APP_VERSION=$(sed -n 's/^#define APP_VERSION "\([0-9.]*\)".*/\1/p' companion-app/include/app_version.h)
+          case "$APP_VERSION" in
+            [0-9]*.[0-9]*) ;;
+            *) echo "::error::APP_VERSION is not N.NN: '$APP_VERSION'"; exit 1 ;;
+          esac
+          mkdir -p appver
+          echo "$APP_VERSION" > appver/ps4-ambilight-app.version
+          cat appver/ps4-ambilight-app.version
+
       # A tag like v3.9.4-rc1 passes the build_prx version check (see its comment) but must never become the...
       # More: docs/code-comments.md (.github/workflows/CI.yml:328)
       - name: Determine prerelease flag
@@ -299,4 +314,5 @@ jobs:
             prx/ps4_shell_feed.prx.sha256
             payloads/ps4-ambilight.bin
             payloads/ps4-ambilight.bin.sha256
+            appver/ps4-ambilight-app.version
             pkg/*.pkg

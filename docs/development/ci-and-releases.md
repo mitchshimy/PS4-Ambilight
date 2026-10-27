@@ -14,18 +14,21 @@ app, and on a tag it publishes a release.
 It runs on push, pull request and manual dispatch, and skips pushes that only touch
 `*.md` files. Docs-only commits don't trigger a build.
 
-A tagged release publishes seven files:
+A tagged release publishes eight files:
 
 | File | Comes from |
 |---|---|
 | `ps4_ambient_light.prx` and `.sha256` | `build_prx` (Release) |
 | `ps4_shell_feed.prx` and `.sha256` | `build_prx` (Release) |
 | `ps4-ambilight.bin` and `.sha256` | the committed binary in `payloads/` |
+| `ps4-ambilight-app.version` | the `publish` job, from `companion-app/include/app_version.h` (one line, `N.NN`) |
 | the `.pkg` | `build_pkg` |
 
 The companion app finds the three `.prx` / `.bin` files and their sidecars by these exact
 names on the latest release, see [companion-app-updater](companion-app-updater.md). If you
-rename any of them, the updater and the Shell feed install break. The `.sha256` files are plain
+rename any of them, the updater and the Shell feed install break. The app also reads
+`ps4-ambilight-app.version` to say a newer app is out; the `publish` job fails the release if
+`APP_VERSION` isn't `N.NN`. A release without that file just never shows the notice. The `.sha256` files are plain
 `sha256sum` output, made from the very file being attached, so the two can't disagree.
 
 The Ambilight payload is not a build output. The `publish` job checks out `payloads/` (and
@@ -126,8 +129,8 @@ CI quirk.
    git tag v3.5.0
    git push origin v3.5.0
    ```
-4. CI builds both artifacts and publishes. Check that the release has all seven files:
-   the two `.prx`, the `.bin`, their three `.sha256` files and the `.pkg`.
+4. CI builds both artifacts and publishes. Check that the release has all eight files:
+   the two `.prx`, the `.bin`, their three `.sha256` files, `ps4-ambilight-app.version` and the `.pkg`.
 
 Don't move or re-push an old tag to re-release. Tag the next version instead. Every
 tag stays as its own release, and the companion app's updater just follows `latest`.
