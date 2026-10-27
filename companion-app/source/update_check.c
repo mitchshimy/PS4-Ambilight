@@ -23,6 +23,7 @@
 #include "ui_screens.h"
 #include "plugin_common.h"
 #include "update_check.h"
+#include "notify.h"
 
 // update source: GitHub, or a local test server Normally every download resolves through GitHub's...
 // More: docs/code-comments.md (companion-app/source/update_check.c:26)
@@ -134,6 +135,7 @@ static SDL_atomic_t g_updateCheckApp;       // valid only once g_updateCheckDone
 static char g_appRemoteShown[16];           // the thread's answer for the above; written before g_updateCheckDone, read after
 static bool g_checkWantApp = false;         // whether this run asks about the app; written before the thread starts
 static bool g_appChecked = false;           // the app question got an answer once this run, so it is not asked again
+static char g_appNotified[16];              // the version already announced in the console's notification bar
 static char g_appUpdateVersion[16];         // "" or the newer version, for the main thread
 static bool g_updateCheckStarted = false;
 static int  g_checkWantMask = 0;            // which assets this run checks; written before the thread starts, read only by it
@@ -248,6 +250,11 @@ void poll_background_update_check(void)
         snprintf(g_appUpdateVersion, sizeof(g_appUpdateVersion), "%s", appResult == 1 ? g_appRemoteShown : "");
         snprintf(g_state.appUpdateVersion, sizeof(g_state.appUpdateVersion), "%s", g_appUpdateVersion);
         g_dirty = true;              // Home draws the notice from this
+        // Once per version per launch, in the console's notification bar (it follows the Notifications switch).
+        if (appResult == 1 && strcmp(g_appNotified, g_appUpdateVersion) != 0) {
+            snprintf(g_appNotified, sizeof(g_appNotified), "%s", g_appUpdateVersion);
+            app_notify(false, "App update v%s available.", g_appUpdateVersion);
+        }
     }
     bool appNewer = g_appUpdateVersion[0] != '\0';
 
@@ -259,13 +266,14 @@ void poll_background_update_check(void)
 
     if (available && appNewer) {
         char line[160];
-        snprintf(line, sizeof(line), "Update available. A newer app (%s) is out too.", g_appUpdateVersion);
+        snprintf(line, sizeof(line), "Update available. A newer app (%s) is out too: press Triangle to download it.",
+                 g_appUpdateVersion);
         set_status(line, false);
     } else if (available) {
         set_status("Update available.", false);
     } else if (appNewer) {
         char line[200];
-        snprintf(line, sizeof(line), "App update %s available (this is " APP_VERSION "): " APP_RELEASES_URL_TEXT,
+        snprintf(line, sizeof(line), "App update %s available (this is " APP_VERSION "). Press Triangle to download it.",
                  g_appUpdateVersion);
         set_status(line, false);
     } else if (!g_state.statusIsError && strcmp(g_state.statusLine, "Checking for updates...") == 0) {

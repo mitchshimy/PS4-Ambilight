@@ -88,8 +88,8 @@ default and the app does nothing shell-related while it is off.
 - **Local update source.** `[dev] update_base_url=http://<pc>:8000` in the ini
   makes every download and its `.sha256` come from that address instead of the
   GitHub API (`update_source.h` cleans the value up). `tools/serve_local_release.py`
-  at the repo root serves the three files with their checksums, and the app version file
-  (`--app-version 9.99` shows the "App update available" notice). See
+  at the repo root serves the three files with their checksums, the app version file
+  (`--app-version 9.99` shows the "App update available" notice) and the app's `.pkg` (`--pkg`). See
   `docs/development/local-install-testing.md`.
 - On-screen keyboard for `wledHost` uses the real
   `sceImeDialogInit`/`sceImeDialogGetStatus`/`sceImeDialogGetResult`/
@@ -168,8 +168,9 @@ scroll layer against the direct render and times both.
 - `include/payload_ini.h` -- reads and flips the Ambilight payload's entry in GoldHEN's payload AutoRun list without touching other lines
 - `include/claim_file.h` -- the `/data/ps4-ambilight/ps4_ambient_state` record and heartbeat the app writes while it drives the strip
 - `include/update_source.h` -- cleans up `[dev] update_base_url`
-- `include/app_update.h` -- reads the release's `ps4-ambilight-app.version` and says whether it is newer than `APP_VERSION` (header-only, no console calls)
+- `include/app_update.h` -- reads the release's `ps4-ambilight-app.version` and says whether it is newer than `APP_VERSION`, and names the package and where it is saved (header-only, no console calls)
+- `source/app_download.c` -- Triangle on Home: downloads the newer `.pkg` to `/data/pkg` and checks it against its `.sha256` (the console installs it)
 - `tests/test_settings.c`, `tests/test_pipeline.c`, `tests/test_display_units.c`, `tests/test_presets.c`, `tests/test_install_plan.c`, `tests/test_goldhen_config.c`, `tests/test_payload_ini.c`, `tests/test_claim_file.c`, `tests/test_shell_settings.c`, `tests/test_action_buttons.c`, `tests/test_app_version.c`, `tests/test_ime.c`, `tests/test_github_release_json.c`, `tests/test_pad_input.c`, `tests/test_frame_prof.c`, `tests/test_scroll_ease.c` -- isolation tests; `gcc -Iinclude -o test_x test_x.c source/x.c source/config.c tests/test_sce_stubs.c` to rerun (exact commands in `docs/development/testing.md`; `test_settings` still fails at its `relayHost` check, as it did before the shell feed)
-- `tests/test_app_update.c`, `tests/test_app_update_check.c` -- the app version comparison, and `update_check.c`'s state machine run on a PC with the network and thread stubbed
+- `tests/test_app_update.c`, `tests/test_app_update_check.c`, `tests/test_app_download.c` -- the app version comparison, `update_check.c`'s state machine and `app_download.c` run on a PC with the network, disk and thread stubbed
 - `tools/ui_preview.c` / `tools/ui_preview.sh` -- renders the UI to PNG on a PC
 - `tools/ui_scroll_check.sh` (with `tests/bench_ui_scroll.c`) -- checks the cached scroll layer against the direct render and times both

@@ -31,6 +31,7 @@
 #include "file_util.h"
 #include "update_check.h"
 #include "plugin_install.h"
+#include "app_download.h"
 #include "fw_check.h"
 #include "shell_feed.h"
 #include "presets.h"
@@ -508,7 +509,7 @@ static ImeHost ime_host(void)
 
 // ---------------- Home input ----------------
 
-static void handle_home_input(bool up, bool down, bool left, bool right, bool cross)
+static void handle_home_input(bool up, bool down, bool left, bool right, bool cross, bool triangle)
 {
     if (up && g_state.homeFocus != HOME_FOCUS_CTA) { g_state.homeFocus = HOME_FOCUS_CTA; g_dirty = true; }
     else if (down && g_state.homeFocus == HOME_FOCUS_CTA) { g_state.homeFocus = HOME_FOCUS_HELP; g_dirty = true; }
@@ -516,6 +517,13 @@ static void handle_home_input(bool up, bool down, bool left, bool right, bool cr
     else if (right && g_state.homeFocus >= HOME_FOCUS_HELP && g_state.homeFocus < HOME_FOCUS_CUST) { g_state.homeFocus++; g_dirty = true; }
 
     if (up || down || left || right) g_state.toastVisible = false;
+
+    // Triangle fetches a newer app's .pkg from anywhere on Home; once it is saved there is nothing left to fetch.
+    if (triangle && g_state.appUpdateVersion[0] && !g_state.appPkgPath[0]) {
+        do_app_update_download();
+        g_dirty = true;
+        return;
+    }
 
     if (!cross) return;
 
@@ -996,7 +1004,7 @@ int main(void)
                     if (commonDialogUsed) continue;      // edges are still tracked above, just not acted on
                     uint32_t h0 = SDL_GetTicks();
                     if (g_state.screen == UI_SCREEN_HOME)
-                        handle_home_input(pe[i].up, pe[i].down, pe[i].left, pe[i].right, pe[i].crossUp);
+                        handle_home_input(pe[i].up, pe[i].down, pe[i].left, pe[i].right, pe[i].crossUp, pe[i].triangle);
                     else if (g_state.screen == UI_SCREEN_HELP)
                         handle_help_input(pe[i].up, pe[i].down, pe[i].circle, pe[i].crossUp, pe[i].triangle);
                     else

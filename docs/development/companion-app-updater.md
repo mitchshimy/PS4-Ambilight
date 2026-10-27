@@ -67,7 +67,7 @@ in place, the same keep-every-other-byte approach as `plugins.ini` below
 ## Telling people a newer app exists
 
 The app can't install a new copy of itself (a `.pkg` goes through the console's own installer), so for the app
-the updater only says that a newer one is out. Every tagged release carries `ps4-ambilight-app.version`: one line,
+the updater says that a newer one is out and can download the package. Every tagged release carries `ps4-ambilight-app.version`: one line,
 `N.NN`, made by the `publish` job from `companion-app/include/app_version.h`, the same place the package's `APP_VER`
 comes from. See [ci-and-releases](ci-and-releases.md).
 
@@ -80,19 +80,35 @@ fine. If the file says something that isn't a version (an error page, say) it is
   with nothing installed too, because a new user on an old app needs it most.
 - **Once per launch, retried on failure.** An answer (newer or not) is kept; "couldn't tell" (offline, a release made
   before this file existed, a bad file) leaves things as they were and is asked again the next time a check starts.
-- **Where it shows.** Home draws **App update available: 1.03** with the Releases address, in a slot of its own beside
-  the LED-setup toast and the firmware warning, so neither hides it. Help's header line adds "Version 1.03 is
-  available", and the status line says it too (and, with a plugin or shell feed update pending, that a newer app is out
-  as well). None of it blocks anything.
-- **The `.pkg` is what a person installs.** The text names `github.com/mitchshimy/PS4-Ambilight/releases`.
+- **Where it shows.** Home draws **App update available: 1.03** and "Press Triangle to download the new .pkg", in a slot
+  of its own beside the LED-setup toast and the firmware warning, so neither hides it, and the footer gains a Triangle
+  hint. Help's header line adds "Version 1.03 is available", and the status line says it too (and, with a plugin or shell
+  feed update pending, that a newer app is out as well). None of it blocks anything.
+- **Triangle downloads the package** (`source/app_download.c`, the way Apollo Save Tool does it: download only, the
+  console installs). It resolves `ps4-ambilight-app.pkg` and its `.sha256` from the latest release, deletes this
+  app's older packages, downloads to `ps4-ambilight-app.pkg.part`, compares the SHA-256 with the published one and only
+  then renames it to `ps4-ambilight-app-<version>.pkg` (`ps4-ambilight-app-1.03.pkg`), so the installer's list says which
+  version it is. The release asset keeps its fixed name; only the saved copy carries the version. The older packages are
+  removed by name, not by listing the folder (nothing here lists directories): every `ps4-ambilight-app-M.NN.pkg` from 1.00
+  up to the new version, the unversioned name earlier builds used and a leftover `.part`. Anything else in `/data/pkg`
+  stays. A wrong or missing checksum deletes the file. It goes to `/data/pkg`, which it makes when missing
+  (`APP_MKDIR`, as for its own folder). The console's package installer lists packages only in that folder (confirmed
+  on a console: a file left in `/data` isn't seen), so if the folder can't be made the download stops with an error
+  rather than saving somewhere the installer can't see. Home then says "App update downloaded" and to install it
+  from **GoldHEN > Debug Settings > Package Installer**, and Triangle stops being offered.
+- **A console notification.** When the check finds a newer app, `poll_background_update_check` posts
+  "PS4 Ambilight: App update v1.03 available." through `app_notify` (non-essential, so the Notifications switch turns it
+  off), once per version per launch. The app never installs the package.
 
 An app older than the one that added this can't know. For the jump to v4.0, the plugin's one-time "updated to v4.0
 (was v3.x)" notification (`notices.c`) ends with "Also update the companion app". It is said only when the old
 version is below 4.0 and the new one is 4.0 or later.
 
-Tested on a PC: `tests/test_app_update.c` for the comparison and `tests/test_app_update_check.c`, which runs
+Tested on a PC: `tests/test_app_update.c` for the comparison, `tests/test_app_update_check.c`, which runs
 `update_check.c` itself with the network and disk stubbed, for what is asked and when, what the status line says and
-that a failed check is retried. Not yet run on a console.
+that a failed check is retried, and `tests/test_app_download.c`, which runs `app_download.c` over a fake disk (folder
+choice, wrong or unfetchable checksum, failed download or rename, older copies, a release without the package). The
+download, the installer listing a file in `/data/pkg` and the notification were confirmed on a console.
 
 ## A local update source
 

@@ -1001,12 +1001,16 @@ void ui_render_home_static(UiCanvas *c, const UiFonts *f, const AmbientConfig *c
                              warnTitle, warnBody);
         }
         // A newer companion app. Its own slot, so neither of the panels above can hide it: beside them when one
-        // is showing, otherwise where they would be. The app can't install itself, so the text says where to get it.
+        // is showing, otherwise where they would be. Triangle downloads the .pkg; the console installs it.
         if (st->appUpdateVersion[0]) {
-            char body[160];
-            snprintf(body, sizeof(body), "You have " APP_VERSION ". Download the new .pkg from " APP_RELEASES_URL_TEXT);
-            char title[64];
-            snprintf(title, sizeof(title), "App update available: %s", st->appUpdateVersion);
+            char body[160], title[64];
+            if (st->appPkgPath[0]) {
+                snprintf(title, sizeof(title), "App update downloaded: %s", st->appUpdateVersion);
+                snprintf(body, sizeof(body), "Install it from GoldHEN > Debug Settings > Package Installer.");
+            } else {
+                snprintf(title, sizeof(title), "App update available: %s", st->appUpdateVersion);
+                snprintf(body, sizeof(body), "You have " APP_VERSION ". Press Triangle to download the new .pkg.");
+            }
             float x = warnTitle ? PAGE_MARGIN_X + noticeW + noticeGap : PAGE_MARGIN_X;
             float w = warnTitle ? CONTENT_W - noticeW - noticeGap : 808.0f;
             draw_home_notice(c, f, ui_rect(x, 236.0f, w, th), ICON_DOWNLOAD, COL_AMBER, title, body);
@@ -1113,10 +1117,16 @@ void ui_render_home_static(UiCanvas *c, const UiFonts *f, const AmbientConfig *c
         float hintsLineH = ui_hint_row_line_height(f);
         float base = y + ui_hint_row_baseline_above(f);
 
-        UiHintItem hints[3] = {
+        UiHintItem hints[4] = {
             { "D-Pad", "move" }, { "\xE2\x9C\x95", "select" }, { "Opt", "save & quit" }
         };
-        ui_draw_hint_row(c, f, PAGE_MARGIN_X, base, hints, 3);
+        int hintCount = 3;
+        if (st->appUpdateVersion[0] && !st->appPkgPath[0]) {
+            hints[hintCount].cap = "\xE2\x96\xB3";
+            hints[hintCount].word = "get app update";
+            hintCount++;
+        }
+        ui_draw_hint_row(c, f, PAGE_MARGIN_X, base, hints, hintCount);
 
         float sy = y + hintsLineH + 14.0f;   // .status { margin-top: 14px }
         float sbase = ui_text_baseline_for_box(f->monoStatus, sy, 0.0f);

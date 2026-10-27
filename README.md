@@ -275,9 +275,11 @@ The main button keeps the three files current afterwards:
 | Shell feed update available | **Update shell feed** | a file differs from the published build |
 | any mix with the plugin | **Install all (n)** / **Update all (n)** | everything pending, plugin first |
 
-The app can't update itself. When a newer companion app is out, Home shows **App update available** with where to
-get it, and Help's header says so too. Download the new `.pkg` from [Releases](../../releases) and install it over the
-old one. It checks at launch, so you need a network connection for it to know.
+The app can't install itself. When a newer companion app is out, Home shows **App update available** and Help's header
+says so too. Press **Triangle** on Home to download the new `.pkg` to `/data/pkg` (it makes the folder if needed) as `ps4-ambilight-app-1.03.pkg`; the app
+removes its older packages there and checks the new one against its published checksum. Then install it from **GoldHEN > Debug Settings > Package Installer** over the old
+one. A newer app also shows a console notification ("App update v1.03 available") when the app starts, if notifications are on. Without a network connection, or if the download fails, take the `.pkg` from [Releases](../../releases) instead. It
+checks at launch, so you need a network connection for it to know.
 
 While the Shell feed switch is on, the app claims the strip whenever Set up, Customization or Test
 Strip is sending, the same way a game does, so the shell feed doesn't send over it. It lets go when

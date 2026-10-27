@@ -9,8 +9,24 @@
 
 // The release asset that holds the app's version, a bare "N.NN" line made from app_version.h by CI.
 #define APP_VERSION_ASSET_NAME "ps4-ambilight-app.version"
-// Where the notice sends people. Text only: the app can't install its own package.
-#define APP_RELEASES_URL_TEXT  "github.com/mitchshimy/PS4-Ambilight/releases"
+// The package and its checksum as the release publishes them. CI gives the .pkg this fixed name so the app can ask for it.
+#define APP_PKG_ASSET_NAME          "ps4-ambilight-app.pkg"
+#define APP_PKG_CHECKSUM_ASSET_NAME APP_PKG_ASSET_NAME ".sha256"
+// Where the download goes. The console's package installer only lists packages in /data/pkg.
+#define APP_PKG_DIR          "/data/pkg"
+// The file as saved carries its version, so the installer's list says which one it is: ps4-ambilight-app-1.03.pkg.
+#define APP_PKG_SAVED_PREFIX "ps4-ambilight-app-"
+// Where it is written first, always the same name whatever the version. The unversioned name is what earlier builds saved.
+#define APP_PKG_PART_PATH    APP_PKG_DIR "/" APP_PKG_ASSET_NAME ".part"
+#define APP_PKG_LEGACY_PATH  APP_PKG_DIR "/" APP_PKG_ASSET_NAME
+
+// "/data/pkg/ps4-ambilight-app-1.03.pkg" for 1.3. false for a negative number or when it doesn't fit `out`.
+static inline bool app_pkg_saved_path(int major, int minor, char *out, size_t outSize)
+{
+    if (major < 0 || minor < 0) return false;
+    int n = snprintf(out, outSize, "%s/%s%d.%02d.pkg", APP_PKG_DIR, APP_PKG_SAVED_PREFIX, major, minor);
+    return n > 0 && (size_t)n < outSize;
+}
 
 // "1.02", " v1.2\n" -> major 1, minor 2. One dot, 1 to 4 digits each side, nothing after but white space.
 static inline bool app_version_parse(const char *text, int *major, int *minor)

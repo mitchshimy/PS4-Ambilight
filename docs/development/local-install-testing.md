@@ -14,7 +14,8 @@ publishing anything to GitHub, serve them from your PC.
 
    It finds the built files (or take `--plugin`, `--shell`, `--payload` paths), writes the
    checksums, serves `ps4-ambilight-app.version` (this tree's `APP_VERSION`, so no notice; pass
-   `--app-version 9.99` to see the "App update available" notice on Home, `--app-version none` to
+   `--app-version 9.99` to see the "App update available" notice on Home, `--pkg X.pkg` to serve a package for its
+   Triangle download (it is looked for in `companion-app/pkg_out/` otherwise), `--app-version none` to
    leave the file out), prints the address, and logs every request. The PC and the console must be on the
    same network, and the PC's firewall must allow the port (default 8000).
 3. On the console, add to `/data/ps4-ambilight/ps4_ambient_light.ini`:

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Serve the three downloadable files from this PC, so the companion app can be tested without
-publishing a GitHub release. It also serves ps4-ambilight-app.version, the one-line file the app compares
-with its own version to say "a newer app is out".
+"""Serve the downloadable files from this PC, so the companion app can be tested without publishing a
+GitHub release. It also serves ps4-ambilight-app.version, the one-line file the app compares with its own
+version to say "a newer app is out", and the app's .pkg for the Triangle download on Home.
 
     python tools/serve_local_release.py                 # looks for the built files in the usual places
     python tools/serve_local_release.py --plugin X.prx --shell Y.prx --payload Z.bin --port 8000
     python tools/serve_local_release.py --app-version 9.99   # test the app update notice
+    python tools/serve_local_release.py --app-version 9.99 --pkg X.pkg   # ...and its Triangle download
 
 It copies the files into a scratch folder, writes the "<name>.sha256" next to each one (the same
 "<hex>  <name>" text the release publishes), and runs Python's http.server there. Then, on the
@@ -17,7 +18,7 @@ console, add this to /data/ps4-ambilight/ps4_ambient_light.ini (use the address 
 Delete that line to go back to GitHub. Files that aren't found are skipped, which is useful for
 testing the "this one is missing" paths: serve everything but one file and see what the app says.
 """
-import argparse, hashlib, http.server, os, shutil, socket, socketserver, sys, tempfile
+import argparse, glob, hashlib, http.server, os, shutil, socket, socketserver, sys, tempfile
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -26,6 +27,7 @@ ASSETS = [
     ("plugin",  "ps4_ambient_light.prx",  ["bin/plugins/prx/ps4_ambient_light.prx", "bin/plugins/prx_final/ps4_ambient_light.prx"]),
     ("shell",   "ps4_shell_feed.prx",     ["bin/plugins/prx/ps4_shell_feed.prx", "shell-feed/bin/plugins/prx/ps4_shell_feed.prx", "bin/plugins/prx_final/ps4_shell_feed.prx"]),
     ("payload", "ps4-ambilight.bin",  ["payloads/ps4-ambilight.bin"]),
+    ("pkg",     "ps4-ambilight-app.pkg", ["companion-app/pkg_out/*.pkg"]),
 ]
 
 
@@ -69,8 +71,9 @@ def main():
         src = getattr(args, flag)
         if not src:
             for g in guesses:
-                if os.path.isfile(os.path.join(REPO, g)):
-                    src = os.path.join(REPO, g)
+                hits = sorted(glob.glob(os.path.join(REPO, g)))
+                if hits and os.path.isfile(hits[0]):
+                    src = hits[0]
                     break
         if not src or not os.path.isfile(src):
             print("  %-24s NOT FOUND -- not served (pass --%s PATH)" % (name, flag))
