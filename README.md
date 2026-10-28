@@ -48,8 +48,9 @@ installs from the same app.
 
 | | |
 |---|---|
-| PS4 firmware (game plugin) | 9.00 and 12.50 |
+| PS4 firmware (game plugin) | 9.00 and 12.52 |
 | PS4 firmware (shell feed + standalone payload) | 9.00 and 12.52 |
+| PS4 Pro | untested. Colors may be wrong there; if you have one, see [Reporting a game](#reporting-a-game) |
 | GoldHEN | 2.4b18.9 and 2.4b18.10 |
 | LED strip | WS2812B, 229 LEDs (73 top, 41 right, 73 bottom, 42 left), starting at the bottom left and running clockwise |
 | Controller | WLED, latest release |
@@ -73,11 +74,14 @@ on your network. If you try a different firmware, GoldHEN version or strip, a no
   the [shell feed](#shell-feed-optional) (off by default)
 
 <p align="center">
-  <img src="companion-app/assets/screenshots/home.jpg" alt="Companion app Home screen" width="45%">
-  <img src="companion-app/assets/screenshots/setup.jpg" alt="Companion app Set up screen" width="45%">
+  <img src="companion-app/assets/screenshots/home.jpg" alt="Companion app Home screen, shell feed off" width="45%">
+  <img src="companion-app/assets/screenshots/home-shell-feed.jpg" alt="Companion app Home screen, shell feed on" width="45%">
 </p>
 <p align="center">
+  <img src="companion-app/assets/screenshots/setup.jpg" alt="Companion app Set up screen" width="45%">
   <img src="companion-app/assets/screenshots/customization.jpg" alt="Companion app Customization screen" width="45%">
+</p>
+<p align="center">
   <img src="companion-app/assets/screenshots/help.jpg" alt="Companion app Help screen" width="45%">
 </p>
 
