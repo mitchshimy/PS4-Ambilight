@@ -622,6 +622,17 @@ PS4-Ambilight/
 └── .gitignore
 ```
 
+## Community projects and extensions
+
+Projects built by the community around PS4-Ambilight. These are not maintained or tested by
+this project, so check each repository for its own status.
+
+- [ahmadanka1 / ps4-ambilight-ir-bridge](https://github.com/ahmadanka1/ps4-ambilight-ir-bridge):
+  an ESP32 that acts as a WLED stand-in, receives this plugin's DDP output and sends the closest
+  colour to a plain (non-addressable) RGB strip over IR. No plugin changes and no soldering.
+  Proof of concept, tested on one setup: the whole strip shows one colour, so it is mood
+  lighting rather than per-edge ambilight.
+
 ## Support the project
 
 PS4 Ambilight is free and open source. If it's useful to you and you'd like to help keep it going:
