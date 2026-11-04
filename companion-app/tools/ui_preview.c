@@ -2,6 +2,7 @@
 // More: docs/code-comments.md (companion-app/tools/ui_preview.c:1)
 #include "ui_screens.h"
 #include "settings.h"
+#include "fw_support.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -69,16 +70,14 @@ int main(int argc, char **argv)
     snprintf(st.appUpdateVersion, sizeof(st.appUpdateVersion), "1.03");
     cfg.shellEnabled = 0; st.shell = shell_summarize(false, ASSET_PRESENT, ASSET_PRESENT);     render(c, &fonts, &cfg, &st, dir, "home_app_update");
     cfg.shellEnabled = 1; st.shell = shell_summarize(true, ASSET_PRESENT, ASSET_PRESENT);
-    snprintf(st.fwTitle, sizeof(st.fwTitle), "Firmware 9.00 is not supported by the Ambilight payload.");
-    snprintf(st.fwBody, sizeof(st.fwBody), "The shell feed needs 9.00 or older; the game plugin is unaffected.");
+    fw_notice(FW_UNTESTED, 11, 52, st.fwTitle, sizeof(st.fwTitle), st.fwBody, sizeof(st.fwBody));
                                                                                                render(c, &fonts, &cfg, &st, dir, "home_app_update_fw");
     st.fwTitle[0] = st.fwBody[0] = '\0'; st.toastVisible = true;                               render(c, &fonts, &cfg, &st, dir, "home_app_update_toast");
     // ... and once its .pkg is downloaded: Triangle is no longer offered, and the notice says where it is
     snprintf(st.appPkgPath, sizeof(st.appPkgPath), "/data/pkg/ps4-ambilight-app.pkg"); st.toastVisible = false;
     cfg.shellEnabled = 0; st.shell = shell_summarize(false, ASSET_PRESENT, ASSET_PRESENT);     render(c, &fonts, &cfg, &st, dir, "home_app_downloaded");
     cfg.shellEnabled = 1; st.shell = shell_summarize(true, ASSET_PRESENT, ASSET_PRESENT);
-    snprintf(st.fwTitle, sizeof(st.fwTitle), "Firmware 9.00 is not supported by the Ambilight payload.");
-    snprintf(st.fwBody, sizeof(st.fwBody), "The shell feed needs 9.00 or older; the game plugin is unaffected.");
+    fw_notice(FW_UNTESTED, 11, 52, st.fwTitle, sizeof(st.fwTitle), st.fwBody, sizeof(st.fwBody));
                                                                                                render(c, &fonts, &cfg, &st, dir, "home_app_downloaded_fw");
     st.fwTitle[0] = st.fwBody[0] = '\0'; st.appPkgPath[0] = '\0';
     st.toastVisible = false; cfg.shellEnabled = 0; st.shell = shell_summarize(false, ASSET_PRESENT, ASSET_PRESENT);

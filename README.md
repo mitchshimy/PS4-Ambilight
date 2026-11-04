@@ -49,13 +49,13 @@ installs from the same app.
 | | |
 |---|---|
 | PS4 firmware (game plugin) | 9.00 and 12.52 |
-| PS4 firmware (shell feed + standalone payload) | 9.00 and 12.52 |
+| PS4 firmware (shell feed + standalone payload) | 9.00, 12.52, and 11.02 (reported on a PS4 Pro) |
 | PS4 Pro | untested. Colors may be wrong there; if you have one, see [Reporting a game](#reporting-a-game) |
-| GoldHEN | 2.4b18.9 and 2.4b18.10 |
+| GoldHEN | 2.4b18.9, 2.4b18.10 and 2.4b18.12 |
 | LED strip | WS2812B, 229 LEDs (73 top, 41 right, 73 bottom, 42 left), starting at the bottom left and running clockwise |
 | Controller | WLED, latest release |
 
-The shell feed and current standalone payload are confirmed working on firmware 9.00 and 12.52; other versions are untested, and any firmware not in the payload's list will most likely be refused; see [Shell feed](#shell-feed-optional).
+The shell feed and current standalone payload are confirmed working on firmware 9.00, 11.02 and 12.52; other versions are untested, and any firmware not in the payload's list will most likely be refused; see [Shell feed](#shell-feed-optional).
 
 The PS4 Pro is untested. Its pictures may sit in memory in a different layout from the one the plugin reads, so a Pro could show wrong colors. The [game report](#reporting-a-game) records the console model and checks which layout a game's picture fits, so a report from a Pro owner settles it; see [ps4-pro-tiling](docs/debugging/ps4-pro-tiling.md).
 
@@ -253,7 +253,7 @@ at a combination.
 The plugin lights the strip while a game or streaming app is on screen. The **shell feed**,
 [`shell-feed/`](shell-feed/README.md), is a second plugin that lights it from the PS4's own Home
 screen, Settings and quick menu the rest of the time, and steps aside whenever a game starts. It is
-**off by default** and is confirmed working on firmware **9.00 and 12.52** with the current standalone payload
+**off by default** and is confirmed working on firmware **9.00, 11.02 and 12.52** with the current standalone payload
 ([support matrix](shell-feed/docs/support-matrix.md)). Other firmware versions are untested, and ones outside the payload's firmware list will most likely be refused. With it off, the companion app does nothing
 shell-related at all.
 
@@ -537,7 +537,7 @@ color is resent once a second so WLED's realtime timeout doesn't fire. See
 the handoff protocol (and [`docs/debugging/launch-gap-test.md`](docs/debugging/launch-gap-test.md) for how the launch handoff was measured), including how the companion app claims the strip while it is sending, and
 [`shell-feed/README.md`](shell-feed/README.md) for that module itself,
 including its current build/hardware status and its own, narrower support matrix (confirmed
-on firmware 9.00 and 12.52; other versions are untested or not in the payload's list -- see
+on firmware 9.00, 11.02 and 12.52; other versions are untested or not in the payload's list -- see
 [`shell-feed/docs/support-matrix.md`](shell-feed/docs/support-matrix.md)).
 
 **Debugging.** `tools/` has the capture and decode scripts. A debug plugin build (`make DEBUG=1`)

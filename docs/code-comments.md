@@ -461,7 +461,7 @@ Original (lines 1-12):
 // Informational only, never a block: the app warns, the payload decides at runtime.
 //
 // Three states, because the loader has a per-firmware table:
-//   confirmed  -- run end to end on a console (9.00, 12.52)
+//   confirmed  -- run end to end on a console (9.00, 11.02, 12.52)
 //   untested   -- the loader has an entry for it, nobody has run it
 //   not listed -- no entry; the loader reports "unsupported firmware" and leaves the kernel alone
 // The table below is the init sections in the shipped binary (.text.init_<n>sdk, n = major*100+minor),
@@ -1044,7 +1044,7 @@ Original (lines 1-12):
 // Informational only, never a block: the app warns, the payload decides at runtime.
 //
 // Three states, because the loader has a per-firmware table:
-//   confirmed  -- run end to end on a console (9.00, 12.52)
+//   confirmed  -- run end to end on a console (9.00, 11.02, 12.52)
 //   untested   -- the loader has an entry for it, nobody has run it
 //   not listed -- no entry; the loader reports "unsupported firmware" and leaves the kernel alone
 // The table below is the init sections in the shipped binary (.text.init_<n>sdk, n = major*100+minor),

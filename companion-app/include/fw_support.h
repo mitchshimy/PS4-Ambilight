@@ -34,7 +34,7 @@ static inline FwSupport fw_classify(int major, int minor)
         1071, 1100, 1102, 1152, 1202, 1252, 1300, 1304, 1350, 1352
     };
     int v = major * 100 + minor;
-    if (v == 900 || v == 1252) return FW_SUPPORTED;
+    if (v == 900 || v == 1102 || v == 1252) return FW_SUPPORTED;
     for (unsigned i = 0; i < sizeof(kListed) / sizeof(kListed[0]); i++)
         if (kListed[i] == v) return FW_UNTESTED;
     return FW_NOT_LISTED;
@@ -47,13 +47,13 @@ static inline bool fw_notice(FwSupport s, int major, int minor, char *title, siz
     if (tn) title[0] = '\0';
     if (bn) body[0] = '\0';
     if (s == FW_UNTESTED) {
-        snprintf(title, tn, "Firmware %d.%02d is not yet verified with the shell loader.", major, minor);
-        snprintf(body, bn, "The loader has an entry for it, but only 9.00 and 12.52 are confirmed.");
+        snprintf(title, tn, "Firmware %d.%02d hasn't been tested with the shell feed.", major, minor);
+        snprintf(body, bn, "This only concerns the shell feed. Game lighting doesn't use it.");
         return true;
     }
     if (s == FW_NOT_LISTED) {
-        snprintf(title, tn, "Firmware %d.%02d is not in the shell loader's firmware list.", major, minor);
-        snprintf(body, bn, "The payload will most likely report unsupported firmware and not start.");
+        snprintf(title, tn, "Firmware %d.%02d isn't supported by the shell feed.", major, minor);
+        snprintf(body, bn, "It will most likely not start. Game lighting doesn't use the shell feed.");
         return true;
     }
     return false;

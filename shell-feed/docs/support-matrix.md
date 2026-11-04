@@ -6,10 +6,11 @@ that it starts. It does not describe the previous bundled loader's firmware-offs
 | Component / firmware | Status | Evidence |
 |---|---|---|
 | Standalone payload + shell feed, PS4 9.00 | ✅ Confirmed | User-confirmed end-to-end hardware test on 2026-10-12. |
+| Standalone payload + shell feed, PS4 11.02 | ✅ Confirmed | User-reported on a PS4 Pro with GoldHEN 2.4b18.12 (2026-11-04): the shell feed's own report shows state `live`, 3 live sessions, `DO_WLED_SEND`/`DO_LIVE_DDP` on and 169,341 frames sent in 6,483 s. It lit the Home screen; the game plugin is a separate question on that console. |
 | Standalone payload + shell feed, PS4 12.52 | ✅ Confirmed | User-confirmed end-to-end test; user-provided PuTTY log records `LOAD_START_OK`, `module_start done, reporter thread running`, 229 zones, 30 Hz, 901 sends in 30 seconds and 0 skipped sends. |
-| Other firmware in the loader's list: 5.05, 6.72, 7.02, 7.55, 8.03, 8.52, 9.04, 9.60, 10.02, 10.71, 11.00, 11.02, 11.52, 12.02, 13.00, 13.04, 13.50 and 13.52 | 🔬 Untested | The loader has a per-firmware entry (an `init_<n>sdk` section in the binary), but nobody has run it with this payload and shell feed. |
+| Other firmware in the loader's list: 5.05, 6.72, 7.02, 7.55, 8.03, 8.52, 9.04, 9.60, 10.02, 10.71, 11.00, 11.52, 12.02, 13.00, 13.04, 13.50 and 13.52 | 🔬 Untested | The loader has a per-firmware entry (an `init_<n>sdk` section in the binary), but nobody has run it with this payload and shell feed. |
 | Any firmware not in that list (for example 14.00) | ⛔ Not listed | No entry in the loader; the binary contains "unsupported firmware %u - kernel not patched", so it will most likely refuse. |
-| GoldHEN | Tested v2.4b18.10 for AutoRun trials | See `docs/loading.md`; other GoldHEN versions may differ. |
+| GoldHEN | Tested v2.4b18.10 for AutoRun trials; v2.4b18.12 reported working with the plugin and shell feed | See `docs/loading.md`; other GoldHEN versions may differ. |
 | PS-button suspend/resume | Prior shell-feed captures and user reports | See `docs/loading.md`; the current standalone loader's long-term/cold-boot stability remains a separate test. |
 | Full rest-mode entry and long rest | Not fully verified | A report of working across several cycles exists, but this repo does not contain a complete capture covering entry and a long rest. |
 

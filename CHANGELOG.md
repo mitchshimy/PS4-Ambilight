@@ -22,6 +22,18 @@ companion app) are documented here, newest first.
   Neo parameters are right, whether a Pro picture is in that layout, how the thresholds do on real frames, and `sceKernelIsNeoMode` itself.
   The full version is 4.0.1 and `g_pluginVersion` stays `0x0400`. Details in [ps4-pro-tiling](docs/debugging/ps4-pro-tiling.md). Host tests: `tools/test_tile_select.c` (new)
   and `tools/test_report.c` (the two new lines).
+- **Companion app: the firmware warning says it is about the shell feed, and 11.02 is now confirmed.** The Home warning (shown only with the
+  Shell feed switch on, and repeated in the status line after the payload is sent) called the firmware "not yet verified with the shell
+  loader" and said "only 9.00 and 12.52 are confirmed". "Shell loader" means nothing to most people and the text never said what it did not
+  cover, so a user on 11.02 asked whether game lighting was confirmed on 12.52. It now reads "Firmware 11.52 hasn't been tested with the
+  shell feed. This only concerns the shell feed. Game lighting doesn't use it.", and for a firmware outside the loader's list "Firmware
+  14.00 isn't supported by the shell feed. It will most likely not start. Game lighting doesn't use the shell feed." It still promises
+  nothing about the game plugin on any firmware. **11.02 moves from untested to confirmed** for the shell feed: a user's own shell report
+  (a PS4 Pro, GoldHEN 2.4b18.12) shows state `live`, 3 live sessions and 169,341 frames sent in 6,483 s. GoldHEN 2.4b18.12 is also
+  reported working with the plugin and the shell feed. The README, the Help text, `shell-feed/README.md`, `support-matrix.md` and
+  `loading.md` list 11.02 and cite the report. `fw_support.h` (both copies) holds the list and the wording; `tools/ui_preview.c` now
+  uses the real wording instead of its own sample. `APP_VERSION` is unchanged, so installed apps are not offered anything for this until
+  the next app release. Host test: `tools/test_fw_support.c`.
 
 ### v4.0.0
 - **Plugin v4.0.** Everything in this section ships as v4.0: the loopback TCP lease hand-off, the shell feed's heartbeat move and the
