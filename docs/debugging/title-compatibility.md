@@ -20,6 +20,12 @@ just the titles that taught something. Anything not here hasn't been captured, s
 
 ## Patterns worth knowing
 
+- **A title in PS4 Pro mode has no `libSceGnmDriver`.** It uses `libSceGnmDriverForNeoMode`, so a plugin that only
+  looks for the first stops before hooking it. Titles that run in base mode on a Pro, and every title on a base PS4, load
+  the normal driver. See [neo-mode-gnm-driver](neo-mode-gnm-driver.md).
+- **A title in PS4 Pro mode can load the normal driver too.** Tekken 7 did, at a handle far from `libSceVideoOut`, registered
+  buffers and never flipped. Which Gnm driver a title flips with is not something a by-name load can tell; the module list
+  before the plugin loads anything can.
 - **Menus and static loading screens throttle or stop flipping.** Don't build a
   timeout on flip gaps. The v2.7.3 guard did and made idle screens flicker, see
   [black-screen-shows-color](black-screen-shows-color.md).
@@ -66,7 +72,7 @@ When a new title misbehaves, the order that has worked so far:
 5. Note what you found here, with the title id and format, even if the answer is
    "nothing wrong".
 
-A tester without a debug build can turn on and send the [report file](report-file.md) instead
+Without a debug build, turn on the [report file](report-file.md) and attach it instead
 (one ini line), through the "Game report" issue form. Its `stage`, `format`, guard and remap lines answer steps 1 to 3
 well enough to tell which one to chase. Rows here are added by hand from those reports.
 

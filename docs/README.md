@@ -7,6 +7,7 @@ or [history](history.md) if you want to know how it got here.
 
 - [architecture](architecture.md): plugin, companion app, shell feed, why they're separate
 - [history](history.md): how the project evolved, version by version
+- [release-notes](release-notes/): the full text of every changelog entry, before it was cut down to one line
 - [sampling-zones](sampling-zones.md): LED geometry and how pixels are chosen
 - [configuration-history](configuration-history.md): ini keys added, removed, changed
 - [code-comments](code-comments.md): the full text of every code comment that was longer than two
@@ -52,6 +53,10 @@ Investigations with the evidence and the wrong turns left in.
   what each line means, and what it points to
 - [ps4-pro-tiling](debugging/ps4-pro-tiling.md): the console model line and the base-vs-Neo
   tiling check, built so a PS4 Pro owner's report can settle whether the Pro needs another layout
+- [neo-mode-gnm-driver](debugging/neo-mode-gnm-driver.md): titles that run in PS4 Pro mode load a
+  different Gnm driver, and the plugin stopped before hooking them
+- [capture-file](debugging/capture-file.md): a debug build can keep its debug packets in a file on the
+  console, for a title tested away from a PC
 
 ## Development
 
@@ -66,4 +71,4 @@ Investigations with the evidence and the wrong turns left in.
 - [shell-feed-coordination](development/shell-feed-coordination.md): the `/data/ps4-ambilight/ps4_ambient_state`
   file, for anyone writing something that reads it
 
-The changelog says what changed. These say why.
+The changelog says what changed in one line. The release notes have the detail, and these say why.

@@ -2,7 +2,7 @@
 
 The strip flickered on static screens, and flashed on some all-black screens.
 Both had the same cause: the sampler was reading a buffer slot the game was
-still drawing into. This is the long version of the v3.3 changelog entry, with
+still drawing into. This is the long version of the v3.3 release note, with
 the captures and the wrong turns kept in.
 
 The fix itself (read the previous flip's slot) is written up in

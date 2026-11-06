@@ -76,7 +76,7 @@ static void host_check(bool suppressWarning)
 }
 
 // ---- debug logging ----
-// UDP debug packets or the report file: both are tester tools that cost a little and are easy to leave on.
+// UDP debug packets or the report file: both are debugging aids that cost a little and are easy to leave on.
 static void debug_check(void)
 {
     bool udp = g_config.devLoggingEnabled && g_config.devIp[0] != '\0';

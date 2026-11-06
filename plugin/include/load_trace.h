@@ -16,7 +16,7 @@
 void load_trace_note(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 
 // An on-screen "PS4 Ambilight: ..." notice, only with report_file=1 and whatever [notifications] says,
-// because it is a tester aid. The text is also written to the load log.
+// because it is a debugging aid. The text is also written to the load log.
 void load_trace_notice(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 
 // Logs the first byte at each hook target (0xE9 is the forwarding stub the plugin refuses). Reads the same

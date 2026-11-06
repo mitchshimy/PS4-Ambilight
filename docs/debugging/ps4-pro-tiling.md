@@ -11,6 +11,11 @@ So v4.0 does not guess. It adds two lines to the [report file](report-file.md) s
 owner, running one game, produces the evidence. **It changes nothing about how the strip is
 driven.** The sampler still reads with the base layout everywhere.
 
+A Pro title can only reach the tiling check if the plugin hooks it first, and titles that run in Pro mode load a different
+Gnm driver from the one the plugin looked for; see [neo-mode-gnm-driver](neo-mode-gnm-driver.md). Once hooked, the first Pro-mode
+titles (Red Dead Redemption, Devil May Cry 5, NFS Hot Pursuit Remastered, YouTube, Netflix) showed
+correct colours with the base layout. That was seen by eye, not measured, so the check below is still the way to settle it.
+
 ## What was added
 
 - `console:` in the report, from `sceKernelIsNeoMode` (looked up at load like the other optional
@@ -111,7 +116,7 @@ Not done, because it needs what the table above produces:
   parameters as an argument, so the sampler's call sites in `sample_thread.c`, `zones.c` and
   `letterbox.c` would pass the chosen set, and `buffer_guard.c` would size its read for the Neo
   buffer (`NEO_PADDED_BUFFER_BYTES`).
-- An optional one-frame dump for a tester to send, to detile offline with
+- An optional one-frame dump, to detile offline with
   `tools/ps4_detile_2dthin.c`, if the check is `unclear` on a Pro.
 - Until then, a Pro whose picture needs the Neo layout would show wrong colors with no notice.
 

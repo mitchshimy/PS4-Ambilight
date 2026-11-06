@@ -48,7 +48,7 @@ build, not cold-boot or suspend/resume validation of the standalone payload itse
 |---|---|
 | AutoRun accepts this payload format | **Person-confirmed**, Trial E6, ~5 boots |
 | Current standalone payload + shell feed works on PS4 9.00 | **User-confirmed**, 2026-10-12 |
-| Current standalone payload + shell feed works on PS4 11.02 (a PS4 Pro) | **User-reported**, 2026-11-04; the shell feed's own report shows state `live`, 3 live sessions and 169,341 frames sent in 6,483 s |
+| Current standalone payload + shell feed works on PS4 11.02 (a PS4 Pro) | **Confirmed**, 2026-11-04; the shell feed's own report shows state `live`, 3 live sessions and 169,341 frames sent in 6,483 s |
 | Current standalone payload + shell feed works on PS4 12.52 | **User-confirmed**; PuTTY capture records loader start and live 30 Hz / 229-zone feed |
 | L1 skips AutoRun payloads | **Person-confirmed**, tested on a harmless build |
 | Earlier probe build: cold boot -> GoldHEN -> loader -> probe -> live send, no PC step | **Captured** (capture v23-E: 45.4 s boot, 1,801/1,801 sent in 60 s, 0 skipped, 0 crash-like lines) |

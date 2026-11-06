@@ -18,6 +18,7 @@
 
 #include "plugin_common.h"
 #include "config.h"
+#include "module_census.h"
 
 
 // SPLIT NOTE: this file used to contain the entire pipeline above (~3240 lines, one translation unit).
@@ -75,14 +76,58 @@ static __attribute__((noinline, used)) int32_t plugin_load_impl(int32_t argc, co
     buildZoneGeometry();   // fill g_zoneX/g_zoneY (now config-driven counts/corner/direction/offset/margins)
     load_trace_note("zone geometry built");
 
+    // What the title itself has loaded, before this plugin loads anything by name. Tekken 7 (Pro mode) was handed a
+    // libSceGnmDriver by that load (handle 135) and then saw no flips; see docs/debugging/neo-mode-gnm-driver.md.
+    int32_t preVideoOut = 0, preNormal = 0, preNeo = 0;
+    module_census_snapshot("before our loads", &preVideoOut, &preNormal, &preNeo);
+
     int32_t hVideoOut = 0, hGnm = 0;
     int rcVideoOut = sys_dynlib_load_prx("libSceVideoOut.sprx", &hVideoOut);
     int rcGnm = sys_dynlib_load_prx("libSceGnmDriver.sprx", &hGnm);
     load_trace_note("libSceVideoOut: load rc %d, handle %d; libSceGnmDriver: load rc %d, handle %d",
                     rcVideoOut, (int)hVideoOut, rcGnm, (int)hGnm);
+    if (g_reportEnabled && hVideoOut != 0 && hGnm != 0) {
+        if (preNormal == 0 && preNeo != 0) {
+            // The title runs on the Neo driver and never had the normal one: our load made a copy it does not use.
+            load_trace_note("the title had no libSceGnmDriver (our load made handle %d) but has the Neo driver at handle %d; hooking the Neo driver", (int)hGnm, (int)preNeo);
+            load_trace_notice("diag: %s: using the Neo-mode Gnm driver (the normal one is not the title's).",
+                              g_titleId[0] != '\0' ? g_titleId : "this title");
+            hGnm = preNeo;
+        } else if (preNormal != 0 && preNeo != 0) {
+            load_trace_note("the title has BOTH Gnm drivers loaded (normal %d, Neo %d); keeping the normal one (not known which one it flips with)", (int)preNormal, (int)preNeo);
+        } else if (preNormal == 0 && preNeo == 0) {
+            load_trace_note("the title had neither Gnm driver loaded before our load (our libSceGnmDriver is handle %d)", (int)hGnm);
+        }
+    }
+    int censusDone = 0;
+    if (hVideoOut != 0 && hGnm == 0 && g_reportEnabled) {
+        // A title in PS4 Pro mode has no libSceGnmDriver: it uses libSceGnmDriverForNeoMode, which exports the same flip
+        // functions. Pro-mode titles only, and report_file=1 only until a Pro has confirmed it (docs/debugging/neo-mode-gnm-driver.md).
+        int32_t hNeo = 0;
+        int rcNeo = sys_dynlib_load_prx("libSceGnmDriverForNeoMode.sprx", &hNeo);
+        load_trace_note("libSceGnmDriver is not loaded here; trying libSceGnmDriverForNeoMode: load rc %d, handle %d", rcNeo, (int)hNeo);
+        if (hNeo == 0) {
+            hNeo = module_census_log(); // backup: take it from the module list
+            censusDone = 1;
+            if (hNeo != 0) load_trace_note("found a Gnm driver module in the module list instead (handle %d)", (int)hNeo);
+        }
+        if (hNeo != 0) {
+            hGnm = hNeo;
+            load_trace_note("using the Neo-mode Gnm driver (handle %d) for the hooks in this title", (int)hGnm);
+            load_trace_notice("diag: %s runs in PS4 Pro mode. Using the Neo-mode Gnm driver for the hooks.",
+                              g_titleId[0] != '\0' ? g_titleId : "this title");
+        }
+    }
     if (hVideoOut == 0 || hGnm == 0) {
         // The one early return that has always been silent: now it says so (with report_file=1 only).
         load_trace_note("STOP: a video library handle is 0, so no hooks are installed in this title");
+        if (g_reportEnabled) { // also say what the console is and which modules this title has loaded
+            int32_t hK = 0;
+            sys_dynlib_load_prx("libkernel.sprx", &hK);
+            if (hK != 0) sys_dynlib_dlsym(hK, "sceKernelIsNeoMode", (void**)&sceKernelIsNeoModePtr);
+            load_trace_note("console (at STOP): sceKernelIsNeoMode = %d (1 PS4 Pro, 0 base PS4, -1 unknown)", (int)ambient_console_neo());
+            if (!censusDone) module_census_log();
+        }
         load_trace_notice("diag: STOP in %s. The video libraries did not load (VideoOut handle %d, Gnm handle %d).",
                           g_titleId[0] != '\0' ? g_titleId : "this title", (int)hVideoOut, (int)hGnm);
         return 0;
@@ -161,6 +206,8 @@ static __attribute__((noinline, used)) int32_t plugin_load_impl(int32_t argc, co
         return 0;
     }
 
+    g_censusHookedVideoOut = hVideoOut; // remembered for the census at "WAITING"
+    g_censusHookedGnm      = hGnm;
     HOOK32(sceVideoOutRegisterBuffersPtr);
     HOOK32(sceGnmSubmitAndFlipCommandBuffersPtr);
     // v3.1: best-effort -- only hook whichever of these actually resolved.

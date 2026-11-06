@@ -16,6 +16,7 @@
 
 #include "plugin_common.h"
 #include "ambient_internal.h"
+#include "capture_file.h"
 #include "output_activity.h"
 
 // --- WLED DDP transport (identical pattern used throughout this project) --- v2.0: WLED host is now...
@@ -71,6 +72,10 @@ void debug_send_raw(const uint8_t *data, int len)
 {
     // v2.2.5: single choke point for ALL debug/diagnostic UDP sends in this file (the v2.2.1 format-change...
     // More: docs/code-comments.md (plugin/source/network.c:98)
+    // v4.0.1: debug builds with [dev] capture_file=1 also keep every debug packet in a file (capture_file.h),
+    // whether or not a dev_ip is set. A no-op otherwise, and compiled out of release builds.
+    capture_file_record(data, len);
+
     if (!g_config.devLoggingEnabled || g_config.devIp[0] == '\0') return;
 
     int sockfd = socket(AF_INET, SOCK_DGRAM, 0);

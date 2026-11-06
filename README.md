@@ -616,7 +616,7 @@ PS4-Ambilight/
 │   └── tools/           # ui_preview (Home, Set up and Help to PNG on a PC), ui_scroll_check (cached scroll layer vs direct render)
 ├── tools/               # PC-side Python/C helper scripts for capture, verification and
 │                        # serve_local_release.py (a local stand-in for a GitHub release)
-├── docs/                # architecture, history, debugging write-ups, dev notes
+├── docs/                # architecture, history, release notes, debugging write-ups, dev notes
 ├── patches/             # GoldHEN SDK fix the plugin needs to build (see above)
 ├── .github/             # CI workflow and the Game report issue form
 ├── CHANGELOG.md

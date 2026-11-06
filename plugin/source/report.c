@@ -10,6 +10,7 @@
 #include "plugin_common.h"
 #include "ambient_internal.h"
 #include "report_file.h"
+#include "capture_file.h"
 
 volatile uint32_t g_reportEnabled       = 0;   // ini [compat] report_file (optional): 0 (default) off, 1 on
 volatile uint32_t g_reportLoopPasses    = 0;   // sampler loop iterations that reached the bottom (sample_thread.c)
@@ -118,6 +119,7 @@ void *ambient_report_thread(void *args)
     static ReportRunState rs;            // static: zero-initialized, off the stack
     for (;;) {
         ambient_report_tick(&rs);
+        capture_file_tick(rs.uptimeSecs);   // v4.0.1: debug builds, [dev] capture_file=1 only; a no-op otherwise
         // v4.0.1: after the limit the tick stops for good, so a single bad moment on the disk early in a launch
         // meant no report for the whole session. Give it one more try every 30 s instead; the tick itself is unchanged.
         if (rs.failures >= REPORT_MAX_FAILURES && (rs.uptimeSecs % 30) == 0)

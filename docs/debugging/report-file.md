@@ -2,7 +2,7 @@
 
 Since v3.9.1 the release build can write one small text file per game,
 `/data/ps4-ambilight/ps4_ambient_report_<TITLEID>.txt`, for example `ps4_ambient_report_CUSA11395.txt`.
-It is what a tester sends when a game doesn't work, instead of running a debug build and
+It is what to attach when a game doesn't work, instead of running a debug build and
 capturing UDP. **It is off by default**, see below. Everything in it was already kept in plain globals in every build, only the
 packets that send them are debug-only. It holds no personal data: no WLED address, nothing from
 the ini.
@@ -138,8 +138,8 @@ causes can look the same from outside.
 ## The load log
 
 From v4.0.1, with the same `report_file=1`, the plugin also appends to **one** file for every title,
-`/data/ps4-ambilight/ps4_ambient_loadlog.txt`. Each line starts with the title ID, so a tester can send this one file after
-playing any game. It answers the question a missing per-title report cannot: was the plugin loaded into the game, and if so where
+`/data/ps4-ambilight/ps4_ambient_loadlog.txt`. Each line starts with the title ID, so one file covers
+any game you play. It answers the question a missing per-title report cannot: was the plugin loaded into the game, and if so where
 did `plugin_load` stop?
 
 ```
@@ -158,17 +158,20 @@ did `plugin_load` stop?
 | no line with that title ID | GoldHEN never loaded the plugin into that game. Check `plugins.ini` and the GoldHEN log. |
 | the last line is `plugin_load entered` or `config loaded` | it stopped before the video libraries loaded (a crash, or the title ended). |
 | `STOP: a video library handle is 0` | the title has no `libSceVideoOut` or `libSceGnmDriver` handle at that moment, the one early return that was always silent. The load rc and handle values are on the line before. |
+| `console (at STOP)` and `module:` lines after a `STOP:` | the console model, and every module the title had loaded when the plugin stopped, with `gnm` and `videoout` names marked. A `gnmdriver candidate ... FOUND` line means a Gnm driver is loaded there and carries the flip functions. Homebrew such as Apollo Save Tool lists only a few modules and no graphics libraries. |
+| `trying libSceGnmDriverForNeoMode`, then `using the Neo-mode Gnm driver` | the title runs in PS4 Pro mode and has no `libSceGnmDriver`; the plugin hooks the Neo driver's flip functions instead. See [neo-mode-gnm-driver](neo-mode-gnm-driver.md). |
+| `snapshot (before our loads)`, `the title had no libSceGnmDriver ... hooking the Neo driver`, or `hooked VideoOut handle ... module list now:` after a `WAITING` line | what the title had loaded before the plugin loaded anything, which Gnm driver was chosen as a result, and, for a title that registers buffers but never flips, the module list at that moment. See [neo-mode-gnm-driver](neo-mode-gnm-driver.md#tekken-7-the-normal-driver-loads-and-nothing-flips). |
 | `STOP: a required video function was not found` | the symbol lines before it say which one. |
 | `STOP: a hook target starts with 0xE9` | a forwarding stub, which the plugin refuses to hook. The `first byte at hook targets` line says which function. |
 | `plugin_load completed`, then `WAITING:` | hooked, but the title registered no buffer, or flips never came, or the sampler never started. |
 | `sampler running` | the plugin is capturing; if the strip is still dark, the per-title report and [hdr-pixel-format](hdr-pixel-format.md) are next. |
 
-The file is appended to, and started over only when a launch finds it over 48 KB. A few events also show a
+The file is appended to, and started over only when a launch finds it over 48 KB (a debug build allows 1 MB). A few events also show a
 `PS4 Ambilight: diag: ...` notice on screen. With `report_file` off none of this runs.
 
 ## Limits
 
 - It is truncated and rewritten in place, so a crash mid-write can leave it empty or cut off.
-- It says nothing about whether the strip looked right. That is what the tester's own words
-  in the issue are for, see `.github/ISSUE_TEMPLATE/title-report.yml`.
+- It says nothing about whether the strip looked right. That is what the description
+  in the issue is for, see `.github/ISSUE_TEMPLATE/title-report.yml`.
 - Host test: `tools/test_report.c`, see [tools](../development/tools.md#test_reportc).

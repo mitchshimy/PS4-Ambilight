@@ -84,4 +84,4 @@ surface, which ended in a SIGSEGV in `ambient_sample_thread`.
 The fix is at the top of `plugin_load` in `main.c`: read the title id with
 `sys_sdk_proc_info()` and return before installing any hook or thread if it is
 `SHMY00091`. Nothing is hooked in that process, so neither the crash nor the
-color conflict can happen. See the v3.2 entry in [CHANGELOG.md](../CHANGELOG.md).
+color conflict can happen. See the v3.2 entry in the [v3 release notes](release-notes/plugin-v3.md).

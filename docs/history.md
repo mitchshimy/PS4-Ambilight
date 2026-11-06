@@ -2,8 +2,8 @@
 
 How the project got from a probe plugin to what's in the repo now. Dates are
 from the git history (September 2026). This is the short version; the
-[changelog](../CHANGELOG.md) has every entry and the docs linked below have the
-long write-ups.
+[changelog](../CHANGELOG.md) has one line per change, [release-notes](release-notes/) has the
+full entries and the docs linked below have the long write-ups.
 
 ## Before the ambient light: proving the pixels
 
@@ -131,7 +131,7 @@ to be readable, which would have turned a short readable buffer into a dark stri
 build and a UDP capture doesn't get sent. The release build now writes a small text file per
 game with how far the plugin got, the format, and what the guard and remap did, and it writes
 it when something changes rather than at the end, so a game that crashes on its first pass
-still leaves a useful file. It is off unless the tester adds `report_file=1` to the ini. It is
+still leaves a useful file. It is off unless `report_file=1` is in the ini. It is
 on its own thread so the sampler isn't touched. [report-file](debugging/report-file.md).
 
 Along the way `main.c` grew to 3,240 lines and was split into modules (Sep 23).

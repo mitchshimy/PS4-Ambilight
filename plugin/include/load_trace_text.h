@@ -2,7 +2,7 @@
 // with no console calls, so a host test can drive it (same split as report_file.h / report.c).
 //
 // The load log is ONE file, /data/ps4-ambilight/ps4_ambient_loadlog.txt, that every title the plugin is
-// loaded into appends to, each line tagged with the title ID. A tester sends that one file instead of
+// loaded into appends to, each line tagged with the title ID. Attach that one file instead of
 // working out which per-title report to look for. It is written only with [compat] report_file=1.
 //
 // It exists because "no report file" could not be told apart from "the plugin was never loaded" or "the

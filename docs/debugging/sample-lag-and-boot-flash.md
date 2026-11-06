@@ -1,7 +1,7 @@
 # Sample lag 2 and the boot flash (v3.7)
 
 The v3.3 fix reads the previous flip's slot. That was enough at 30 fps and not at
-about 58 fps. This is the long version of the v3.7 changelog entry: Red Dead
+about 58 fps. This is the long version of the v3.7 release note: Red Dead
 Redemption flickering at lag 1, a lag setting that silently did nothing above 1, the
 God of War Ragnarok flash that lag 2 then showed, and a filter that was tried and
 taken out.

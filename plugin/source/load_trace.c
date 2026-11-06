@@ -15,7 +15,14 @@
 #include "ambient_internal.h"
 #include "load_trace_text.h"
 #include "load_trace.h"
+#include "module_census.h"
 
+// Debug builds keep the log up to 1 MB, so a long test round does not lose the first titles. Release: LOADTRACE_FILE_CAP.
+#if (__FINAL__) == 0
+#define LT_FILE_CAP  (1024 * 1024)
+#else
+#define LT_FILE_CAP  LOADTRACE_FILE_CAP
+#endif
 static LoadTraceBuf  s_buf;            // static so it stays off the stack
 static int           s_trunc = -1;     // -1 not decided yet; 1 the next write starts the file over; 0 append
 static volatile int  s_lock;           // plugin_load and the progress thread can both write a line
@@ -38,7 +45,7 @@ static void lt_flush_locked(void)
         if (rfd >= 0) {
             int64_t sz = sceKernelLseek(rfd, 0, SEEK_END);
             sceKernelClose(rfd);
-            if (sz > LOADTRACE_FILE_CAP) s_trunc = 1;
+            if (sz > LT_FILE_CAP) s_trunc = 1;
         }
     }
     int32_t flags = 0x0001 | 0x0008 | 0x0200;
@@ -114,6 +121,11 @@ void load_trace_progress_once(LtProgress *prog)
     if (ev != LT_EV_NONE) {
         lt_event_text(text, sizeof(text), ev, &c, prog->secs);
         load_trace_note("%s", text);
+        if (ev == LT_EV_NO_FLIPS) { // registered but nothing flips: say what was hooked and what is loaded now
+            load_trace_note("hooked VideoOut handle %d, Gnm driver handle %d; module list now:",
+                            (int)g_censusHookedVideoOut, (int)g_censusHookedGnm);
+            module_census_log();
+        }
         if (lt_event_notifies(ev)) {
             char notice[176];
             lt_event_notice_text(notice, sizeof(notice), ev, &c, g_titleId);

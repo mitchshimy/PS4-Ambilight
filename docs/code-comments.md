@@ -90,6 +90,7 @@ comments, and Python docstrings.
 - [plugin/Makefile](#plugin-makefile) (2)
 - [plugin/include/ambient_internal.h](#plugin-include-ambient-internal-h) (26)
 - [plugin/include/ambilight_paths.h](#plugin-include-ambilight-paths-h) (1)
+- [plugin/include/capture_file.h](#plugin-include-capture-file-h) (1)
 - [plugin/include/config.h](#plugin-include-config-h) (9)
 - [plugin/include/default_ini.h](#plugin-include-default-ini-h) (1)
 - [plugin/include/hdr2200_vote.h](#plugin-include-hdr2200-vote-h) (2)
@@ -8720,14 +8721,14 @@ Original (lines 218-221):
 In the code now:
 
 ```
-// [report] -- v3.9.1, report.c. The per-title report file a tester sends instead of a capture.
+// [report] -- v3.9.1, report.c. The per-title report file, for when a capture isn't practical.
 // More: docs/code-comments.md (plugin/include/ambient_internal.h:234)
 ```
 
 Original (lines 234-237):
 
 ```
-// [report] -- v3.9.1, report.c. The per-title report file a tester sends instead of a capture.
+// [report] -- v3.9.1, report.c. The per-title report file, for when a capture isn't practical.
 // AMBIENT_VERSION_STRING is the full version; g_pluginVersion (hooks.c) only holds major.minor,
 // because CI compares a tag's major.minor against it. tools/test_report.c fails if the two
 // disagree on major.minor.
@@ -8983,6 +8984,45 @@ Original (lines 1-15):
 //
 // The folder must exist before the first write. The companion app, the plugin (plugin_load) and
 // the shell feed's installer each create it; creating an existing folder is not an error.
+```
+
+## plugin/include/capture_file.h
+
+### plugin/include/capture_file.h:1
+
+In the code now:
+
+```
+// capture_file.h -- v4.0.1: the debug packets, saved to a file on the console. Debug builds, [dev] capture_file=1 only.
+// More: docs/code-comments.md (plugin/include/capture_file.h:1)
+```
+
+Original (lines 1-22):
+
+```
+// capture_file.h -- v4.0.1: the debug packets, saved to a file on the console instead of sent to a PC.
+//
+// Debug builds only (make DEBUG=1, __FINAL__ == 0), and only with
+//     [dev]
+//     capture_file=1
+// in /data/ps4-ambilight/ps4_ambient_light.ini. No dev_ip is needed. Everything that debug_send_raw() would
+// send to tools/udp_ground_truth_listener.py or tools/flicker_capture.py (the FLK1 probe included) is also
+// kept here and written to
+//     /data/ps4-ambilight/ps4_ambient_capture_<TITLEID>.bin
+// Convert it on a PC with tools/console_capture.py (to-flk for flicker_capture.py, dump for the listener's
+// text format). A release build compiles this to nothing.
+//
+// How it stays out of the sampler's way: debug_send_raw() only copies the packet into a fixed 256 KB buffer
+// (a try-lock, no waiting: a record is dropped rather than a thread held up). The report thread, once a second,
+// is the only one that writes the file, and then frees that part of the buffer. When the file reaches
+// CAPTURE_FILE_MAX_BYTES it stops recording (the start of a capture is kept) and adds one "CAPX" record with the
+// record and drop counts.
+//
+// File format (little endian):
+//   header   8 bytes "AMBCAP01", u32 version (1), u32 reserved (0)
+//   record   u64 tsUs (sceKernelGetProcessTimeCounter converted to microseconds), u16 length, payload[length]
+//   payload  exactly what debug_send_raw was given (no DDP header). "CAPX" + u32 records + u32 dropped + u32 full
+//            is the closing record.
 ```
 
 ## plugin/include/config.h
@@ -9392,9 +9432,9 @@ Original (lines 1-11):
 ```
 // report_file.h -- the text of the per-title report file (v3.9.1).
 //
-// A tester who reports "the strip stays dark in game X" has so far had to run a debug build
-// and capture UDP packets. The release build now writes a short text file instead,
-// /data/ps4-ambilight/ps4_ambient_report_<TITLEID>.txt, and the tester sends that. Everything in it is
+// Diagnosing "the strip stays dark in game X" used to need a debug build
+// and a UDP capture. The release build now writes a short text file instead,
+// /data/ps4-ambilight/ps4_ambient_report_<TITLEID>.txt. Everything in it is
 // already kept in plain globals in every build; only the packets that send them are
 // debug-only. It holds no personal data: no WLED address, no ini values, nothing typed.
 //
@@ -10331,7 +10371,7 @@ Original (lines 1-4):
 In the code now:
 
 ```
-// g_pluginVersion and the v2.x-v3.x release notes that lived here are in CHANGELOG.md and docs/code-comments.md.
+// g_pluginVersion and the v2.x-v3.x release notes that lived here are in docs/release-notes/ and docs/code-comments.md.
 // More: docs/code-comments.md (plugin/source/hooks.c:26)
 ```
 
@@ -12722,8 +12762,8 @@ Original (lines 1-28):
 ```
 // report.c -- part of ps4_ambient_light (v3.9.1).
 //
-// Writes /data/ps4-ambilight/ps4_ambient_report_<TITLEID>.txt from a release build, so a tester can send
-// one small file instead of running a debug build and capturing UDP. The text itself is
+// Writes /data/ps4-ambilight/ps4_ambient_report_<TITLEID>.txt from a release build, so there is
+// one small file to attach instead of running a debug build and capturing UDP. The text itself is
 // built by report_file.h (string logic only, host-tested). This file does the two things
 // that need the console: reading the plugin's existing globals, and writing the file.
 //
@@ -12739,7 +12779,7 @@ Original (lines 1-28):
 // write, but the file on disk still says which stage it reached and what the guard saw.
 //
 // Opt-in: OFF unless the ini has [compat] report_file=1. Optional and not in the shipped ini, so a
-// normal install never writes the file; a tester adds the key. 0, or no key, writes nothing.
+// normal install never writes the file; the key has to be added by hand. 0, or no key, writes nothing.
 // The thread still runs (a live ini reload can switch it on mid-game) but does nothing while off.
 // After 3 failed writes in a row (no /data, disk full) it stops trying for the session.
 // A title the plugin never hooks (plugin_load returned early) gets no file at all, and that
@@ -13760,7 +13800,7 @@ Original (lines 259-261):
 
 ```
 // v3.9.1: [compat] report_file. OPTIONAL, default 0 (off), not in the shipped ini. 1 makes the
-// plugin write /data/ps4-ambilight/ps4_ambient_report_<TITLEID>.txt (report.c): a tester adds it. Anything
+// plugin write /data/ps4-ambilight/ps4_ambient_report_<TITLEID>.txt (report.c): add it by hand. Anything
 // but 0 or 1 is ignored and the value stands, like gpu_only_remap above.
 ```
 

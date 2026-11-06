@@ -16,6 +16,7 @@
 
 #include "plugin_common.h"
 #include "ambient_internal.h"
+#include "capture_file.h"
 #include "config.h"
 #include "default_ini.h"
 #include "preset_select.h"
@@ -324,6 +325,9 @@ void ambient_load_config(void)
     }
     if (ini_table_get_entry_as_bool(table, "dev", "dev_logging", &bv))
         g_config.devLoggingEnabled = bv;
+    // v4.0.1: [dev] capture_file keeps the debug packets in a file on the console (debug builds only, capture_file.h).
+    if (ini_table_get_entry_as_bool(table, "dev", "capture_file", &bv))
+        g_captureFileEnabled = bv ? 1u : 0u;
 
     // [notifications] enabled: optional, default on, not in the shipped ini. Read like every other switch
     // in this ini: on/true/1 is on, any other word is off.
