@@ -41,13 +41,15 @@
 #include "plugin_common.h"
 #include "ambient_internal.h"
 #include "plugin_entry_alignment.h"
+#include "load_trace.h" // v4.0.1: the load log, a no-op unless [compat] report_file=1
 
 static __attribute__((noinline, used)) int32_t plugin_load_impl(int32_t argc, const char* argv[])
 {
     // Bail out before any hook or thread when running inside the companion app (SHMY00091): hooking its flips crashed
     // it with game tiling math. Keep the id in sync with companion-app/build.bat and CI.yml. [docs/code-comments.md]
     struct proc_info procInfo = {0};
-    if (sys_sdk_proc_info(&procInfo) == 0 && strcmp(procInfo.titleid, "SHMY00091") == 0) {
+    int procInfoRet = sys_sdk_proc_info(&procInfo);
+    if (procInfoRet == 0 && strcmp(procInfo.titleid, "SHMY00091") == 0) {
         return 0;
     }
     // v3.8: the title picks the preset (see media_titles.h). Left empty if
@@ -56,19 +58,43 @@ static __attribute__((noinline, used)) int32_t plugin_load_impl(int32_t argc, co
         strncpy(g_titleId, procInfo.titleid, sizeof(g_titleId) - 1);
         g_titleId[sizeof(g_titleId) - 1] = '\0';
     }
+    // v4.0.1: the load log. Every step below leaves a line, so the last one says where plugin_load stopped; a title with
+    // no lines at all was never loaded by GoldHEN. Until the ini is read the lines wait in memory (report_file is not known yet).
+    load_trace_note("---- plugin_load entered: plugin %s build %.7s, proc_info %s (pid %d, name '%.39s', app version '%.5s')",
+                    AMBIENT_VERSION_STRING, GIT_COMMIT, procInfoRet == 0 ? "ok" : "FAILED",
+                    procInfo.pid, procInfo.name, procInfo.version);
 
     sceKernelMkdir(AMBILIGHT_DATA_DIR, 0777); // the project folder may not exist yet (app never run); an existing one is not an error
     ambient_load_config(); // v2.0: read /data/ps4-ambilight/ps4_ambient_light.ini, or write a default template if absent
+    load_trace_note("config loaded: report_file %u, notifications %s, wled_host %s, parse_failed %u, default_created %u, bad_values %u",
+                    (unsigned)g_reportEnabled, g_config.notificationsEnabled ? "on" : "off",
+                    g_config.wledHost[0] != '\0' ? "set" : "EMPTY", (unsigned)g_configParseFailed,
+                    (unsigned)g_configDefaultCreated, (unsigned)g_configBadCount);
+    load_trace_notice("diag: plugin started in %s (v%s). Checking the video hooks next.",
+                      g_titleId[0] != '\0' ? g_titleId : "this title", AMBIENT_VERSION_STRING);
     buildZoneGeometry();   // fill g_zoneX/g_zoneY (now config-driven counts/corner/direction/offset/margins)
+    load_trace_note("zone geometry built");
 
     int32_t hVideoOut = 0, hGnm = 0;
-    sys_dynlib_load_prx("libSceVideoOut.sprx", &hVideoOut);
-    sys_dynlib_load_prx("libSceGnmDriver.sprx", &hGnm);
-    if (hVideoOut == 0 || hGnm == 0) return 0;
+    int rcVideoOut = sys_dynlib_load_prx("libSceVideoOut.sprx", &hVideoOut);
+    int rcGnm = sys_dynlib_load_prx("libSceGnmDriver.sprx", &hGnm);
+    load_trace_note("libSceVideoOut: load rc %d, handle %d; libSceGnmDriver: load rc %d, handle %d",
+                    rcVideoOut, (int)hVideoOut, rcGnm, (int)hGnm);
+    if (hVideoOut == 0 || hGnm == 0) {
+        // The one early return that has always been silent: now it says so (with report_file=1 only).
+        load_trace_note("STOP: a video library handle is 0, so no hooks are installed in this title");
+        load_trace_notice("diag: STOP in %s. The video libraries did not load (VideoOut handle %d, Gnm handle %d).",
+                          g_titleId[0] != '\0' ? g_titleId : "this title", (int)hVideoOut, (int)hGnm);
+        return 0;
+    }
 
     sys_dynlib_dlsym(hVideoOut, "sceVideoOutRegisterBuffers", (void**)&sceVideoOutRegisterBuffersPtr);
     sys_dynlib_dlsym(hGnm, "sceGnmSubmitAndFlipCommandBuffers", (void**)&sceGnmSubmitAndFlipCommandBuffersPtr);
+    load_trace_note("required symbols: sceVideoOutRegisterBuffers %s, sceGnmSubmitAndFlipCommandBuffers %s",
+                    sceVideoOutRegisterBuffersPtr != NULL ? "found" : "MISSING",
+                    sceGnmSubmitAndFlipCommandBuffersPtr != NULL ? "found" : "MISSING");
     if (sceVideoOutRegisterBuffersPtr == NULL || sceGnmSubmitAndFlipCommandBuffersPtr == NULL) {
+        load_trace_note("STOP: a required video function was not found, so no hooks are installed in this title");
         ambient_notice_hook_failed("the video functions weren't found");
         return 0;
     }
@@ -80,6 +106,9 @@ static __attribute__((noinline, used)) int32_t plugin_load_impl(int32_t argc, co
     sys_dynlib_dlsym(hGnm, "sceGnmSubmitAndFlipCommandBuffersForWorkload",
                       (void**)&sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr);
     g_gnmForWorkloadPtrResolved = (sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr != NULL) ? 1 : 0;
+    load_trace_note("optional symbols: sceVideoOutSubmitFlip %s, sceGnmSubmitAndFlipCommandBuffersForWorkload %s",
+                    sceVideoOutSubmitFlipPtr != NULL ? "found" : "missing",
+                    sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr != NULL ? "found" : "missing");
 
     // v2.4: resolved separately from the two required loads above, and deliberately NOT fatal if it fails...
     // More: docs/code-comments.md (plugin/source/main.c:168)
@@ -105,6 +134,20 @@ static __attribute__((noinline, used)) int32_t plugin_load_impl(int32_t argc, co
         }
         g_guardAvailable = (sceKernelVirtualQueryPtr != NULL) ? 1 : 0;
     }
+    load_trace_note("other symbols: SystemServiceGetStatus %s, kernel VirtualQuery %s, MapDirectMemory2 %s, MapDirectMemory %s, "
+                    "Munmap %s, Mprotect %s, IsNeoMode %s",
+                    sceSystemServiceGetStatusPtr != NULL ? "found" : "missing",
+                    sceKernelVirtualQueryPtr != NULL ? "found" : "missing",
+                    sceKernelMapDirectMemory2Ptr != NULL ? "found" : "missing",
+                    sceKernelMapDirectMemoryPtr != NULL ? "found" : "missing",
+                    sceKernelMunmapPtr != NULL ? "found" : "missing",
+                    sceKernelMprotectPtr != NULL ? "found" : "missing",
+                    sceKernelIsNeoModePtr != NULL ? "found" : "missing");
+    if (g_reportEnabled) { // gated: the Neo query is a kernel call, and an ordinary install makes none of them here
+        load_trace_note("console: sceKernelIsNeoMode = %d (1 PS4 Pro, 0 base PS4, -1 unknown)", (int)ambient_console_neo());
+    }
+    load_trace_hook_targets((const void*)sceVideoOutRegisterBuffersPtr, (const void*)sceGnmSubmitAndFlipCommandBuffersPtr,
+                            (const void*)sceVideoOutSubmitFlipPtr, (const void*)sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr);
 
     // Forwarding-stub guard: proven necessary, do not skip. The two optional hook pointers are guarded only if resolved.
     // More: docs/code-comments.md (plugin/source/main.c:200)
@@ -113,6 +156,7 @@ static __attribute__((noinline, used)) int32_t plugin_load_impl(int32_t argc, co
         (sceVideoOutSubmitFlipPtr != NULL && *((uint8_t*)sceVideoOutSubmitFlipPtr) == 0xE9) ||
         (sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr != NULL &&
          *((uint8_t*)sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr) == 0xE9)) {
+        load_trace_note("STOP: a hook target starts with 0xE9 (a forwarding stub), so no hooks are installed in this title");
         ambient_notice_hook_failed("the video functions can't be hooked on this firmware");
         return 0;
     }
@@ -126,10 +170,14 @@ static __attribute__((noinline, used)) int32_t plugin_load_impl(int32_t argc, co
     if (sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr != NULL) {
         HOOK32(sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr);
     }
+    load_trace_note("hooks installed (RegisterBuffers, GnmSubmitAndFlip, SubmitFlip %s, GnmWorkload %s)",
+                    sceVideoOutSubmitFlipPtr != NULL ? "yes" : "no",
+                    sceGnmSubmitAndFlipCommandBuffersForWorkloadPtr != NULL ? "yes" : "no");
 
     // Notifications for what the load found (ini, WLED address, update, debug logging). Here, after
     // the early returns above, so a process the plugin never actually hooks stays quiet.
     ambient_notices_on_load();
+    load_trace_note("load notices done");
 
     OrbisPthread thread;
 
@@ -143,18 +191,28 @@ static __attribute__((noinline, used)) int32_t plugin_load_impl(int32_t argc, co
     // The live-reload file reads run on their own thread, started first so the sampler already knows it exists. If it
     // cannot start, the sampler falls back to checking inline. [docs/debugging/filesystem-stalls.md]
     OrbisPthread configThread;
-    if (scePthreadCreate(&configThread, NULL, ambient_config_thread, NULL, "ambient_config_thread") == 0)
+    int32_t rcConfigThread = scePthreadCreate(&configThread, NULL, ambient_config_thread, NULL, "ambient_config_thread");
+    if (rcConfigThread == 0)
         g_cfgWatcherRunning = 1;
 
-    scePthreadCreate(&thread, NULL, ambient_sample_thread, NULL, "ambient_sample_thread");
+    int32_t rcSampleThread = scePthreadCreate(&thread, NULL, ambient_sample_thread, NULL, "ambient_sample_thread");
     // v3.9.1: the report file writer (report.c). Its own thread so a disk write never lands in
     // the sampler's 33 ms budget. Always started; it does nothing unless [compat] report_file=1.
     OrbisPthread reportThread;
-    scePthreadCreate(&reportThread, NULL, ambient_report_thread, NULL, "ambient_report_thread");
+    int32_t rcReportThread = scePthreadCreate(&reportThread, NULL, ambient_report_thread, NULL, "ambient_report_thread");
     // v3.9.2: the cross-process state file (state.c), so a second, independent process -- a...
     // More: docs/code-comments.md (plugin/source/main.c:279)
     OrbisPthread stateThread;
-    scePthreadCreate(&stateThread, NULL, ambient_state_thread, NULL, "ambient_state_thread");
+    int32_t rcStateThread = scePthreadCreate(&stateThread, NULL, ambient_state_thread, NULL, "ambient_state_thread");
+    load_trace_note("threads started: config rc %d, sampler rc %d, report rc %d, state rc %d (0 = ok)",
+                    (int)rcConfigThread, (int)rcSampleThread, (int)rcReportThread, (int)rcStateThread);
+    // v4.0.1: follows the title after load (registered, flipping, sampling, or stuck). Only with report_file=1 at load,
+    // so an ordinary install gets no extra thread.
+    if (g_reportEnabled) {
+        OrbisPthread traceThread;
+        int32_t rcTraceThread = scePthreadCreate(&traceThread, NULL, load_trace_thread, NULL, "ambient_trace_thread");
+        load_trace_note("progress thread rc %d (0 = ok)", (int)rcTraceThread);
+    }
     // scePthreadAttrSetaffinity(&attr, CORE_MASK) + scePthreadCreate(&thread, &attr, ...) is the confirmed...
     // More: docs/code-comments.md (plugin/source/main.c:286)
 
@@ -164,6 +222,7 @@ static __attribute__((noinline, used)) int32_t plugin_load_impl(int32_t argc, co
         relay_send_external_source(true);
     }
 
+    load_trace_note("plugin_load completed: hooks are in, waiting for the title's first frames");
     return 0;
 }
 

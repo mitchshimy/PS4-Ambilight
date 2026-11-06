@@ -118,6 +118,10 @@ void *ambient_report_thread(void *args)
     static ReportRunState rs;            // static: zero-initialized, off the stack
     for (;;) {
         ambient_report_tick(&rs);
+        // v4.0.1: after the limit the tick stops for good, so a single bad moment on the disk early in a launch
+        // meant no report for the whole session. Give it one more try every 30 s instead; the tick itself is unchanged.
+        if (rs.failures >= REPORT_MAX_FAILURES && (rs.uptimeSecs % 30) == 0)
+            rs.failures = REPORT_MAX_FAILURES - 1;
         usleep(1000000);
         rs.uptimeSecs++;
     }

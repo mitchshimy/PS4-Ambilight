@@ -18,6 +18,7 @@ excludes them, and CI only builds. This page still describes them for whoever ha
 | `test_notices.c` | host test for the plugin's notifications (`notices.c`): what each says, and that each is said once |
 | `test_fw_support.c` | host test for the firmware support table and warning text the companion app uses (`common/fw_support.h`) |
 | `test_report.c` | host test for the report file: its text, when `report.c` writes, and the write itself |
+| `test_load_trace.c` | host test for the load log (`load_trace.c` and `load_trace_text.h`), run against a fake kernel in `host_stubs/load_trace/`. Nothing is written or shown with `report_file` off, early lines come out in order once it is on, a failed write loses nothing, the file is started over only once and only when big, and the progress events fire once each. Run it twice, with and without the `small` argument (the command is in the file's header) |
 | `test_state.c` | game-to-shell state writer regression: `fg=0` until the first DDP send (launch latch), then `fg=1` regardless of output activity; backgrounding releases; a title that never sends stays `fg=0` |
 | `test_output_activity.c` | only complete successful `sendto()` results advance the counter that drives the game claim |
 | `ps4_detile_2dthin.c` | standalone reference detiler, to cross-check the plugin's tiling |

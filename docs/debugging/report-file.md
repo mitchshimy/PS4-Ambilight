@@ -38,7 +38,7 @@ crash: a game that dies on its first sampling pass never reaches a last write, b
 disk still says how far it got. `report.c` has the reasoning.
 
 It runs on its own thread, so a disk write never lands in the sampler's pass. After 3 failed
-writes in a row it stops for the session.
+writes in a row it pauses, then tries once more every 30 s (v4.0.1; before that it stopped for the session).
 
 ## Reading it
 
@@ -122,7 +122,7 @@ the game was left, and `uptime_s` is the time of that write.
 
 | What the file says | Where to look |
 |---|---|
-| no file at all | first check `report_file=1` is in the ini's `[compat]` section. If it is, the plugin never hooked that title (`plugin_load` returned early), or GoldHEN didn't load it. Check the GoldHEN log. |
+| no file at all | first check `report_file=1` is in the ini's `[compat]` section. If it is, the plugin never hooked that title (`plugin_load` returned early), or GoldHEN didn't load it. From v4.0.1 the [load log](#the-load-log) tells those apart. |
 | `hooked`, stays there | the title isn't calling `sceVideoOutRegisterBuffers` after the hook, or registered before the plugin loaded. See [videoout-hooks](videoout-hooks.md). |
 | `registered`, `not recognized` | a [pixel format](hdr-pixel-format.md) the plugin doesn't decode. |
 | `registered`, all flip counts 0 | an unhooked flip entry point, see [videoout-hooks](videoout-hooks.md#if-another-title-never-lights-up). |
@@ -134,6 +134,37 @@ the game was left, and `uptime_s` is the time of that write.
 
 These are starting points, not diagnoses. The file records what the plugin saw, and several
 causes can look the same from outside.
+
+## The load log
+
+From v4.0.1, with the same `report_file=1`, the plugin also appends to **one** file for every title,
+`/data/ps4-ambilight/ps4_ambient_loadlog.txt`. Each line starts with the title ID, so a tester can send this one file after
+playing any game. It answers the question a missing per-title report cannot: was the plugin loaded into the game, and if so where
+did `plugin_load` stop?
+
+```
+[CUSA01830] ---- plugin_load entered: plugin 4.0.1 build 716c4a7, proc_info ok (pid 123, name 'eboot.bin', app version '01.00')
+[CUSA01830] config loaded: report_file 1, notifications on, wled_host set, parse_failed 0, default_created 0, bad_values 0
+[CUSA01830] libSceVideoOut: load rc 0, handle 17; libSceGnmDriver: load rc 0, handle 18
+[CUSA01830] hooks installed (RegisterBuffers, GnmSubmitAndFlip, SubmitFlip yes, GnmWorkload yes)
+[CUSA01830] plugin_load completed: hooks are in, waiting for the title's first frames
+[CUSA01830] T+3s register: buffers 3, format 0x80002200 (recognized)
+```
+
+(Example lines, not a real capture.) How to read it:
+
+| What the log shows | Meaning |
+|---|---|
+| no line with that title ID | GoldHEN never loaded the plugin into that game. Check `plugins.ini` and the GoldHEN log. |
+| the last line is `plugin_load entered` or `config loaded` | it stopped before the video libraries loaded (a crash, or the title ended). |
+| `STOP: a video library handle is 0` | the title has no `libSceVideoOut` or `libSceGnmDriver` handle at that moment, the one early return that was always silent. The load rc and handle values are on the line before. |
+| `STOP: a required video function was not found` | the symbol lines before it say which one. |
+| `STOP: a hook target starts with 0xE9` | a forwarding stub, which the plugin refuses to hook. The `first byte at hook targets` line says which function. |
+| `plugin_load completed`, then `WAITING:` | hooked, but the title registered no buffer, or flips never came, or the sampler never started. |
+| `sampler running` | the plugin is capturing; if the strip is still dark, the per-title report and [hdr-pixel-format](hdr-pixel-format.md) are next. |
+
+The file is appended to, and started over only when a launch finds it over 48 KB. A few events also show a
+`PS4 Ambilight: diag: ...` notice on screen. With `report_file` off none of this runs.
 
 ## Limits
 

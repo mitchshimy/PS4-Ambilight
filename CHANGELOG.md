@@ -6,6 +6,29 @@ companion app) are documented here, newest first.
 ## Plugin
 
 ### v4.0.1
+- **Load log: one shareable file that shows where `plugin_load` stopped in a title (for the PS4 Pro reports).** On a Pro, Assetto Corsa
+  and Apollo Save Tool light the strip, while Red Dead Redemption, DMC5, Dark Souls, NFS and YouTube show no "debug logging is on"
+  notice and write no report, so the plugin either was not loaded into them or stopped early in `plugin_load`, and nothing could tell
+  those apart. **How the strip is driven does not change.** With `[compat] report_file=1` the plugin now appends to one file,
+  `/data/ps4-ambilight/ps4_ambient_loadlog.txt`, every line tagged with the title ID, so a tester sends one file whichever game they
+  played. Each step of `plugin_load` leaves a line (title and `sys_sdk_proc_info` result, the config values that matter, the load
+  result and handle of `libSceVideoOut` and `libSceGnmDriver`, which symbols resolved, the first byte at each hook target with 0xE9
+  meaning a forwarding stub, `sceKernelIsNeoMode`, hooks installed, thread results, "load completed"), so the last line is where it
+  stopped. **No lines for a title at all means GoldHEN never loaded the plugin into it.** The early return on a zero library handle,
+  which had always been silent, now writes a `STOP:` line and shows a notice. Once loaded, a one-second thread adds what the title does
+  next (buffers registered, flips seen, sampler running, or `WAITING:` after 20 s with nothing) and a counter summary at 10, 30 and 60 s.
+  Four of those events also show a short on-screen `PS4 Ambilight: diag: ...` notice. Lines made before the ini is read wait in memory and
+  go out, in order, once `report_file=1` is known. The file is appended to, and started over only when a launch finds it over 48 KB.
+  With `report_file` off nothing is written, no notice is shown, the thread is not started and no hook byte is read. New files:
+  `plugin/source/load_trace.c`, `plugin/include/load_trace.h` and `load_trace_text.h` (the text and rules, so a host test can drive them).
+  The shell feed does not build them.
+- **Report file: a failed write no longer ends it for the session.** After 3 failed writes in a row the report stopped for good, so one bad
+  moment on the disk early in a launch meant no report at all. It now tries once more every 30 s. The tick and the file text are unchanged.
+- The version stays 4.0.1: `AMBIENT_VERSION_STRING` is unchanged and `g_pluginVersion` stays `0x0400`. Host test: `tools/test_load_trace.c` (new,
+  with `tools/host_stubs/load_trace/`); it also passed with four deliberate regressions, to check it would catch them. Built on the OpenOrbis
+  toolchain with the patched GoldHEN SDK (release, debug and shell feed). Run on a base PS4: the log ran from `plugin_load entered` to
+  `sampler running` and the summaries, with the report written as usual. The sampler counts idle passes before a title registers any buffer
+  (30 at T+1s in that log), so `sampler running` now waits for the first registration. Not run on a PS4 Pro.
 - **Report file: the console model and a base-vs-Neo tiling check (groundwork for the PS4 Pro).** The plugin reads a picture with the
   tiling of the original PS4 and the Slim (base), confirmed on a console. The PS4 Pro (Neo mode) lays a picture out differently, the Neo
   set in `tools/ps4_detile_2dthin.c` was never compared with a real Pro, and the plugin had no Neo code, so on a Pro the strip could read
