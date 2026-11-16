@@ -241,6 +241,10 @@ void ambient_load_config(void)
     if (cfg_int_in(table, "compat", "gpu_only_remap", 0, 3, &iv))
         g_gpuOnlyRemap = (uint32_t)iv;
 
+    // v4.0.2: [compat] neo_driver. Kill switch for the Pro-mode fallback; default on.
+    if (ini_table_get_entry_as_int(table, "compat", "neo_driver", &iv) && (iv == 0 || iv == 1))
+        g_neoDriverEnabled = (uint32_t)iv;
+
     // v3.9.1: [compat] report_file.
     // More: docs/code-comments.md (plugin/source/settings.c:259)
     if (ini_table_get_entry_as_int(table, "compat", "report_file", &iv) && (iv == 0 || iv == 1))

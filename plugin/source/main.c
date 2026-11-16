@@ -100,9 +100,9 @@ static __attribute__((noinline, used)) int32_t plugin_load_impl(int32_t argc, co
         }
     }
     int censusDone = 0;
-    if (hVideoOut != 0 && hGnm == 0 && g_reportEnabled) {
+    if (hVideoOut != 0 && hGnm == 0 && g_neoDriverEnabled) {
         // A title in PS4 Pro mode has no libSceGnmDriver: it uses libSceGnmDriverForNeoMode, which exports the same flip
-        // functions. Pro-mode titles only, and report_file=1 only until a Pro has confirmed it (docs/debugging/neo-mode-gnm-driver.md).
+        // functions. Pro-mode titles only. On by default since v4.0.2 (a Pro confirmed it on RDR1, DMC5, NFS HPR, YouTube, Netflix); [compat] neo_driver=0 turns it off. See docs/debugging/neo-mode-gnm-driver.md.
         int32_t hNeo = 0;
         int rcNeo = sys_dynlib_load_prx("libSceGnmDriverForNeoMode.sprx", &hNeo);
         load_trace_note("libSceGnmDriver is not loaded here; trying libSceGnmDriverForNeoMode: load rc %d, handle %d", rcNeo, (int)hNeo);

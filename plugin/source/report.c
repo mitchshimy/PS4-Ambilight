@@ -12,6 +12,7 @@
 #include "report_file.h"
 #include "capture_file.h"
 
+volatile uint32_t g_neoDriverEnabled    = 1;   // ini [compat] neo_driver (optional): 1 (default) hook the Neo-mode Gnm driver in Pro-mode titles, 0 off
 volatile uint32_t g_reportEnabled       = 0;   // ini [compat] report_file (optional): 0 (default) off, 1 on
 volatile uint32_t g_reportLoopPasses    = 0;   // sampler loop iterations that reached the bottom (sample_thread.c)
 volatile uint32_t g_reportTimingWindows = 0;   // completed 30-pass timing windows (sample_thread.c)

@@ -76,10 +76,10 @@ didn't use this code drove the strip rotated by 42 LEDs the whole time --
 visually hard to notice because Home and Settings are mostly one colour, but
 wrong. Following the ini, via the shared files, fixes this with no new code.
 
-The shared files only need 11 trivial symbols from outside themselves (all
+The shared files only need 13 trivial symbols from outside themselves (all
 either hard-coded to a safe default or a no-op in shell-feed's context):
 `g_autoLetterbox{Top,Right,Bottom,Left}`, `g_readableLimit`,
-`g_gpuOnlyRemap`, `g_isBackgrounded`, `g_reportEnabled`,
+`g_gpuOnlyRemap`, `g_neoDriverEnabled`, `g_captureFileEnabled`, `g_isBackgrounded`, `g_reportEnabled`,
 `g_smoothedRgbValid`, and the no-op functions
 `relay_send_external_source`, `send_config_reload_debug_packet` and
 `ambient_read_content_preview`. The relay call being a no-op in shell-feed

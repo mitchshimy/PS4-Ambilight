@@ -50,14 +50,21 @@ installs from the same app.
 |---|---|
 | PS4 firmware (game plugin) | 9.00 and 12.52 |
 | PS4 firmware (shell feed + standalone payload) | 9.00, 12.52, and 11.02 (reported on a PS4 Pro) |
-| PS4 Pro | untested. Colors may be wrong there; if you have one, see [Reporting a game](#reporting-a-game) |
+| PS4 Pro | works in Red Dead Redemption, Devil May Cry 5, NFS Hot Pursuit Remastered, YouTube and Netflix (v4.0.2, one console). Tekken 7 stays dark and Street Fighter 6 flickers. See [Reporting a game](#reporting-a-game) |
 | GoldHEN | 2.4b18.9, 2.4b18.10 and 2.4b18.12 |
 | LED strip | WS2812B, 229 LEDs (73 top, 41 right, 73 bottom, 42 left), starting at the bottom left and running clockwise |
 | Controller | WLED, latest release |
 
 The shell feed and current standalone payload are confirmed working on firmware 9.00, 11.02 and 12.52; other versions are untested, and any firmware not in the payload's list will most likely be refused; see [Shell feed](#shell-feed-optional).
 
-The PS4 Pro is untested. Its pictures may sit in memory in a different layout from the one the plugin reads, so a Pro could show wrong colors. The [game report](#reporting-a-game) records the console model and checks which layout a game's picture fits, so a report from a Pro owner settles it; see [ps4-pro-tiling](docs/debugging/ps4-pro-tiling.md).
+On a PS4 Pro, games that run in Pro mode load a different graphics driver (`libSceGnmDriverForNeoMode`). Since v4.0.2 the plugin hooks it automatically. This has only been tested on one Pro. If a game crashes, add this to `/data/ps4-ambilight/ps4_ambient_light.ini` and report the game:
+
+```
+[compat]
+neo_driver=0
+```
+
+The [game report](#reporting-a-game) records the console model and checks which layout a game's picture fits, so a report from a Pro owner settles it; see [ps4-pro-tiling](docs/debugging/ps4-pro-tiling.md).
 
 Other setups very likely work too, since the plugin only depends on GoldHEN and a WLED controller
 on your network. If you try a different firmware, GoldHEN version or strip, a note in an

@@ -2,6 +2,12 @@
 
 Full release notes, moved out of the [changelog](../../CHANGELOG.md), which now keeps one line per change.
 
+### v4.0.2
+- **PS4 Pro: the Neo-driver hook is on by default.** It used to run only with `[compat] report_file=1`. The fallback in `plugin_load_impl` (load `libSceGnmDriverForNeoMode.sprx` when `libSceVideoOut` is loaded and `libSceGnmDriver` is not) now checks `[compat] neo_driver` (default 1) instead of `report_file`. `neo_driver=0` turns it off. Nothing in the sampling path reads report-only state, so the strip is driven the same as before. Titles that load the normal driver, and all base PS4s, never reach it.
+  Confirmed on one Pro (FW 11.02, GoldHEN 2.4b18.12): Red Dead Redemption, Devil May Cry 5, NFS Hot Pursuit Remastered, YouTube, Netflix.
+  Open: Tekken 7 (dark, both drivers loaded, zero flips) and Street Fighter 6 (flickers). Dragon Ball Z: Kakarot and Naruto Shippuden: Ultimate Ninja Storm 4 crashed with `report_file=1` on. It may be the report diagnostics and not the Neo hook, but that is not checked. The Tekken 7 driver swap is still behind `report_file=1` and has not been run on a console.
+- **Credit.** [yuouo1999](https://github.com/yuouo1999) reported the Pro problem in [#3](https://github.com/mitchshimy/PS4-Ambilight/issues/3) and ran every test build on a Pro. The fix came out of their load logs and videos.
+
 ### v4.0.1
 - **PS4 Pro: titles that run in Pro (Neo) mode use `libSceGnmDriverForNeoMode`, and the plugin now hooks it (experimental, `report_file=1` only).** On a
   Pro the strip stayed dark in Red Dead Redemption, Devil May Cry 5, NFS Hot Pursuit Remastered, WRC 10 and YouTube. Load logs from a Pro (firmware 11.02)

@@ -5,7 +5,7 @@
 // [v3.9.4 / Stage C merge] PS4-Ambilight's settings, zone geometry and colour chain -- shared code...
 // More: docs/code-comments.md (shell-feed/source/shell_shim.c:6)
 
-// shim: 11 symbols the 7 shared files above reference from sister files this project doesn't link...
+// shim: 13 symbols the 7 shared files above reference from sister files this project doesn't link...
 // More: docs/code-comments.md (shell-feed/source/shell_shim.c:24)
 uint32_t g_autoLetterboxTop = 0, g_autoLetterboxRight = 0, g_autoLetterboxBottom = 0, g_autoLetterboxLeft = 0;
                                    // real, not a stub: the shell has no letterbox detection, so these stay 0 (zones.c's effMargin*()...
@@ -14,6 +14,8 @@ volatile uint64_t g_readableLimit = BUF_BYTES17;
                                    // real, not a stub: sampleZoneAverage()'s bounds check (no read past one display buffer), same...
                                    // More: docs/code-comments.md (shell-feed/source/shell_shim.c:32)
 volatile uint32_t g_gpuOnlyRemap = 0;       // GPU-only buffer remap is a game-process concern (buffer_guard.c); unused here
+volatile uint32_t g_neoDriverEnabled = 0;    // [compat] neo_driver is a game-process setting (main.c); settings.c parses it, nothing here reads it
+volatile uint32_t g_captureFileEnabled = 0;  // [dev] capture_file is a game-process setting (capture_file.c); settings.c parses it, nothing here reads it
 volatile uint32_t g_reportEnabled = 0;      // the sister's own [compat] report_file flag (report.c); this probe tracks its
                                              // OWN report_file setting separately as g_shReportOn (see sh_parse_aux below)
 bool g_isBackgrounded = false;              // set by the sister's sample_thread.c/network.c, read inside

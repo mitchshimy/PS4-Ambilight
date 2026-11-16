@@ -10,6 +10,15 @@ on-console settings app.
 
 ## Plugin
 
+### v4.0.2
+Pro-mode games work without `report_file=1`.
+
+- The Neo-driver hook is on by default. Confirmed on one Pro (FW 11.02, GoldHEN 2.4b18.12) in Red Dead Redemption, Devil May Cry 5, NFS Hot Pursuit Remastered, YouTube and Netflix. A base PS4 never reaches it.
+- New `[compat] neo_driver=0` turns it off.
+- Still broken on a Pro: Tekken 7 stays dark, Street Fighter 6 flickers. Dragon Ball Z: Kakarot and Naruto Shippuden: Ultimate Ninja Storm 4 crashed with `report_file=1` on; cause unknown. Set `neo_driver=0` if a game crashes.
+- The Tekken 7 driver swap is still behind `report_file=1` and has not been run on a console.
+- Credit to [yuouo1999](https://github.com/yuouo1999) for reporting this in [#3](https://github.com/mitchshimy/PS4-Ambilight/issues/3) and testing every build on a Pro.
+
 ### v4.0.1
 PS4 Pro groundwork. Pro-mode games stayed dark because the plugin never hooked them.
 
